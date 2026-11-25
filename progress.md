@@ -219,3 +219,17 @@ All **50 poses** (`Foundation: 5`, `Classical & Fine Art: 10`, `Action & Comic H
   - **Curvilinear `4-PT` & `5-PT`:** Verified visual differences across `1-PT`, `4-PT`, and `5-PT`, Curvature slider adjustment to `90%`, `Perspective Guides` toggle, and **5-PT Transparent PNG** export (`2880×1800`, `cornerAlpha: 0`, `centerAlpha: 255`).
   - **Core Hand Gestures:** Opened popover by clicking `hand_l`, applied `Fist`, `Rock`, `Middle Finger`, `Grab`, and `Peace`, mirrored `L → R`, verified `Ctrl+Z` Undo restored `"grab"`, verified auto-dismissal on switching to `All` joints and on figure `Lock`.
   - **Responsive & Offline PWA:** Passed horizontal overflow audit across `1440×900`, `412×915`, `915×412`, `1280×800`, and `800×1280`, plus offline reload (`Offline Mode`) preserving staged scene & sculpted hand pose cleanly. Production server stopped cleanly afterward (`no background tasks running`).
+
+### 7.3 Anatomical Thumb Axis & Position Calibration (All 50 Poses & 12 Hand Gestures)
+
+- **Root-Cause Diagnosis (`public/models/anatomy.glb`):** Direct skeleton inspection verified that across `thumb_01/02/03_l` and `thumb_01/02/03_r`, local `+X` bends the thumb anatomically across the palm toward the fingers (same sign `+X` on both hands), `Y` rotates axial CMC pronation (`s * y`), and `Z` moves perpendicular to the palm (`+Z` on L / `-Z` on R pushes downward below the wrist rather than across the palm). Previously `thumb_02` and `thumb_03` had `X` locked in `jointLimits.ts` and flexed along `Z`.
+- **ROM & Symmetry Fixes:**
+  - `src/data/jointLimits.ts`: Enabled anatomical `+X` flexion (`Bend`) on `thumb_01` (`[-45, 75]`), `thumb_02` (`[-15, 80]`), and `thumb_03` (`[-20, 85]`), enabled CMC `Twist` (`Y`) and `Side` (`Z`) on `thumb_01`, and locked `Y`/`Z` on `thumb_02`/`thumb_03`.
+  - `src/data/handGestures.ts`: Recalibrated all **12** hand presets (`relaxed`, `open`, `spread`, `fist`, `grab`, `hold`, `point`, `peace`, `rock`, `middle-finger`, `thumbs-up`, `pinch`) identically across left & right hands (`x_r = x_l`, `y_r = -y_l`, `z_r = -z_l`), including pad-to-pad `pinch` fingertip contact.
+  - `scripts/solvePoses.mjs` & `src/data/poses.ts`: Recalibrated all 6 finger/thumb presets (`fist`, `open`, `flat`, `grip`, `graceful`, `relaxed`) and regenerated all **50** poses cleanly (`audit warnings: 0`).
+  - `scripts/validatePoses.mjs`: Added automated L↔R thumb symmetry checks (`l.x === r.x`, `l.y === -r.y`, `l.z === -r.z`) and locked `thumb_02/03` `Y/Z === 0` assertions across all 12 hand gestures.
+- **Verification Outputs:**
+  - `DIAG_IK=1 node scripts/solvePoses.mjs`: `Generated 50 poses in src/data/poses.ts (audit warnings: 0).`
+  - `node scripts/validatePoses.mjs`: Exited `0` — `VALIDATED 50 POSES (categories={"foundation":5,"classical":10,"action":10,"combat":8,"dance":8,"gesture":9}) + 12x2 HAND GESTURES (0 ROM/bone violations)`.
+  - `rm -rf .next && npm run build`: Exited `0` (`/` `310 kB`, First Load JS `397 kB`, `Generated public/sw-precache.json (version=1af0de89e4c8, 27 URLs)`).
+  - Headless Chrome Close-Up Visual & Regression QA (`verify_thumbs_cdp.mjs` & `verify_phase9_cdp.mjs`): Both exited `0` (`"status":"PASS"`, `consoleErrorCount: 0`, `pageExceptionCount: 0`). Visually inspected close-up 3D renders across all 12 mirrored hand gestures plus `Orthodox Boxing Guard`, `Kneeling Supplicant`, `Contrapposto (David)`, and `Two-Handed Sword Guard`. Production server stopped cleanly afterward.

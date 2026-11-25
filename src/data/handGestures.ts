@@ -27,7 +27,7 @@ function makeStandardHand(
     middle: [number, number, number, number?];
     ring: [number, number, number, number?];
     pinky: [number, number, number, number?];
-    thumb: [number, number, number, number]; // [j1x, j1zSignBase, j2zSignBase, j3zSignBase]
+    thumb: [number, number, number, number, number]; // [t1x, t1yBase, t1zBase, t2x, t3x]
   }
 ): Record<string, JointAngles> {
   const s = side === 'l' ? 1 : -1;
@@ -48,9 +48,13 @@ function makeStandardHand(
     [`pinky_02_${side}`]: { x: cfg.pinky[1], y: 0, z: 0 },
     [`pinky_03_${side}`]: { x: cfg.pinky[2], y: 0, z: 0 },
 
-    [`thumb_01_${side}`]: { x: cfg.thumb[0], y: 0, z: s * cfg.thumb[1] },
-    [`thumb_02_${side}`]: { x: 0, y: 0, z: s * cfg.thumb[2] },
-    [`thumb_03_${side}`]: { x: 0, y: 0, z: s * cfg.thumb[3] },
+    [`thumb_01_${side}`]: {
+      x: cfg.thumb[0],
+      y: s * cfg.thumb[1],
+      z: s * cfg.thumb[2],
+    },
+    [`thumb_02_${side}`]: { x: cfg.thumb[3], y: 0, z: 0 },
+    [`thumb_03_${side}`]: { x: cfg.thumb[4], y: 0, z: 0 },
   };
 }
 
@@ -66,7 +70,7 @@ export const HAND_GESTURES: ReadonlyArray<HandGesturePreset> = [
         middle: [22, 30, 22, 0],
         ring: [26, 34, 24, 0],
         pinky: [30, 38, 26, 0],
-        thumb: [12, 16, 18, 14],
+        thumb: [14, 14, -10, 14, 16],
       }),
   },
   {
@@ -80,7 +84,7 @@ export const HAND_GESTURES: ReadonlyArray<HandGesturePreset> = [
         middle: [-2, 2, 0, 0],
         ring: [0, 4, 2, -3],
         pinky: [2, 5, 3, -6],
-        thumb: [-10, -12, 4, 2],
+        thumb: [-10, -4, -28, 4, 2],
       }),
   },
   {
@@ -94,7 +98,7 @@ export const HAND_GESTURES: ReadonlyArray<HandGesturePreset> = [
         middle: [-6, 2, 0, 2],
         ring: [-4, 3, 2, -9],
         pinky: [-2, 4, 2, -18],
-        thumb: [-28, -24, -6, -4],
+        thumb: [-30, -10, -28, -4, -6],
       }),
   },
   {
@@ -108,7 +112,7 @@ export const HAND_GESTURES: ReadonlyArray<HandGesturePreset> = [
         middle: [85, 96, 78, 0],
         ring: [86, 96, 78, 0],
         pinky: [84, 94, 74, 0],
-        thumb: [38, 42, 54, 38],
+        thumb: [32, 20, 9, 30, 36],
       }),
   },
   {
@@ -122,7 +126,7 @@ export const HAND_GESTURES: ReadonlyArray<HandGesturePreset> = [
         middle: [45, 56, 38, 0],
         ring: [48, 58, 40, -4],
         pinky: [50, 58, 38, -8],
-        thumb: [26, 28, 32, 24],
+        thumb: [-4, 18, 12, 14, 18],
       }),
   },
   {
@@ -136,7 +140,7 @@ export const HAND_GESTURES: ReadonlyArray<HandGesturePreset> = [
         middle: [62, 72, 52, 0],
         ring: [65, 75, 55, 0],
         pinky: [66, 74, 52, 0],
-        thumb: [30, 34, 42, 28],
+        thumb: [16, 24, 16, 22, 30],
       }),
   },
   {
@@ -150,7 +154,7 @@ export const HAND_GESTURES: ReadonlyArray<HandGesturePreset> = [
         middle: [84, 94, 74, 0],
         ring: [86, 96, 76, 0],
         pinky: [84, 94, 72, 0],
-        thumb: [34, 38, 46, 32],
+        thumb: [28, 22, 9, 28, 34],
       }),
   },
   {
@@ -164,7 +168,7 @@ export const HAND_GESTURES: ReadonlyArray<HandGesturePreset> = [
         middle: [2, 5, 2, -11],
         ring: [85, 94, 74, 0],
         pinky: [84, 92, 72, 0],
-        thumb: [36, 40, 48, 34],
+        thumb: [32, 24, 10, 28, 32],
       }),
   },
   {
@@ -178,7 +182,7 @@ export const HAND_GESTURES: ReadonlyArray<HandGesturePreset> = [
         middle: [86, 96, 78, 0],
         ring: [86, 96, 78, 0],
         pinky: [2, 6, 3, -12],
-        thumb: [36, 42, 48, 34],
+        thumb: [30, 22, 9, 28, 34],
       }),
   },
   {
@@ -192,7 +196,7 @@ export const HAND_GESTURES: ReadonlyArray<HandGesturePreset> = [
         middle: [-2, 3, 0, 0],
         ring: [86, 96, 76, 0],
         pinky: [84, 94, 74, 0],
-        thumb: [36, 40, 48, 34],
+        thumb: [24, 20, 8, 24, 32],
       }),
   },
   {
@@ -206,7 +210,7 @@ export const HAND_GESTURES: ReadonlyArray<HandGesturePreset> = [
         middle: [85, 96, 78, 0],
         ring: [86, 96, 78, 0],
         pinky: [84, 94, 74, 0],
-        thumb: [-30, -22, -8, -6],
+        thumb: [-28, -10, -28, -6, -10],
       }),
   },
   {
@@ -216,11 +220,11 @@ export const HAND_GESTURES: ReadonlyArray<HandGesturePreset> = [
     description: 'Thumb and index tips meet cleanly',
     template: (side) =>
       makeStandardHand(side, {
-        index: [45, 45, 30, 8],
+        index: [46, 54, 38, 6],
         middle: [20, 28, 18, 0],
         ring: [26, 34, 22, -4],
         pinky: [32, 40, 26, -8],
-        thumb: [20, -15, 15, 30],
+        thumb: [12, 14, 4, 12, 20],
       }),
   },
 ];

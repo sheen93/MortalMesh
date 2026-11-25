@@ -103,44 +103,40 @@ function createFingerClusterSpecs(
     );
   }
 
-  const thumbBendBase: JointAxisSpec =
+  const thumbTwistBase: JointAxisSpec =
     side === 'l'
-      ? { label: 'Bend', min: -30, max: 65 }
-      : { label: 'Bend', min: -65, max: 30 };
-  const thumbBendCurl: JointAxisSpec =
-    side === 'l'
-      ? { label: 'Bend', min: -10, max: 75 }
-      : { label: 'Bend', min: -75, max: 10 };
+      ? { label: 'Twist', min: -35, max: 55 }
+      : { label: 'Twist', min: -55, max: 35 };
 
   specs[`thumb_01_${side}`] = makeSpec(
     `${sideLabel} Thumb Base`,
     'XYZ',
     true,
-    false,
     true,
-    { label: 'Side', min: -35, max: 55 },
-    LOCKED_TWIST,
-    thumbBendBase
+    true,
+    { label: 'Bend', min: -45, max: 75 },
+    thumbTwistBase,
+    { label: 'Side', min: -45, max: 45 }
   );
   specs[`thumb_02_${side}`] = makeSpec(
     `${sideLabel} Thumb Mid`,
     'XYZ',
-    false,
-    false,
     true,
-    LOCKED_SIDE,
+    false,
+    false,
+    { label: 'Bend', min: -15, max: 80 },
     LOCKED_TWIST,
-    thumbBendCurl
+    LOCKED_SIDE
   );
   specs[`thumb_03_${side}`] = makeSpec(
     `${sideLabel} Thumb Tip`,
     'XYZ',
-    false,
-    false,
     true,
-    LOCKED_SIDE,
+    false,
+    false,
+    { label: 'Bend', min: -20, max: 85 },
     LOCKED_TWIST,
-    thumbBendCurl
+    LOCKED_SIDE
   );
 
   return specs;

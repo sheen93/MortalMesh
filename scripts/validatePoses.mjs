@@ -173,6 +173,23 @@ for (const gesture of HAND_GESTURES) {
       }
     }
   }
+
+  const leftBones = buildHandGestureBones('l', gesture.id);
+  const rightBones = buildHandGestureBones('r', gesture.id);
+  for (const seg of ['thumb_01', 'thumb_02', 'thumb_03']) {
+    const l = leftBones[`${seg}_l`];
+    const r = rightBones[`${seg}_r`];
+    if (l.x !== r.x || l.y !== -r.y || l.z !== -r.z) {
+      errors.push(
+        `Hand gesture "${gesture.id}" thumb L/R asymmetry on ${seg}: L=${JSON.stringify(l)}, R=${JSON.stringify(r)}`
+      );
+    }
+    if (seg !== 'thumb_01' && (l.y !== 0 || l.z !== 0 || r.y !== 0 || r.z !== 0)) {
+      errors.push(
+        `Hand gesture "${gesture.id}" ${seg} must flex strictly along X (locked Y/Z): L=${JSON.stringify(l)}, R=${JSON.stringify(r)}`
+      );
+    }
+  }
 }
 
 if (errors.length > 0) {
