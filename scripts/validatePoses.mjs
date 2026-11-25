@@ -33,6 +33,11 @@ require.extensions['.ts'] = function compileTs(moduleRef, filename) {
 const { POSEABLE_BONE_NAMES } = require('@/types/anatomy');
 const { getJointSpec, clampJointAngles } = require('@/data/jointLimits');
 const { POSE_PRESETS } = require('@/data/poses');
+const {
+  HAND_GESTURES,
+  buildHandGestureBones,
+  getHandFingerBoneNames,
+} = require('@/data/handGestures');
 
 const EXPECTED_CATEGORY_COUNTS = {
   foundation: 5,
@@ -126,11 +131,55 @@ for (const [cat, expected] of Object.entries(EXPECTED_CATEGORY_COUNTS)) {
   }
 }
 
+if (HAND_GESTURES.length !== 12) {
+  errors.push(`Expected 12 hand gestures, found ${HAND_GESTURES.length}`);
+}
+
+const seenGestureIds = new Set();
+for (const gesture of HAND_GESTURES) {
+  if (seenGestureIds.has(gesture.id)) {
+    errors.push(`Duplicate hand gesture id: "${gesture.id}"`);
+  }
+  seenGestureIds.add(gesture.id);
+
+  for (const side of ['l', 'r']) {
+    const bones = buildHandGestureBones(side, gesture.id);
+    const expectedBones = getHandFingerBoneNames(side);
+    for (const expectedName of expectedBones) {
+      if (!(expectedName in bones)) {
+        errors.push(
+          `Hand gesture "${gesture.id}" (${side}) missing finger bone "${expectedName}"`
+        );
+      }
+    }
+
+    for (const [boneName, angles] of Object.entries(bones)) {
+      if (!poseableSet.has(boneName)) {
+        errors.push(
+          `Hand gesture "${gesture.id}" (${side}) references invalid bone "${boneName}"`
+        );
+        continue;
+      }
+      const spec = getJointSpec(boneName);
+      const clamped = clampJointAngles(angles, spec, true);
+      if (
+        clamped.x !== angles.x ||
+        clamped.y !== angles.y ||
+        clamped.z !== angles.z
+      ) {
+        errors.push(
+          `Hand gesture "${gesture.id}" (${side}) bone "${boneName}" exceeds ROM: raw=${JSON.stringify(angles)}, clamped=${JSON.stringify(clamped)}`
+        );
+      }
+    }
+  }
+}
+
 if (errors.length > 0) {
-  console.error('Pose library validation FAILED:\n' + errors.map((e) => ' - ' + e).join('\n'));
+  console.error('Pose & gesture validation FAILED:\n' + errors.map((e) => ' - ' + e).join('\n'));
   process.exit(1);
 }
 
 console.log(
-  `VALIDATED ${POSE_PRESETS.length} POSES (categories=${JSON.stringify(categoryCounts)}, 0 ROM/bone violations)`
+  `VALIDATED ${POSE_PRESETS.length} POSES (categories=${JSON.stringify(categoryCounts)}) + ${HAND_GESTURES.length}x2 HAND GESTURES (0 ROM/bone violations)`
 );

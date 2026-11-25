@@ -186,3 +186,36 @@ All **50 poses** (`Foundation: 5`, `Classical & Fine Art: 10`, `Action & Comic H
 - **True Offline & Responsive Browser Verification:**
   - **Headless Chrome 157 CDP Offline Proof:** Confirmed active `/sw.js` (`mortal-mesh-cache-c4371b89135a`) caching `/`, `/models/anatomy.glb`, `/draco/draco_decoder.wasm`, and `/manifest.webmanifest`; verified `localStorage` autosave (`mortal-mesh-scene`, 2 props, 1 bookmark, `ik`); reloaded cleanly with `Network.emulateNetworkConditions({ offline: true })`, booting offline with **`Offline Mode`**, rendering `Contrapposto` + props + 5 IK handles + **`Install App`**, spawning `Staff 3` (`3/12`) offline, and rendering cleanly on `800x1280` portrait with `0` console errors and `0` page exceptions.
   - **Multi-Viewport Browser QA (`1440x900`, `412x915`, `915x412`, `1280x800`, `800x1280`):** Verified zero horizontal overflow, clean mobile **Tools** drawer + backdrop dismissal, compact/full ViewCube separation, `PoseLibraryModal` touch scrolling, and **New Blank Scene** reset with `0` console/page errors. Production server stopped cleanly afterward (`no background tasks running`).
+
+---
+
+## 7. Phase 9 — Curvilinear Perspective (`4-PT` & `5-PT`), 26-Zone ViewCube & `Core`-Mode Hand Gestures (Milestones 21–23)
+
+### 7.1 Implemented Architecture & Features
+
+- **Milestone 21 — `4-PT` & `5-PT` Curvilinear Perspective, Guides & Warped Picking:**
+  - `src/types/anatomy.ts`: Extended `CameraPreset` to `'1-point' | '2-point' | '3-point' | '4-point' | '5-point'` with `CAMERA_PRESETS[id].fov`, `CAMERA_PRESET_ORDER`, `isCameraPreset`, and `isCurvilinearPreset`.
+  - `src/utils/lensWarp.ts` *(new)*: Shared analytical forward (`screenNdcToSourceNdc`) and inverse (`sourceNdcToScreenNdc`) curvilinear lens projection math (`4-PT` vertical cylindrical + `5-PT` aspect-preserving hemispherical fisheye, curvature clamped `0.2..1.0`, default `0.65`), `projectWorldPointToScreen`, and `attachCurvilinearPointerWarp` for `TransformControls._getPointer`.
+  - `src/components/CurvilinearLens.tsx` *(new)*: Demand-driven R3F post-process pass (`WebGLRenderTarget` with `RGBAFormat` + WebGL2 MSAA + `HalfFloatType` fallback, custom GLSL warp shader with `#include <tonemapping_fragment>` + `#include <colorspace_fragment>` and alpha-preserving Transparent PNG cutout mode), R3F `setEvents({ compute })` inverse raycasting override cleanly restored when returning to rectilinear modes, and `CurvilinearRenderHook` wired into `SnapshotExporter`.
+  - `src/components/PerspectiveGuides.tsx` *(new)*: Theme-matched fullscreen `pointer-events-none` SVG guide overlay drawing vertical curved zenith/nadir meridians (`4-PT`) and concentric dome ellipses + cardinal vanishing arcs (`5-PT`), naturally excluded from canvas PNG snapshots.
+  - `src/types/sceneIO.ts` & `src/utils/sceneSerialization.ts`: Backward-compatible serialization/parsing of `perspectiveMode`, `lensCurvature`, and `showPerspectiveGuides` across saved scenes and `localStorage` autosave.
+  - `src/components/StudioCanvas.tsx`, `src/components/StudioProps.tsx`, `src/components/AnatomyModel.tsx`: Separated `CameraRig` FOV sync (`activePreset`) from camera look-at snapping (`snapTrigger`) so loaded scenes keep saved views while updating lens FOV; wrapped bone, IK, Move-Body, and Studio Prop `TransformControls` with `attachCurvilinearPointerWarp`.
+
+- **Milestone 22 — Interactive 26-Zone ViewCube:**
+  - `src/components/ViewportGizmo.tsx` & `src/data/studioThemes.ts`: Upgraded each of the 6 CSS-3D cube faces into an orthonormal `(normal, uAxis, vAxis)` `3×3` grid assigning canonical shared zone IDs (`zone_${dx}_${dy}_${dz}`) across all **26** zones (**6 faces**, **12 edges**, **8 corners**). Hovering any edge or corner highlights every touching face segment simultaneously and updates a fixed-height non-shifting hover readout badge (`FRONT · TOP · RIGHT`, `FRONT · BOTTOM`, etc.). Added `1-PT..5-PT` camera bar, `Curvature` slider (`20%–100%`), `Perspective Guides` toggle, `>5px` drag-to-orbit threshold, and `52px`/`64px` responsive touch sizing.
+
+- **Milestone 23 — On-Mannequin Fixed Hand Gesture Pop-Up (`Core` Mode):**
+  - `src/data/handGestures.ts` *(new)* & `scripts/validatePoses.mjs`: Calibrated **12** artist hand gestures (`relaxed`, `open`, `spread`, `fist`, `grab`, `hold`, `point`, `peace`, `rock`, `middle-finger`, `thumbs-up`, `pinch`) parameterized symmetrically for `hand_l` and `hand_r`, plus `detectMatchingHandGesture`. Extended `scripts/validatePoses.mjs` to assert zero ROM violations across all 50 poses and all `12×2` hand presets.
+  - `src/types/poseIO.ts` & `src/components/AnatomyModel.tsx`: Extended `PoseBridge` with `applyHandGesture`, `mirrorHandGesture`, and `getHandGestureId`; projected the selected `hand_l`/`hand_r` world position via `projectWorldPointToScreen` strictly when `jointsDisplay === 'core'`, `controlMode === 'fk'`, `!moveBodyEnabled`, and unlocked (`>= 1.5px` throttled `useFrame` updates).
+  - `src/components/HandGesturePopover.tsx` *(new)* & `src/app/page.tsx`: Frosted floating 12-gesture selector with `Left/Right Hand` header, 1-tap `L → R` / `R → L` hand mirror, active gesture detection, single-step Undo/Redo + autosave integration, mobile bottom-dock-safe centering, desktop offset avoiding the wrist gizmo ring, and automatic dismissal on lock, mode change to `All`/`Off`, IK/Move Body, or `Escape`.
+
+### 7.2 Phase 9 Final Verification Outputs
+
+- **Pose & Hand Gesture Validation (`node scripts/validatePoses.mjs`):** Exited `0` — `VALIDATED 50 POSES (categories={"foundation":5,"classical":10,"action":10,"combat":8,"dance":8,"gesture":9}) + 12x2 HAND GESTURES (0 ROM/bone violations)`.
+- **Log Audit (`grep -rn "console\.log" src/`):** Zero matches (`NO_CONSOLE_LOG`).
+- **Production Build (`rm -rf .next && npm run build`):** Exited `0` (`/` `310 kB`, First Load JS `397 kB`, 0 TypeScript/ESLint errors), generated `public/sw-precache.json` (`version=01a1b7685d97`, `27 URLs`).
+- **Headless Chrome Production & Offline CDP QA (`npm run start` + `verify_phase9_cdp.mjs`):** Exited `0` (`"status": "PASS"`, `consoleErrorCount: 0`, `pageExceptionCount: 0`):
+  - **26-Zone ViewCube:** Audited `54` zone buttons forming `26` unique zone IDs (`faces: 6`, `edges: 12`, `corners: 8`), confirmed synchronized 3-button highlight + `FRONT · TOP · RIGHT` readout on corner hover, clicked corners, and orbited via pointer drag.
+  - **Curvilinear `4-PT` & `5-PT`:** Verified visual differences across `1-PT`, `4-PT`, and `5-PT`, Curvature slider adjustment to `90%`, `Perspective Guides` toggle, and **5-PT Transparent PNG** export (`2880×1800`, `cornerAlpha: 0`, `centerAlpha: 255`).
+  - **Core Hand Gestures:** Opened popover by clicking `hand_l`, applied `Fist`, `Rock`, `Middle Finger`, `Grab`, and `Peace`, mirrored `L → R`, verified `Ctrl+Z` Undo restored `"grab"`, verified auto-dismissal on switching to `All` joints and on figure `Lock`.
+  - **Responsive & Offline PWA:** Passed horizontal overflow audit across `1440×900`, `412×915`, `915×412`, `1280×800`, and `800×1280`, plus offline reload (`Offline Mode`) preserving staged scene & sculpted hand pose cleanly. Production server stopped cleanly afterward (`no background tasks running`).

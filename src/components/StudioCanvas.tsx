@@ -15,15 +15,22 @@ import { CameraControls, Grid } from '@react-three/drei';
 import CameraControlsImpl from 'camera-controls';
 import * as THREE from 'three';
 import { AnatomyModel } from '@/components/AnatomyModel';
+import {
+  CurvilinearLens,
+  type CurvilinearRenderHook,
+} from '@/components/CurvilinearLens';
+import { PerspectiveGuides } from '@/components/PerspectiveGuides';
 import { StudioProps } from '@/components/StudioProps';
 import { ViewportGizmo } from '@/components/ViewportGizmo';
 import { STUDIO_THEMES, type StudioThemeSpec } from '@/data/studioThemes';
 import type { ViewportProfile } from '@/hooks/useViewportProfile';
 import {
   CAMERA_PRESETS,
+  isCurvilinearPreset,
   type CameraPreset,
   type DampingPreset,
   type ElevationCommand,
+  type HandScreenAnchor,
   type IKHandleId,
   type JointAngleCommand,
   type JointAngles,
@@ -56,8 +63,12 @@ interface StudioCanvasProps {
   sceneLoadId: number;
   studioTheme: StudioThemeId;
   activePreset: CameraPreset;
+  lensCurvature: number;
+  showPerspectiveGuides: boolean;
   snapTrigger: number;
   onSelectCameraPreset: (preset: CameraPreset) => void;
+  onChangeLensCurvature: (value: number) => void;
+  onTogglePerspectiveGuides: (enabled: boolean) => void;
   isDragging: boolean;
   onDraggingChange: (isDragging: boolean) => void;
   jointsDisplay: JointsDisplayMode;
@@ -101,6 +112,7 @@ interface StudioCanvasProps {
   onMannequinBridgeChange: (id: string, bridge: PoseBridge | null) => void;
   onInitialPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onCommitPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
+  onHandAnchorChange: (anchor: HandScreenAnchor | null) => void;
   onSnapshotBridgeReady: (bridge: SnapshotBridge | null) => void;
   onCameraBridgeReady: (bridge: CameraBridge | null) => void;
 }
@@ -193,11 +205,13 @@ function StudioLighting({
 
 interface SnapshotExporterProps {
   floorGroupRef: RefObject<THREE.Group>;
+  curvilinearRenderRef: MutableRefObject<CurvilinearRenderHook | null>;
   onSnapshotBridgeReady: (bridge: SnapshotBridge | null) => void;
 }
 
 function SnapshotExporter({
   floorGroupRef,
+  curvilinearRenderRef,
   onSnapshotBridgeReady,
 }: SnapshotExporterProps) {
   const { gl, scene, camera, invalidate } = useThree();
@@ -255,7 +269,15 @@ function SnapshotExporter({
           gl.setPixelRatio(targetPixelRatio);
         }
 
-        gl.render(scene, camera);
+        if (curvilinearRenderRef.current) {
+          curvilinearRenderRef.current(
+            gl.domElement.width,
+            gl.domElement.height,
+            options.transparent
+          );
+        } else {
+          gl.render(scene, camera);
+        }
         width = gl.domElement.width;
         height = gl.domElement.height;
         dataUrl = gl.domElement.toDataURL('image/png');
@@ -269,7 +291,15 @@ function SnapshotExporter({
         if (Math.abs(gl.getPixelRatio() - prevPixelRatio) > 1e-3) {
           gl.setPixelRatio(prevPixelRatio);
         }
-        gl.render(scene, camera);
+        if (curvilinearRenderRef.current) {
+          curvilinearRenderRef.current(
+            gl.domElement.width,
+            gl.domElement.height,
+            false
+          );
+        } else {
+          gl.render(scene, camera);
+        }
         invalidate();
       }
 
@@ -289,7 +319,7 @@ function SnapshotExporter({
 
       return { filename, width, height };
     },
-    [gl, scene, camera, invalidate, floorGroupRef]
+    [gl, scene, camera, invalidate, floorGroupRef, curvilinearRenderRef]
   );
 
   useEffect(() => {
@@ -327,6 +357,8 @@ function CameraRig({
   const { camera, invalidate } = useThree();
   const hasMountedRef = useRef(false);
   const lastTransformRef = useRef('');
+  const activePresetRef = useRef<CameraPreset>(activePreset);
+  activePresetRef.current = activePreset;
 
   useEffect(() => {
     invalidateRef.current = invalidate;
@@ -398,10 +430,22 @@ function CameraRig({
   }, [camera, controlsRef, invalidate, syncViewCube, onCameraBridgeReady]);
 
   useEffect(() => {
+    if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
+      const persp = camera as THREE.PerspectiveCamera;
+      const nextFov = CAMERA_PRESETS[activePreset].fov;
+      if (persp.fov !== nextFov) {
+        persp.fov = nextFov;
+        persp.updateProjectionMatrix();
+        invalidate();
+      }
+    }
+  }, [activePreset, camera, invalidate]);
+
+  useEffect(() => {
     const controls = controlsRef.current;
     if (!controls) return;
 
-    const { position, target } = CAMERA_PRESETS[activePreset];
+    const { position, target } = CAMERA_PRESETS[activePresetRef.current];
     const shouldAnimate = hasMountedRef.current;
     hasMountedRef.current = true;
 
@@ -417,7 +461,7 @@ function CameraRig({
     camera.updateMatrixWorld();
     syncViewCube();
     invalidate();
-  }, [activePreset, snapTrigger, camera, controlsRef, invalidate, syncViewCube]);
+  }, [snapTrigger, camera, controlsRef, invalidate, syncViewCube]);
 
   useFrame(() => {
     syncViewCube();
@@ -535,6 +579,8 @@ interface StageReferenceProps {
   dropPropToFloorCommand: PropDropCommand | null;
   propDragGuardRef: MutableRefObject<{ isDragging: boolean; lastDragEndTime: number }>;
   isCoarsePointer: boolean;
+  activePreset: CameraPreset;
+  lensCurvature: number;
   onSelectMannequin: (id: string) => void;
   onDraggingChange: (isDragging: boolean) => void;
   onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
@@ -554,6 +600,7 @@ interface StageReferenceProps {
   onMannequinBridgeChange: (id: string, bridge: PoseBridge | null) => void;
   onInitialPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onCommitPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
+  onHandAnchorChange: (anchor: HandScreenAnchor | null) => void;
 }
 
 function StageReference({
@@ -582,6 +629,8 @@ function StageReference({
   dropPropToFloorCommand,
   propDragGuardRef,
   isCoarsePointer,
+  activePreset,
+  lensCurvature,
   onSelectMannequin,
   onDraggingChange,
   onSelectBoneChange,
@@ -594,6 +643,7 @@ function StageReference({
   onMannequinBridgeChange,
   onInitialPoseSnapshot,
   onCommitPoseSnapshot,
+  onHandAnchorChange,
 }: StageReferenceProps) {
   return (
     <group>
@@ -617,6 +667,8 @@ function StageReference({
         resetTrigger={resetTrigger}
         deselectTrigger={deselectTrigger}
         isCoarsePointer={isCoarsePointer}
+        activePreset={activePreset}
+        lensCurvature={lensCurvature}
         onSelectMannequin={onSelectMannequin}
         onDraggingChange={onDraggingChange}
         onSelectBoneChange={onSelectBoneChange}
@@ -628,6 +680,7 @@ function StageReference({
         onMannequinBridgeChange={onMannequinBridgeChange}
         onInitialPoseSnapshot={onInitialPoseSnapshot}
         onCommitPoseSnapshot={onCommitPoseSnapshot}
+        onHandAnchorChange={onHandAnchorChange}
       />
 
       <StudioProps
@@ -638,6 +691,8 @@ function StageReference({
         groundEnabled={groundEnabled}
         dropPropToFloorCommand={dropPropToFloorCommand}
         dragGuardRef={propDragGuardRef}
+        activePreset={activePreset}
+        lensCurvature={lensCurvature}
         onSelectProp={(id) => onSelectProp(id)}
         onUpdatePropTransform={onUpdatePropTransform}
         onDraggingChange={onDraggingChange}
@@ -658,8 +713,12 @@ export function StudioCanvas({
   sceneLoadId,
   studioTheme,
   activePreset,
+  lensCurvature,
+  showPerspectiveGuides,
   snapTrigger,
   onSelectCameraPreset,
+  onChangeLensCurvature,
+  onTogglePerspectiveGuides,
   isDragging,
   onDraggingChange,
   jointsDisplay,
@@ -696,6 +755,7 @@ export function StudioCanvas({
   onMannequinBridgeChange,
   onInitialPoseSnapshot,
   onCommitPoseSnapshot,
+  onHandAnchorChange,
   onSnapshotBridgeReady,
   onCameraBridgeReady,
 }: StudioCanvasProps) {
@@ -704,6 +764,7 @@ export function StudioCanvas({
   const viewCubeRef = useRef<HTMLDivElement>(null);
   const floorGroupRef = useRef<THREE.Group>(null);
   const invalidateRef = useRef<(() => void) | null>(null);
+  const curvilinearRenderRef = useRef<CurvilinearRenderHook | null>(null);
   const propDragGuardRef = useRef({ isDragging: false, lastDragEndTime: 0 });
   const theme = STUDIO_THEMES[studioTheme];
 
@@ -802,6 +863,8 @@ export function StudioCanvas({
           dropPropToFloorCommand={dropPropToFloorCommand}
           propDragGuardRef={propDragGuardRef}
           isCoarsePointer={viewport.isCoarsePointer}
+          activePreset={activePreset}
+          lensCurvature={lensCurvature}
           onSelectMannequin={onSelectMannequin}
           onDraggingChange={onDraggingChange}
           onSelectBoneChange={onSelectBoneChange}
@@ -814,20 +877,42 @@ export function StudioCanvas({
           onMannequinBridgeChange={onMannequinBridgeChange}
           onInitialPoseSnapshot={onInitialPoseSnapshot}
           onCommitPoseSnapshot={onCommitPoseSnapshot}
+          onHandAnchorChange={onHandAnchorChange}
         />
+        {isCurvilinearPreset(activePreset) && (
+          <CurvilinearLens
+            preset={activePreset}
+            curvature={lensCurvature}
+            renderHookRef={curvilinearRenderRef}
+          />
+        )}
         <SnapshotExporter
           floorGroupRef={floorGroupRef}
+          curvilinearRenderRef={curvilinearRenderRef}
           onSnapshotBridgeReady={onSnapshotBridgeReady}
         />
       </Canvas>
+
+      <PerspectiveGuides
+        preset={activePreset}
+        curvature={lensCurvature}
+        visible={showPerspectiveGuides}
+        studioTheme={studioTheme}
+        width={viewport.width}
+        height={viewport.height}
+      />
 
       <ViewportGizmo
         cubeRef={viewCubeRef}
         studioTheme={studioTheme}
         activePreset={activePreset}
+        lensCurvature={lensCurvature}
+        showPerspectiveGuides={showPerspectiveGuides}
         viewport={viewport}
         bookmarks={bookmarks}
         onSelectCameraPreset={onSelectCameraPreset}
+        onChangeLensCurvature={onChangeLensCurvature}
+        onTogglePerspectiveGuides={onTogglePerspectiveGuides}
         onSelectFace={handleSelectViewCubeFace}
         onOrbitDrag={handleViewCubeOrbitDrag}
         onAddBookmark={onAddBookmark}

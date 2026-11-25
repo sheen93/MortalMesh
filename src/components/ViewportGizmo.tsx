@@ -1,29 +1,38 @@
 'use client';
 
-import { useRef, useState, type RefObject } from 'react';
+import { useMemo, useRef, useState, type RefObject } from 'react';
 import {
   BookmarkIcon,
   HomeIcon,
   PlusIcon,
+  PrecisionSlider,
+  ToggleSwitch,
   TrashIcon,
   XIcon,
 } from '@/components/StudioPrimitives';
 import { STUDIO_THEMES } from '@/data/studioThemes';
 import type { ViewportProfile } from '@/hooks/useViewportProfile';
 import {
+  CAMERA_PRESET_ORDER,
   CAMERA_PRESETS,
+  isCurvilinearPreset,
   type CameraPreset,
   type StudioThemeId,
 } from '@/types/anatomy';
 import { MAX_CAMERA_BOOKMARKS, type CameraBookmark } from '@/types/sceneIO';
+import { MAX_LENS_CURVATURE, MIN_LENS_CURVATURE } from '@/utils/lensWarp';
 
 interface ViewportGizmoProps {
   cubeRef: RefObject<HTMLDivElement>;
   studioTheme: StudioThemeId;
   activePreset: CameraPreset;
+  lensCurvature: number;
+  showPerspectiveGuides: boolean;
   viewport: ViewportProfile;
   bookmarks: readonly CameraBookmark[];
   onSelectCameraPreset: (preset: CameraPreset) => void;
+  onChangeLensCurvature: (value: number) => void;
+  onTogglePerspectiveGuides: (enabled: boolean) => void;
   onSelectFace: (direction: [number, number, number]) => void;
   onOrbitDrag: (deltaX: number, deltaY: number) => void;
   onAddBookmark: () => void;
@@ -31,68 +40,131 @@ interface ViewportGizmoProps {
   onDeleteBookmark: (id: string) => void;
 }
 
+type AxisTuple = readonly [number, number, number];
+
 interface CubeFaceConfig {
   id: string;
   label: string;
-  direction: [number, number, number];
   rotatePrefix: string;
+  normal: AxisTuple;
+  uAxis: AxisTuple; // Left-to-right across CSS columns (col 0 -> col 2)
+  vAxis: AxisTuple; // Bottom-to-top across CSS rows (row 2 -> row 0)
+}
+
+interface CubeZoneDescriptor {
+  zoneId: string;
+  kind: 'face' | 'edge' | 'corner';
+  label: string;
+  faceLabel?: string;
+  direction: [number, number, number];
+  row: number;
+  col: number;
 }
 
 const CUBE_FACES: ReadonlyArray<CubeFaceConfig> = [
   {
     id: 'front',
     label: 'FRONT',
-    direction: [0, 0, 1],
     rotatePrefix: '',
+    normal: [0, 0, 1],
+    uAxis: [1, 0, 0],
+    vAxis: [0, 1, 0],
   },
   {
     id: 'back',
     label: 'BACK',
-    direction: [0, 0, -1],
     rotatePrefix: 'rotateY(180deg) ',
+    normal: [0, 0, -1],
+    uAxis: [-1, 0, 0],
+    vAxis: [0, 1, 0],
   },
   {
     id: 'right',
     label: 'RIGHT',
-    direction: [1, 0, 0],
     rotatePrefix: 'rotateY(90deg) ',
+    normal: [1, 0, 0],
+    uAxis: [0, 0, -1],
+    vAxis: [0, 1, 0],
   },
   {
     id: 'left',
     label: 'LEFT',
-    direction: [-1, 0, 0],
     rotatePrefix: 'rotateY(-90deg) ',
+    normal: [-1, 0, 0],
+    uAxis: [0, 0, 1],
+    vAxis: [0, 1, 0],
   },
   {
     id: 'top',
     label: 'TOP',
-    direction: [0, 1, 0.001],
     rotatePrefix: 'rotateX(90deg) ',
+    normal: [0, 1, 0],
+    uAxis: [1, 0, 0],
+    vAxis: [0, 0, -1],
   },
   {
     id: 'bottom',
     label: 'BOTTOM',
-    direction: [0, -1, 0.001],
     rotatePrefix: 'rotateX(-90deg) ',
+    normal: [0, -1, 0],
+    uAxis: [1, 0, 0],
+    vAxis: [0, 0, 1],
   },
 ];
 
-const COMPACT_CAMERA_PILLS: ReadonlyArray<{
-  id: CameraPreset;
-  shortLabel: string;
-}> = [
-  { id: '1-point', shortLabel: '1-PT' },
-  { id: '2-point', shortLabel: '2-PT' },
-  { id: '3-point', shortLabel: '3-PT' },
-];
+function formatZoneLabel(dx: number, dy: number, dz: number): string {
+  const parts: string[] = [];
+  if (dz > 0) parts.push('FRONT');
+  else if (dz < 0) parts.push('BACK');
+  if (dy > 0) parts.push('TOP');
+  else if (dy < 0) parts.push('BOTTOM');
+  if (dx > 0) parts.push('RIGHT');
+  else if (dx < 0) parts.push('LEFT');
+  return parts.join(' · ');
+}
+
+function buildFaceZones(face: CubeFaceConfig): CubeZoneDescriptor[] {
+  const zones: CubeZoneDescriptor[] = [];
+  for (let row = 0; row < 3; row += 1) {
+    const vSign = 1 - row; // +1 top row, 0 center row, -1 bottom row
+    for (let col = 0; col < 3; col += 1) {
+      const uSign = col - 1; // -1 left col, 0 center col, +1 right col
+      const dx = face.normal[0] + uSign * face.uAxis[0] + vSign * face.vAxis[0];
+      const dy = face.normal[1] + uSign * face.uAxis[1] + vSign * face.vAxis[1];
+      const dz = face.normal[2] + uSign * face.uAxis[2] + vSign * face.vAxis[2];
+      const axisCount = Math.abs(dx) + Math.abs(dy) + Math.abs(dz);
+      const kind: 'face' | 'edge' | 'corner' =
+        axisCount === 1 ? 'face' : axisCount === 2 ? 'edge' : 'corner';
+      const safeZ = dx === 0 && dz === 0 ? 0.001 : dz;
+      zones.push({
+        zoneId: `zone_${dx}_${dy}_${dz}`,
+        kind,
+        label: formatZoneLabel(dx, dy, dz),
+        faceLabel: kind === 'face' ? face.label : undefined,
+        direction: [dx, dy, safeZ],
+        row,
+        col,
+      });
+    }
+  }
+  return zones;
+}
+
+const FACE_ZONES_MAP: Record<string, CubeZoneDescriptor[]> = Object.fromEntries(
+  CUBE_FACES.map((face) => [face.id, buildFaceZones(face)])
+);
 
 export function ViewportGizmo({
   cubeRef,
   studioTheme,
   activePreset,
+  lensCurvature,
+  showPerspectiveGuides,
   viewport,
   bookmarks,
   onSelectCameraPreset,
+  onChangeLensCurvature,
+  onTogglePerspectiveGuides,
   onSelectFace,
   onOrbitDrag,
   onAddBookmark,
@@ -101,14 +173,19 @@ export function ViewportGizmo({
 }: ViewportGizmoProps) {
   const theme = STUDIO_THEMES[studioTheme];
   const { ui, viewCube } = theme;
-  const [hoveredFace, setHoveredFace] = useState<string | null>(null);
+  const [hoveredZone, setHoveredZone] = useState<{
+    zoneId: string;
+    label: string;
+  } | null>(null);
   const [isDraggingCube, setIsDraggingCube] = useState(false);
   const [bookmarksOpen, setBookmarksOpen] = useState(false);
 
   const compact = viewport.isMobile || viewport.isCompactLandscape;
-  const cubeSize = compact ? 46 : 60;
+  const cubeSize = compact ? 52 : 64;
   const halfDepth = cubeSize / 2;
   const atBookmarkLimit = bookmarks.length >= MAX_CAMERA_BOOKMARKS;
+  const isCurvilinear = isCurvilinearPreset(activePreset);
+  const curvaturePct = Math.round(lensCurvature * 100);
 
   const dragStateRef = useRef<{
     active: boolean;
@@ -136,9 +213,10 @@ export function ViewportGizmo({
 
     const totalDx = event.clientX - state.startX;
     const totalDy = event.clientY - state.startY;
-    if (!state.moved && Math.hypot(totalDx, totalDy) > 4) {
+    if (!state.moved && Math.hypot(totalDx, totalDy) > 5) {
       state.moved = true;
       setIsDraggingCube(true);
+      setHoveredZone(null);
       try {
         event.currentTarget.setPointerCapture(event.pointerId);
       } catch {
@@ -185,101 +263,172 @@ export function ViewportGizmo({
     }
   };
 
+  const compactPills = useMemo(
+    () =>
+      CAMERA_PRESET_ORDER.map((id) => ({
+        id,
+        shortLabel: CAMERA_PRESETS[id].label,
+        description: CAMERA_PRESETS[id].description,
+      })),
+    []
+  );
+
   const pillBtnSize = compact || viewport.isCoarsePointer ? 'h-8' : 'h-7';
   const iconBtnSize =
     compact || viewport.isCoarsePointer ? 'h-8 w-8' : 'h-7 w-7';
 
   return (
     <div
-      className="fixed z-20 flex flex-col items-end gap-2 pointer-events-none select-none"
+      className="fixed z-20 flex flex-col items-end gap-1.5 pointer-events-none select-none"
       style={{
         top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
         right: 'calc(env(safe-area-inset-right, 0px) + 12px)',
       }}
     >
-      {/* Interactive 3D ViewCube Stage */}
-      <div
-        role="region"
-        aria-label="3D Viewport Orientation Cube"
-        onPointerMove={handleStagePointerMove}
-        onPointerUp={(event) => {
-          event.stopPropagation();
-          finishInteraction(event, true);
-        }}
-        onPointerCancel={(event) => {
-          event.stopPropagation();
-          finishInteraction(event, false);
-        }}
-        onPointerLeave={() => {
-          if (!dragStateRef.current.active) {
-            setHoveredFace(null);
-          }
-        }}
-        className={`pointer-events-auto relative flex items-center justify-center rounded-2xl viewcube-scene ${
-          compact ? 'h-[70px] w-[70px]' : 'h-[96px] w-[96px]'
-        } ${isDraggingCube ? 'cursor-grabbing' : 'cursor-grab'}`}
-        style={{ touchAction: 'none' }}
-      >
+      {/* Interactive 26-Zone 3D ViewCube Stage */}
+      <div className="flex flex-col items-end gap-0.5">
         <div
-          ref={cubeRef}
-          className="viewcube-cube relative"
-          style={{ width: cubeSize, height: cubeSize }}
+          role="region"
+          aria-label="3D Viewport Orientation Cube"
+          onPointerMove={handleStagePointerMove}
+          onPointerUp={(event) => {
+            event.stopPropagation();
+            finishInteraction(event, true);
+          }}
+          onPointerCancel={(event) => {
+            event.stopPropagation();
+            finishInteraction(event, false);
+          }}
+          onPointerLeave={() => {
+            if (!dragStateRef.current.active) {
+              setHoveredZone(null);
+            }
+          }}
+          className={`pointer-events-auto relative flex items-center justify-center rounded-2xl viewcube-scene ${
+            compact ? 'h-[78px] w-[78px]' : 'h-[104px] w-[104px]'
+          } ${isDraggingCube ? 'cursor-grabbing' : 'cursor-grab'}`}
+          style={{ touchAction: 'none' }}
         >
-          {CUBE_FACES.map((face) => {
-            const isHovered = hoveredFace === face.id && !isDraggingCube;
-            return (
-              <button
-                key={face.id}
-                type="button"
-                aria-label={`Snap camera to ${face.label.toLowerCase()} view`}
-                onPointerDown={(event) => {
-                  event.stopPropagation();
-                  dragStateRef.current = {
-                    active: true,
-                    pointerId: event.pointerId,
-                    startX: event.clientX,
-                    startY: event.clientY,
-                    lastX: event.clientX,
-                    lastY: event.clientY,
-                    moved: false,
-                    pendingDirection: face.direction,
-                  };
-                }}
-                onPointerEnter={() => setHoveredFace(face.id)}
-                onPointerLeave={() =>
-                  setHoveredFace((prev) => (prev === face.id ? null : prev))
-                }
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    onSelectFace(face.direction);
-                  }
-                }}
-                className={`viewcube-face absolute inset-0 flex items-center justify-center rounded-[5px] font-mono font-semibold uppercase transition-colors duration-150 focus-visible:outline-none ${
-                  compact
-                    ? 'text-[7.5px] tracking-[0.06em]'
-                    : 'text-[9.5px] tracking-[0.1em]'
-                }`}
-                style={{
-                  transform: `${face.rotatePrefix}translateZ(${halfDepth}px)`,
-                  backgroundColor: isHovered
-                    ? viewCube.faceHoverBg
-                    : viewCube.faceBg,
-                  color: isHovered
-                    ? viewCube.faceHoverText
-                    : viewCube.faceText,
-                  border: `1px solid ${viewCube.faceBorder}`,
-                  boxShadow: viewCube.faceShadow,
-                }}
-              >
-                {face.label}
-              </button>
-            );
-          })}
+          <div
+            ref={cubeRef}
+            className="viewcube-cube relative"
+            style={{ width: cubeSize, height: cubeSize }}
+          >
+            {CUBE_FACES.map((face) => {
+              const zones = FACE_ZONES_MAP[face.id];
+              return (
+                <div
+                  key={face.id}
+                  className="viewcube-face absolute inset-0 grid overflow-hidden rounded-[5px]"
+                  style={{
+                    transform: `${face.rotatePrefix}translateZ(${halfDepth}px)`,
+                    gridTemplateColumns: '24% 52% 24%',
+                    gridTemplateRows: '24% 52% 24%',
+                    backgroundColor: viewCube.faceBg,
+                    border: `1px solid ${viewCube.faceBorder}`,
+                    boxShadow: viewCube.faceShadow,
+                  }}
+                >
+                  {zones.map((zone) => {
+                    const isZoneHovered =
+                      hoveredZone?.zoneId === zone.zoneId && !isDraggingCube;
+                    const hoverBg =
+                      zone.kind === 'corner'
+                        ? viewCube.cornerHoverBg
+                        : zone.kind === 'edge'
+                          ? viewCube.edgeHoverBg
+                          : viewCube.faceHoverBg;
+
+                    return (
+                      <button
+                        key={`${face.id}-${zone.zoneId}`}
+                        type="button"
+                        data-viewcube-zone={zone.zoneId}
+                        aria-label={`Snap camera to ${zone.label.toLowerCase()} view`}
+                        onPointerDown={(event) => {
+                          event.stopPropagation();
+                          dragStateRef.current = {
+                            active: true,
+                            pointerId: event.pointerId,
+                            startX: event.clientX,
+                            startY: event.clientY,
+                            lastX: event.clientX,
+                            lastY: event.clientY,
+                            moved: false,
+                            pendingDirection: zone.direction,
+                          };
+                        }}
+                        onPointerEnter={() =>
+                          setHoveredZone({
+                            zoneId: zone.zoneId,
+                            label: zone.label,
+                          })
+                        }
+                        onPointerLeave={() =>
+                          setHoveredZone((prev) =>
+                            prev?.zoneId === zone.zoneId ? null : prev
+                          )
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            onSelectFace(zone.direction);
+                          }
+                        }}
+                        className="relative flex items-center justify-center p-0 transition-colors duration-100 focus-visible:outline-none"
+                        style={{
+                          backgroundColor: isZoneHovered
+                            ? hoverBg
+                            : 'transparent',
+                          color: isZoneHovered
+                            ? viewCube.faceHoverText
+                            : viewCube.faceText,
+                        }}
+                      >
+                        {zone.kind === 'face' ? (
+                          <span
+                            className={`font-mono font-semibold uppercase leading-none ${
+                              compact
+                                ? 'text-[7px] tracking-[0.04em]'
+                                : 'text-[8.5px] tracking-[0.07em]'
+                            }`}
+                          >
+                            {zone.faceLabel}
+                          </span>
+                        ) : zone.kind === 'corner' ? (
+                          <span
+                            aria-hidden="true"
+                            className="h-1 w-1 rounded-full opacity-35"
+                            style={{
+                              backgroundColor: isZoneHovered
+                                ? viewCube.faceHoverText
+                                : viewCube.faceText,
+                            }}
+                          />
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Non-shifting hover readout pill (fixed height slot) */}
+        <div className="flex h-4 items-center justify-end pr-0.5">
+          {hoveredZone && !isDraggingCube && (
+            <span
+              data-testid="viewcube-readout"
+              className={`rounded-md px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-[0.08em] uppercase leading-none ${ui.monoPill}`}
+            >
+              {hoveredZone.label}
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Compact Frosted Camera Snap & Bookmarks Pill Bar */}
+      {/* Compact Frosted Camera Perspective (1-PT..5-PT) & Bookmarks Bar */}
       <div
         role="toolbar"
         aria-label="Camera perspective shortcuts"
@@ -299,17 +448,17 @@ export function ViewportGizmo({
           className={`h-4 w-px shrink-0 ${ui.verticalDivider}`}
           aria-hidden="true"
         />
-        {COMPACT_CAMERA_PILLS.map((pill) => {
+        {compactPills.map((pill) => {
           const isSelected = activePreset === pill.id;
           return (
             <button
               key={pill.id}
               type="button"
               aria-pressed={isSelected}
-              title={CAMERA_PRESETS[pill.id].description}
+              title={pill.description}
               onClick={() => onSelectCameraPreset(pill.id)}
               className={`${pillBtnSize} rounded-lg font-mono font-semibold tracking-tight transition-all duration-150 ${
-                compact ? 'px-1.5 text-[9.5px]' : 'px-2 text-[10.5px]'
+                compact ? 'px-1.5 text-[9.5px]' : 'px-2 text-[10px]'
               } ${isSelected ? ui.dockButtonActive : ui.dockButton}`}
             >
               {pill.shortLabel}
@@ -340,6 +489,35 @@ export function ViewportGizmo({
           )}
         </button>
       </div>
+
+      {/* Curvilinear Lens Options Card (Visible when 4-PT or 5-PT is active) */}
+      {isCurvilinear && (
+        <div
+          role="region"
+          aria-label="Curvilinear lens controls"
+          onPointerDown={(event) => event.stopPropagation()}
+          className={`pointer-events-auto w-[216px] max-w-[calc(100vw-1.5rem)] rounded-2xl px-3 py-2.5 space-y-2 ${ui.panel}`}
+        >
+          <PrecisionSlider
+            id="lens-curvature-slider"
+            label={activePreset === '4-point' ? '4-PT Curve' : '5-PT Dome'}
+            value={lensCurvature}
+            min={MIN_LENS_CURVATURE}
+            max={MAX_LENS_CURVATURE}
+            step={0.05}
+            displayValue={`${curvaturePct}%`}
+            theme={theme}
+            onChange={onChangeLensCurvature}
+          />
+          <ToggleSwitch
+            id="perspective-guides-toggle"
+            label="Perspective Guides"
+            checked={showPerspectiveGuides}
+            theme={theme}
+            onChange={() => onTogglePerspectiveGuides(!showPerspectiveGuides)}
+          />
+        </div>
+      )}
 
       {/* Saved Camera Bookmarks Popover */}
       {bookmarksOpen && (

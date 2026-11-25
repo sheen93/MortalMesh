@@ -1,4 +1,5 @@
 import type {
+  CameraPreset,
   DampingPreset,
   KeyLightSettings,
   PoseControlMode,
@@ -48,6 +49,9 @@ export interface SerializedStudioSettings {
   jointLimitsEnabled: boolean;
   controlMode: PoseControlMode;
   keyLight: KeyLightSettings;
+  perspectiveMode?: CameraPreset;
+  lensCurvature?: number;
+  showPerspectiveGuides?: boolean;
 }
 
 export interface MortalMeshSceneFile {

@@ -48,6 +48,8 @@ export interface StudioThemeViewCube {
   faceText: string;
   faceHoverBg: string;
   faceHoverText: string;
+  edgeHoverBg: string;
+  cornerHoverBg: string;
   faceShadow: string;
 }
 
@@ -61,6 +63,7 @@ export interface StudioThemeSpec {
   gridSectionColor: string;
   originAxisColor: string;
   originAxisMutedColor: string;
+  perspectiveGuideColor: string;
   shadowOpacity: number;
   lighting: StudioThemeLighting;
   hitbox: StudioThemeHitboxColors;
@@ -116,6 +119,7 @@ export const STUDIO_THEMES: Record<StudioThemeId, StudioThemeSpec> = {
     gridSectionColor: '#AEB5C0',
     originAxisColor: '#64748B',
     originAxisMutedColor: '#94A3B8',
+    perspectiveGuideColor: 'rgba(15, 23, 42, 0.24)',
     shadowOpacity: 0.16,
     lighting: {
       ambient: 0.55,
@@ -150,6 +154,8 @@ export const STUDIO_THEMES: Record<StudioThemeId, StudioThemeSpec> = {
       faceText: '#18181B',
       faceHoverBg: '#18181B',
       faceHoverText: '#FFFFFF',
+      edgeHoverBg: 'rgba(24, 24, 27, 0.72)',
+      cornerHoverBg: '#09090B',
       faceShadow: '0 8px 24px rgba(15, 23, 42, 0.10)',
     },
     rangeVars: {
@@ -207,6 +213,7 @@ export const STUDIO_THEMES: Record<StudioThemeId, StudioThemeSpec> = {
     gridSectionColor: '#494E57',
     originAxisColor: '#E4E4E7',
     originAxisMutedColor: '#A1A1AA',
+    perspectiveGuideColor: 'rgba(244, 244, 245, 0.26)',
     shadowOpacity: 0.26,
     lighting: {
       ambient: 0.5,
@@ -241,6 +248,8 @@ export const STUDIO_THEMES: Record<StudioThemeId, StudioThemeSpec> = {
       faceText: '#E4E4E7',
       faceHoverBg: '#F4F4F5',
       faceHoverText: '#18181B',
+      edgeHoverBg: 'rgba(244, 244, 245, 0.72)',
+      cornerHoverBg: '#FFFFFF',
       faceShadow: '0 10px 28px rgba(0, 0, 0, 0.36)',
     },
     rangeVars: {
@@ -298,6 +307,7 @@ export const STUDIO_THEMES: Record<StudioThemeId, StudioThemeSpec> = {
     gridSectionColor: '#3D4350',
     originAxisColor: '#71717A',
     originAxisMutedColor: '#52525B',
+    perspectiveGuideColor: 'rgba(244, 244, 245, 0.22)',
     shadowOpacity: 0.45,
     lighting: {
       ambient: 0.42,
@@ -332,6 +342,8 @@ export const STUDIO_THEMES: Record<StudioThemeId, StudioThemeSpec> = {
       faceText: '#D4D4D8',
       faceHoverBg: '#F4F4F5',
       faceHoverText: '#09090B',
+      edgeHoverBg: 'rgba(244, 244, 245, 0.74)',
+      cornerHoverBg: '#FFFFFF',
       faceShadow: '0 12px 32px rgba(0, 0, 0, 0.58)',
     },
     rangeVars: {

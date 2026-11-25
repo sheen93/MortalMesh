@@ -1,3 +1,5 @@
+import type { HandGestureId, HandSide } from '@/types/anatomy';
+
 export type QuaternionTuple = [number, number, number, number];
 
 export type Vec3Tuple = [number, number, number];
@@ -30,4 +32,10 @@ export interface PoseBridge {
     options?: { recomputeGroundIfSnapped?: boolean }
   ) => PoseSnapshot | null;
   mirrorCurrentPose: () => PoseSnapshot | null;
+  applyHandGesture: (
+    side: HandSide,
+    gestureId: HandGestureId
+  ) => PoseSnapshot | null;
+  mirrorHandGesture: (fromSide: HandSide) => PoseSnapshot | null;
+  getHandGestureId: (side: HandSide) => HandGestureId | null;
 }

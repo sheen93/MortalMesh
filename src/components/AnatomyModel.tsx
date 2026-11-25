@@ -22,8 +22,12 @@ import {
   isCoreBoneName,
   isPoseableBoneName,
   ZERO_JOINT_ANGLES,
+  type CameraPreset,
   type DampingPreset,
   type ElevationCommand,
+  type HandGestureId,
+  type HandScreenAnchor,
+  type HandSide,
   type IKHandleId,
   type JointAngleCommand,
   type JointAngles,
@@ -34,6 +38,11 @@ import {
 } from '@/types/anatomy';
 import type { PoseBridge, PoseSnapshot, QuaternionTuple } from '@/types/poseIO';
 import { MANNEQUIN_FINISHES, type MannequinRecord } from '@/types/scene';
+import {
+  buildHandGestureBones,
+  detectMatchingHandGesture,
+  getHandFingerBoneNames,
+} from '@/data/handGestures';
 import {
   clampJointAngles,
   getJointSpec,
@@ -46,7 +55,14 @@ import {
   JointSpaceGravitySolver,
 } from '@/physics/gravitySolver';
 import { solveLimbIK } from '@/physics/runtimeIK';
-import { mirrorPoseSnapshot } from '@/utils/mirrorPose';
+import {
+  attachCurvilinearPointerWarp,
+  projectWorldPointToScreen,
+} from '@/utils/lensWarp';
+import {
+  getMirroredBoneName,
+  mirrorPoseSnapshot,
+} from '@/utils/mirrorPose';
 
 interface MannequinTemplate {
   scene: THREE.Group;
@@ -95,6 +111,8 @@ interface AnatomyModelProps {
   resetTrigger: number;
   deselectTrigger: number;
   isCoarsePointer: boolean;
+  activePreset: CameraPreset;
+  lensCurvature: number;
   onSelectMannequin: (id: string) => void;
   onDraggingChange: (isDragging: boolean) => void;
   onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
@@ -106,6 +124,7 @@ interface AnatomyModelProps {
   onMannequinBridgeChange: (id: string, bridge: PoseBridge | null) => void;
   onInitialPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onCommitPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
+  onHandAnchorChange: (anchor: HandScreenAnchor | null) => void;
 }
 
 interface MannequinInstanceProps {
@@ -129,6 +148,8 @@ interface MannequinInstanceProps {
   resetTrigger: number;
   deselectTrigger: number;
   isCoarsePointer: boolean;
+  activePreset: CameraPreset;
+  lensCurvature: number;
   onSelectMannequin: (id: string) => void;
   onDraggingChange: (isDragging: boolean) => void;
   onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
@@ -140,6 +161,7 @@ interface MannequinInstanceProps {
   onMannequinBridgeChange: (id: string, bridge: PoseBridge | null) => void;
   onInitialPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onCommitPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
+  onHandAnchorChange: (anchor: HandScreenAnchor | null) => void;
 }
 
 interface DraggingChangedDispatcher {
@@ -223,6 +245,8 @@ function MannequinInstance({
   resetTrigger,
   deselectTrigger,
   isCoarsePointer,
+  activePreset,
+  lensCurvature,
   onSelectMannequin,
   onDraggingChange,
   onSelectBoneChange,
@@ -234,6 +258,7 @@ function MannequinInstance({
   onMannequinBridgeChange,
   onInitialPoseSnapshot,
   onCommitPoseSnapshot,
+  onHandAnchorChange,
 }: MannequinInstanceProps) {
   const [selectedBone, setSelectedBone] = useState<THREE.Bone | null>(null);
   const [hoveredBoneName, setHoveredBoneName] = useState<string | null>(null);
@@ -278,36 +303,50 @@ function MannequinInstance({
   const groundSnapEnabledRef = useRef(record.groundSnapEnabled);
   const pinnedBonesRef = useRef<readonly string[]>(record.pinnedBones);
   const lockedRef = useRef(record.locked);
+  const jointLimitsEnabledRef = useRef(jointLimitsEnabled);
   const isActiveRef = useRef(isActive);
   const selectedBoneRef = useRef<THREE.Bone | null>(selectedBone);
   const selectedIKHandleRef = useRef<IKHandleId | null>(selectedIKHandle);
+  const activePresetRef = useRef<CameraPreset>(activePreset);
+  const lensCurvatureRef = useRef<number>(lensCurvature);
 
   const onSelectBoneChangeRef = useRef(onSelectBoneChange);
   const onSelectIKHandleChangeRef = useRef(onSelectIKHandleChange);
   const onElevationSyncRef = useRef(onElevationSync);
   const onInitialPoseSnapshotRef = useRef(onInitialPoseSnapshot);
   const onCommitPoseSnapshotRef = useRef(onCommitPoseSnapshot);
+  const onHandAnchorChangeRef = useRef(onHandAnchorChange);
 
   const solverRef = useRef(new JointSpaceGravitySolver());
   const solverAwakeRef = useRef(false);
   const gravityMovedSinceWakeRef = useRef(false);
   const tempWorldPosRef = useRef(new THREE.Vector3());
+  const handWorldVecRef = useRef(new THREE.Vector3());
+  const emittedHandAnchorRef = useRef<{
+    boneName: 'hand_l' | 'hand_r';
+    x: number;
+    y: number;
+  } | null>(null);
   const tempBoxRef = useRef(new THREE.Box3());
 
   groundEnabledRef.current = groundEnabled;
   groundSnapEnabledRef.current = record.groundSnapEnabled;
   pinnedBonesRef.current = record.pinnedBones;
   lockedRef.current = record.locked;
+  jointLimitsEnabledRef.current = jointLimitsEnabled;
   isActiveRef.current = isActive;
   selectedBoneRef.current = selectedBone;
   selectedIKHandleRef.current = selectedIKHandle;
+  activePresetRef.current = activePreset;
+  lensCurvatureRef.current = lensCurvature;
   onSelectBoneChangeRef.current = onSelectBoneChange;
   onSelectIKHandleChangeRef.current = onSelectIKHandleChange;
   onElevationSyncRef.current = onElevationSync;
   onInitialPoseSnapshotRef.current = onInitialPoseSnapshot;
   onCommitPoseSnapshotRef.current = onCommitPoseSnapshot;
+  onHandAnchorChangeRef.current = onHandAnchorChange;
 
-  const { invalidate } = useThree();
+  const { camera, size, invalidate } = useThree();
 
   const instance = useMemo<ClonedInstanceData>(() => {
     const clonedScene = SkeletonUtils.clone(template.scene) as THREE.Group;
@@ -635,11 +674,104 @@ function MannequinInstance({
     return applySnapshot(mirrored, { recomputeGroundIfSnapped: true });
   }, [instance, captureSnapshot, applySnapshot]);
 
+  const applyHandGesture = useCallback(
+    (side: HandSide, gestureId: HandGestureId): PoseSnapshot | null => {
+      if (lockedRef.current) return null;
+
+      const targets = buildHandGestureBones(side, gestureId);
+      const limitsOn = jointLimitsEnabledRef.current;
+
+      for (const [boneName, rawAngles] of Object.entries(targets)) {
+        const bone = instance.bonesByName.get(boneName);
+        const restQuat = instance.restQuaternions.get(boneName);
+        if (!bone || !restQuat) continue;
+
+        const spec = getJointSpec(boneName);
+        const clamped = clampJointAngles(rawAngles, spec, limitsOn);
+        const euler = new THREE.Euler(
+          THREE.MathUtils.degToRad(clamped.x),
+          THREE.MathUtils.degToRad(clamped.y),
+          THREE.MathUtils.degToRad(clamped.z),
+          spec.order
+        );
+        const deltaQuat = new THREE.Quaternion().setFromEuler(euler);
+        bone.quaternion.copy(restQuat).multiply(deltaQuat).normalize();
+      }
+
+      instance.rootGroup.updateMatrixWorld(true);
+      syncHitboxPositions();
+      invalidate();
+      return captureSnapshot();
+    },
+    [instance, captureSnapshot, syncHitboxPositions, invalidate]
+  );
+
+  const mirrorHandGesture = useCallback(
+    (fromSide: HandSide): PoseSnapshot | null => {
+      if (lockedRef.current) return null;
+
+      const limitsOn = jointLimitsEnabledRef.current;
+      const srcBoneNames = getHandFingerBoneNames(fromSide);
+
+      for (const srcName of srcBoneNames) {
+        const dstName = getMirroredBoneName(srcName);
+        const srcBone = instance.bonesByName.get(srcName);
+        const srcRest = instance.restQuaternions.get(srcName);
+        const dstBone = instance.bonesByName.get(dstName);
+        const dstRest = instance.restQuaternions.get(dstName);
+        if (!srcBone || !srcRest || !dstBone || !dstRest) continue;
+
+        const srcSpec = getJointSpec(srcName);
+        const dstSpec = getJointSpec(dstName);
+        const srcDeg = readBoneDeltaDegrees(srcBone, srcRest, srcSpec, false);
+        const mirroredRaw: JointAngles = {
+          x: srcDeg.x,
+          y: -srcDeg.y,
+          z: -srcDeg.z,
+        };
+        const clamped = clampJointAngles(mirroredRaw, dstSpec, limitsOn);
+        const euler = new THREE.Euler(
+          THREE.MathUtils.degToRad(clamped.x),
+          THREE.MathUtils.degToRad(clamped.y),
+          THREE.MathUtils.degToRad(clamped.z),
+          dstSpec.order
+        );
+        const deltaQuat = new THREE.Quaternion().setFromEuler(euler);
+        dstBone.quaternion.copy(dstRest).multiply(deltaQuat).normalize();
+      }
+
+      instance.rootGroup.updateMatrixWorld(true);
+      syncHitboxPositions();
+      invalidate();
+      return captureSnapshot();
+    },
+    [instance, captureSnapshot, syncHitboxPositions, invalidate]
+  );
+
+  const getHandGestureId = useCallback(
+    (side: HandSide): HandGestureId | null =>
+      detectMatchingHandGesture(side, (boneName) => {
+        const bone = instance.bonesByName.get(boneName);
+        const restQuat = instance.restQuaternions.get(boneName);
+        if (!bone || !restQuat) return null;
+        return readBoneDeltaDegrees(
+          bone,
+          restQuat,
+          getJointSpec(boneName),
+          false
+        );
+      }),
+    [instance]
+  );
+
   useEffect(() => {
     onMannequinBridgeChange(record.id, {
       captureSnapshot,
       applySnapshot,
       mirrorCurrentPose,
+      applyHandGesture,
+      mirrorHandGesture,
+      getHandGestureId,
     });
     return () => onMannequinBridgeChange(record.id, null);
   }, [
@@ -647,6 +779,9 @@ function MannequinInstance({
     captureSnapshot,
     applySnapshot,
     mirrorCurrentPose,
+    applyHandGesture,
+    mirrorHandGesture,
+    getHandGestureId,
     onMannequinBridgeChange,
   ]);
 
@@ -859,7 +994,15 @@ function MannequinInstance({
     };
 
     controls.addEventListener('dragging-changed', handleDraggingChanged);
+    const detachPointerWarp = attachCurvilinearPointerWarp(
+      transformRef.current,
+      () => ({
+        preset: activePresetRef.current,
+        curvature: lensCurvatureRef.current,
+      })
+    );
     return () => {
+      detachPointerWarp();
       controls.removeEventListener('dragging-changed', handleDraggingChanged);
       localDraggingRef.current = false;
       ikDraggingRef.current = false;
@@ -878,11 +1021,80 @@ function MannequinInstance({
     selectedBone,
     selectedIKHandle,
     moveBodyEnabled,
+    activePreset,
     dragGuardRef,
     onDraggingChange,
     invalidate,
     captureSnapshot,
   ]);
+
+  useEffect(() => {
+    const shouldShowHandAnchor =
+      isActive &&
+      !record.locked &&
+      record.visible &&
+      jointsDisplay === 'core' &&
+      controlMode === 'fk' &&
+      !moveBodyEnabled &&
+      (selectedBone?.name === 'hand_l' || selectedBone?.name === 'hand_r');
+
+    if (!shouldShowHandAnchor || !selectedBone) {
+      if (emittedHandAnchorRef.current) {
+        emittedHandAnchorRef.current = null;
+        onHandAnchorChangeRef.current(null);
+      }
+      return;
+    }
+
+    const boneName = selectedBone.name as 'hand_l' | 'hand_r';
+    const side: HandSide = boneName === 'hand_l' ? 'l' : 'r';
+    instance.rootGroup.updateMatrixWorld(true);
+    selectedBone.getWorldPosition(handWorldVecRef.current);
+    const proj = projectWorldPointToScreen(
+      handWorldVecRef.current,
+      camera,
+      size.width,
+      size.height,
+      activePreset,
+      lensCurvature
+    );
+    emittedHandAnchorRef.current = {
+      boneName,
+      x: proj.screenX,
+      y: proj.screenY,
+    };
+    onHandAnchorChangeRef.current({
+      mannequinId: record.id,
+      side,
+      boneName,
+      screenX: proj.screenX,
+      screenY: proj.screenY,
+    });
+  }, [
+    isActive,
+    instance,
+    record.id,
+    record.locked,
+    record.visible,
+    jointsDisplay,
+    controlMode,
+    moveBodyEnabled,
+    selectedBone,
+    activePreset,
+    lensCurvature,
+    camera,
+    size.width,
+    size.height,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (emittedHandAnchorRef.current) {
+        emittedHandAnchorRef.current = null;
+        onHandAnchorChangeRef.current(null);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (deselectTrigger === lastDeselectTriggerRef.current) return;
@@ -1255,7 +1467,49 @@ function MannequinInstance({
     invalidate,
   ]);
 
-  useFrame((_, delta) => {
+  useFrame(({ camera: frameCam, size: frameSize }, delta) => {
+    if (
+      emittedHandAnchorRef.current &&
+      isActiveRef.current &&
+      !lockedRef.current &&
+      jointsDisplay === 'core' &&
+      controlMode === 'fk' &&
+      !moveBodyEnabled &&
+      selectedBoneRef.current &&
+      (selectedBoneRef.current.name === 'hand_l' ||
+        selectedBoneRef.current.name === 'hand_r')
+    ) {
+      const boneName = selectedBoneRef.current.name as 'hand_l' | 'hand_r';
+      const side: HandSide = boneName === 'hand_l' ? 'l' : 'r';
+      selectedBoneRef.current.getWorldPosition(handWorldVecRef.current);
+      const proj = projectWorldPointToScreen(
+        handWorldVecRef.current,
+        frameCam,
+        frameSize.width,
+        frameSize.height,
+        activePresetRef.current,
+        lensCurvatureRef.current
+      );
+      const prev = emittedHandAnchorRef.current;
+      if (
+        prev.boneName !== boneName ||
+        Math.hypot(prev.x - proj.screenX, prev.y - proj.screenY) >= 1.5
+      ) {
+        emittedHandAnchorRef.current = {
+          boneName,
+          x: proj.screenX,
+          y: proj.screenY,
+        };
+        onHandAnchorChangeRef.current({
+          mannequinId: record.id,
+          side,
+          boneName,
+          screenX: proj.screenX,
+          screenY: proj.screenY,
+        });
+      }
+    }
+
     if (record.locked || !gravityEnabled || !solverAwakeRef.current) return;
 
     const result = solverRef.current.step({
@@ -1796,6 +2050,8 @@ export function AnatomyModel({
   resetTrigger,
   deselectTrigger,
   isCoarsePointer,
+  activePreset,
+  lensCurvature,
   onSelectMannequin,
   onDraggingChange,
   onSelectBoneChange,
@@ -1807,6 +2063,7 @@ export function AnatomyModel({
   onMannequinBridgeChange,
   onInitialPoseSnapshot,
   onCommitPoseSnapshot,
+  onHandAnchorChange,
 }: AnatomyModelProps) {
   const [template, setTemplate] = useState<MannequinTemplate | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -1939,6 +2196,8 @@ export function AnatomyModel({
           resetTrigger={resetTrigger}
           deselectTrigger={deselectTrigger}
           isCoarsePointer={isCoarsePointer}
+          activePreset={activePreset}
+          lensCurvature={lensCurvature}
           onSelectMannequin={onSelectMannequin}
           onDraggingChange={onDraggingChange}
           onSelectBoneChange={onSelectBoneChange}
@@ -1950,6 +2209,7 @@ export function AnatomyModel({
           onMannequinBridgeChange={onMannequinBridgeChange}
           onInitialPoseSnapshot={onInitialPoseSnapshot}
           onCommitPoseSnapshot={onCommitPoseSnapshot}
+          onHandAnchorChange={onHandAnchorChange}
         />
       ))}
     </group>

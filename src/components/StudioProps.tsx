@@ -13,13 +13,14 @@ import { TransformControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { STUDIO_THEMES } from '@/data/studioThemes';
-import type { StudioThemeId } from '@/types/anatomy';
+import type { CameraPreset, StudioThemeId } from '@/types/anatomy';
 import type {
   PropDropCommand,
   PropTransformMode,
   StudioProp,
   StudioPropType,
 } from '@/types/props';
+import { attachCurvilinearPointerWarp } from '@/utils/lensWarp';
 
 interface DragGuardState {
   isDragging: boolean;
@@ -45,6 +46,8 @@ interface StudioPropsStageProps {
   groundEnabled: boolean;
   dropPropToFloorCommand: PropDropCommand | null;
   dragGuardRef: MutableRefObject<DragGuardState>;
+  activePreset: CameraPreset;
+  lensCurvature: number;
   onSelectProp: (id: string) => void;
   onUpdatePropTransform: (
     id: string,
@@ -147,6 +150,8 @@ export function StudioProps({
   groundEnabled,
   dropPropToFloorCommand,
   dragGuardRef,
+  activePreset,
+  lensCurvature,
   onSelectProp,
   onUpdatePropTransform,
   onDraggingChange,
@@ -158,6 +163,10 @@ export function StudioProps({
   const localDraggingRef = useRef(false);
   const lastDropSeqRef = useRef(dropPropToFloorCommand?.seq ?? 0);
   const tempBoxRef = useRef(new THREE.Box3());
+  const activePresetRef = useRef<CameraPreset>(activePreset);
+  const lensCurvatureRef = useRef<number>(lensCurvature);
+  activePresetRef.current = activePreset;
+  lensCurvatureRef.current = lensCurvature;
 
   const theme = STUDIO_THEMES[studioTheme];
   const propStyle = theme.prop;
@@ -259,7 +268,15 @@ export function StudioProps({
     };
 
     controls.addEventListener('dragging-changed', handleDraggingChanged);
+    const detachPointerWarp = attachCurvilinearPointerWarp(
+      transformRef.current,
+      () => ({
+        preset: activePresetRef.current,
+        curvature: lensCurvatureRef.current,
+      })
+    );
     return () => {
+      detachPointerWarp();
       controls.removeEventListener('dragging-changed', handleDraggingChanged);
       localDraggingRef.current = false;
       dragGuardRef.current.isDragging = false;
@@ -268,6 +285,8 @@ export function StudioProps({
   }, [
     selectedProp,
     selectedGroup,
+    propTransformMode,
+    activePreset,
     dragGuardRef,
     enforcePropFloor,
     readTransformPatch,

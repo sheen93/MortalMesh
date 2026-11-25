@@ -172,7 +172,7 @@ export const POSEABLE_BONE_NAMES: readonly string[] = [
   'ball_r',
 ];
 
-export type CameraPreset = '1-point' | '2-point' | '3-point';
+export type CameraPreset = '1-point' | '2-point' | '3-point' | '4-point' | '5-point';
 
 export interface CameraPresetConfig {
   id: CameraPreset;
@@ -180,33 +180,97 @@ export interface CameraPresetConfig {
   description: string;
   position: [number, number, number];
   target: [number, number, number];
+  fov: number;
 }
 
 export const CAMERA_PRESETS: Record<CameraPreset, CameraPresetConfig> = {
   '1-point': {
     id: '1-point',
-    label: '1-Point',
+    label: '1-PT',
     description: 'Front elevation (1 vanishing point)',
     position: [0, 1, 6],
     target: [0, 1, 0],
+    fov: 40,
   },
   '2-point': {
     id: '2-point',
-    label: '2-Point',
+    label: '2-PT',
     description: '45° eye-level turn (2 vanishing points)',
     position: [4.24, 1, 4.24],
     target: [0, 1, 0],
+    fov: 40,
   },
   '3-point': {
     id: '3-point',
-    label: '3-Point',
+    label: '3-PT',
     description: 'High-angle 3/4 view (3 vanishing points)',
     position: [3.8, 3.6, 3.8],
     target: [0, 0.9, 0],
+    fov: 40,
+  },
+  '4-point': {
+    id: '4-point',
+    label: '4-PT',
+    description: 'Vertical curvilinear panorama (4 vanishing points)',
+    position: [2.35, 1.0, 2.35],
+    target: [0, 0.95, 0],
+    fov: 62,
+  },
+  '5-point': {
+    id: '5-point',
+    label: '5-PT',
+    description: 'Hemispherical fisheye perspective (5 vanishing points)',
+    position: [1.9, 1.85, 1.9],
+    target: [0, 0.9, 0],
+    fov: 74,
   },
 };
 
-export const CAMERA_PRESET_ORDER: CameraPreset[] = ['1-point', '2-point', '3-point'];
+export const CAMERA_PRESET_ORDER: CameraPreset[] = [
+  '1-point',
+  '2-point',
+  '3-point',
+  '4-point',
+  '5-point',
+];
+
+export function isCameraPreset(value: string): value is CameraPreset {
+  return (
+    value === '1-point' ||
+    value === '2-point' ||
+    value === '3-point' ||
+    value === '4-point' ||
+    value === '5-point'
+  );
+}
+
+export function isCurvilinearPreset(preset: CameraPreset): boolean {
+  return preset === '4-point' || preset === '5-point';
+}
+
+export type HandSide = 'l' | 'r';
+
+export type HandGestureId =
+  | 'relaxed'
+  | 'open'
+  | 'spread'
+  | 'fist'
+  | 'grab'
+  | 'hold'
+  | 'point'
+  | 'peace'
+  | 'rock'
+  | 'middle-finger'
+  | 'thumbs-up'
+  | 'pinch';
+
+export interface HandScreenAnchor {
+  mannequinId: string;
+  side: HandSide;
+  boneName: 'hand_l' | 'hand_r';
+  screenX: number;
+  screenY: number;
+}
 
 export interface KeyLightSettings {
   azimuth: number; // 0..360 deg

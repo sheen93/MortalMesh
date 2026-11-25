@@ -8,12 +8,14 @@ import {
   type CSSProperties,
 } from 'react';
 import { FloatingSidebar } from '@/components/FloatingSidebar';
+import { HandGesturePopover } from '@/components/HandGesturePopover';
 import { PoseLibraryModal } from '@/components/PoseLibraryModal';
 import { usePwaState } from '@/components/PwaManager';
 import { ShortcutsModal } from '@/components/ShortcutsModal';
 import { StudioCanvas } from '@/components/StudioCanvas';
 import { StudioDock } from '@/components/StudioDock';
 import { StudioToast, type StudioToastData } from '@/components/StudioToast';
+import { HAND_GESTURE_BY_ID } from '@/data/handGestures';
 import { getPosePreset } from '@/data/poses';
 import {
   isStudioThemeId,
@@ -31,6 +33,9 @@ import {
   type CameraPreset,
   type DampingPreset,
   type ElevationCommand,
+  type HandGestureId,
+  type HandScreenAnchor,
+  type HandSide,
   type IKHandleId,
   type JointAngleCommand,
   type JointAngles,
@@ -87,6 +92,10 @@ import {
   saveSceneToLocalStorage,
   serializeSceneFile,
 } from '@/utils/sceneSerialization';
+import {
+  clampLensCurvature,
+  DEFAULT_LENS_CURVATURE,
+} from '@/utils/lensWarp';
 
 const TOAST_DURATION_MS = 2500;
 const AUTOSAVE_DEBOUNCE_MS = 600;
@@ -103,6 +112,10 @@ export default function HomePage() {
     muscle: false,
   });
   const [activePreset, setActivePreset] = useState<CameraPreset>('1-point');
+  const [lensCurvature, setLensCurvature] = useState<number>(
+    DEFAULT_LENS_CURVATURE
+  );
+  const [showPerspectiveGuides, setShowPerspectiveGuides] = useState(true);
   const [snapTrigger, setSnapTrigger] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [jointsDisplay, setJointsDisplay] = useState<JointsDisplayMode>('core');
@@ -116,6 +129,9 @@ export default function HomePage() {
   const [selectedIKHandle, setSelectedIKHandle] = useState<IKHandleId | null>(
     null
   );
+  const [handAnchor, setHandAnchor] = useState<HandScreenAnchor | null>(null);
+  const [activeHandGestureId, setActiveHandGestureId] =
+    useState<HandGestureId | null>(null);
   const [jointAngleCommand, setJointAngleCommand] =
     useState<JointAngleCommand | null>(null);
 
@@ -282,6 +298,13 @@ export default function HomePage() {
       setJointLimitsEnabled(sceneFile.studio.jointLimitsEnabled);
       setControlMode(sceneFile.studio.controlMode);
       setKeyLight({ ...sceneFile.studio.keyLight });
+      setActivePreset(sceneFile.studio.perspectiveMode ?? '1-point');
+      setLensCurvature(
+        clampLensCurvature(
+          sceneFile.studio.lensCurvature ?? DEFAULT_LENS_CURVATURE
+        )
+      );
+      setShowPerspectiveGuides(sceneFile.studio.showPerspectiveGuides ?? true);
 
       setMannequins(restoredMannequins);
       setActiveMannequinId(sceneFile.activeMannequinId);
@@ -292,6 +315,8 @@ export default function HomePage() {
       setSelectedBoneName(null);
       setSelectedBoneAngles(ZERO_JOINT_ANGLES);
       setSelectedIKHandle(null);
+      setHandAnchor(null);
+      setActiveHandGestureId(null);
       setMoveBodyEnabled(false);
       setSceneLoadId((prev) => prev + 1);
 
@@ -366,6 +391,9 @@ export default function HomePage() {
         jointLimitsEnabled,
         controlMode,
         keyLight,
+        perspectiveMode: activePreset,
+        lensCurvature,
+        showPerspectiveGuides,
       },
       camera: liveCamera,
       bookmarks,
@@ -374,6 +402,8 @@ export default function HomePage() {
     mannequins,
     activeMannequin.id,
     activePreset,
+    lensCurvature,
+    showPerspectiveGuides,
     studioProps,
     studioTheme,
     groundEnabled,
@@ -680,8 +710,20 @@ export default function HomePage() {
       [targetId]: nextHistory,
     }));
     applyRestoredSnapshot(targetId, nextHistory.present);
+    if (handAnchor && handAnchor.mannequinId === targetId) {
+      setActiveHandGestureId(
+        bridgesRef.current.get(targetId)?.getHandGestureId(handAnchor.side) ??
+          null
+      );
+    }
     setPoseCommitVersion((prev) => prev + 1);
-  }, [activeLocked, activeHistory, activeMannequin.id, applyRestoredSnapshot]);
+  }, [
+    activeLocked,
+    activeHistory,
+    activeMannequin.id,
+    applyRestoredSnapshot,
+    handAnchor,
+  ]);
 
   const handleRedo = useCallback(() => {
     if (activeLocked || activeHistory.future.length === 0) return;
@@ -695,8 +737,20 @@ export default function HomePage() {
       [targetId]: nextHistory,
     }));
     applyRestoredSnapshot(targetId, nextHistory.present);
+    if (handAnchor && handAnchor.mannequinId === targetId) {
+      setActiveHandGestureId(
+        bridgesRef.current.get(targetId)?.getHandGestureId(handAnchor.side) ??
+          null
+      );
+    }
     setPoseCommitVersion((prev) => prev + 1);
-  }, [activeLocked, activeHistory, activeMannequin.id, applyRestoredSnapshot]);
+  }, [
+    activeLocked,
+    activeHistory,
+    activeMannequin.id,
+    applyRestoredSnapshot,
+    handAnchor,
+  ]);
 
   const handleMirrorPose = useCallback(() => {
     if (activeLocked) {
@@ -821,6 +875,10 @@ export default function HomePage() {
     setMoveBodyEnabled(false);
     setKeyLight(DEFAULT_KEY_LIGHT);
     setActivePreset('1-point');
+    setLensCurvature(DEFAULT_LENS_CURVATURE);
+    setShowPerspectiveGuides(true);
+    setHandAnchor(null);
+    setActiveHandGestureId(null);
     setSnapTrigger((prev) => prev + 1);
     setSceneLoadId((prev) => prev + 1);
     showToast('Started new blank scene', 'success');
@@ -1037,6 +1095,80 @@ export default function HomePage() {
   const handleSelectCameraPreset = useCallback((preset: CameraPreset) => {
     setActivePreset(preset);
     setSnapTrigger((prev) => prev + 1);
+  }, []);
+
+  const handleHandAnchorChange = useCallback(
+    (anchor: HandScreenAnchor | null) => {
+      setHandAnchor(anchor);
+      if (anchor) {
+        const matched =
+          bridgesRef.current
+            .get(anchor.mannequinId)
+            ?.getHandGestureId(anchor.side) ?? null;
+        setActiveHandGestureId(matched);
+      } else {
+        setActiveHandGestureId(null);
+      }
+    },
+    []
+  );
+
+  const handleApplyHandGesture = useCallback(
+    (side: HandSide, gestureId: HandGestureId) => {
+      if (activeLocked) {
+        showToast('Unlock figure to set hand gesture', 'error');
+        return;
+      }
+      const targetId = activeMannequin.id;
+      const updated = bridgesRef.current
+        .get(targetId)
+        ?.applyHandGesture(side, gestureId);
+      if (!updated) return;
+
+      setMannequins((prev) =>
+        prev.map((m) =>
+          m.id === targetId ? { ...m, activePosePresetId: null } : m
+        )
+      );
+      setActiveHandGestureId(gestureId);
+      handleCommitPoseSnapshot(targetId, updated);
+      showToast(`${HAND_GESTURE_BY_ID[gestureId].label} applied`, 'success');
+    },
+    [activeLocked, activeMannequin.id, handleCommitPoseSnapshot, showToast]
+  );
+
+  const handleMirrorHandGesture = useCallback(
+    (fromSide: HandSide) => {
+      if (activeLocked) {
+        showToast('Unlock figure to mirror hand gesture', 'error');
+        return;
+      }
+      const targetId = activeMannequin.id;
+      const bridge = bridgesRef.current.get(targetId);
+      const updated = bridge?.mirrorHandGesture(fromSide);
+      if (!updated) return;
+
+      setMannequins((prev) =>
+        prev.map((m) =>
+          m.id === targetId ? { ...m, activePosePresetId: null } : m
+        )
+      );
+      setActiveHandGestureId(bridge?.getHandGestureId(fromSide) ?? null);
+      handleCommitPoseSnapshot(targetId, updated);
+      showToast(
+        fromSide === 'l'
+          ? 'Left hand mirrored to Right'
+          : 'Right hand mirrored to Left',
+        'success'
+      );
+    },
+    [activeLocked, activeMannequin.id, handleCommitPoseSnapshot, showToast]
+  );
+
+  const handleCloseHandPopover = useCallback(() => {
+    setHandAnchor(null);
+    setActiveHandGestureId(null);
+    setExternalDeselectTrigger((prev) => prev + 1);
   }, []);
 
   const handleSelectBoneChange = useCallback(
@@ -1318,9 +1450,13 @@ export default function HomePage() {
       setIsShortcutsOpen(false);
       return;
     }
+    if (handAnchor) {
+      setHandAnchor(null);
+      setActiveHandGestureId(null);
+    }
     setSelectedPropId(null);
     setExternalDeselectTrigger((prev) => prev + 1);
-  }, [isPoseLibraryOpen, isSnapshotOpen, isShortcutsOpen]);
+  }, [isPoseLibraryOpen, isSnapshotOpen, isShortcutsOpen, handAnchor]);
 
   const handleInstallApp = useCallback(async () => {
     const outcome = await pwa.promptInstall();
@@ -1493,14 +1629,27 @@ export default function HomePage() {
         onToggleShortcuts={handleToggleShortcuts}
         viewport={viewport}
       />
+      <HandGesturePopover
+        anchor={handAnchor}
+        activeGestureId={activeHandGestureId}
+        studioTheme={studioTheme}
+        viewport={viewport}
+        onApplyGesture={handleApplyHandGesture}
+        onMirrorHand={handleMirrorHandGesture}
+        onClose={handleCloseHandPopover}
+      />
       <StudioCanvas
         mannequins={mannequins}
         activeMannequinId={activeMannequin.id}
         sceneLoadId={sceneLoadId}
         studioTheme={studioTheme}
         activePreset={activePreset}
+        lensCurvature={lensCurvature}
+        showPerspectiveGuides={showPerspectiveGuides}
         snapTrigger={snapTrigger}
         onSelectCameraPreset={handleSelectCameraPreset}
+        onChangeLensCurvature={setLensCurvature}
+        onTogglePerspectiveGuides={setShowPerspectiveGuides}
         isDragging={isDragging}
         onDraggingChange={setIsDragging}
         jointsDisplay={jointsDisplay}
@@ -1537,6 +1686,7 @@ export default function HomePage() {
         onMannequinBridgeChange={handleMannequinBridgeChange}
         onInitialPoseSnapshot={handleInitialPoseSnapshot}
         onCommitPoseSnapshot={handleCommitPoseSnapshot}
+        onHandAnchorChange={handleHandAnchorChange}
         onSnapshotBridgeReady={handleSnapshotBridgeReady}
         onCameraBridgeReady={handleCameraBridgeReady}
       />

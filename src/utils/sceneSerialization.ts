@@ -1,5 +1,15 @@
 import { isStudioThemeId } from '@/data/studioThemes';
-import type { DampingPreset, KeyLightSettings, PoseControlMode } from '@/types/anatomy';
+import {
+  isCameraPreset,
+  type CameraPreset,
+  type DampingPreset,
+  type KeyLightSettings,
+  type PoseControlMode,
+} from '@/types/anatomy';
+import {
+  clampLensCurvature,
+  DEFAULT_LENS_CURVATURE,
+} from '@/utils/lensWarp';
 import type { PoseSnapshot, Vec3Tuple } from '@/types/poseIO';
 import { MAX_STUDIO_PROPS, type StudioProp, type StudioPropType } from '@/types/props';
 import {
@@ -134,6 +144,11 @@ export function serializeSceneFile({
         elevation: studio.keyLight.elevation,
         intensity: studio.keyLight.intensity,
       },
+      perspectiveMode: studio.perspectiveMode ?? '1-point',
+      lensCurvature: clampLensCurvature(
+        studio.lensCurvature ?? DEFAULT_LENS_CURVATURE
+      ),
+      showPerspectiveGuides: studio.showPerspectiveGuides ?? true,
     },
     camera: {
       position: [camera.position[0], camera.position[1], camera.position[2]],
@@ -366,6 +381,16 @@ export function parseSceneFile(raw: unknown): ParseSceneResult {
     return { ok: false, error: 'Invalid scene JSON: invalid keyLight settings' };
   }
 
+  const perspectiveMode: CameraPreset =
+    typeof s.perspectiveMode === 'string' && isCameraPreset(s.perspectiveMode)
+      ? s.perspectiveMode
+      : '1-point';
+  const lensCurvature = isFiniteNumber(s.lensCurvature)
+    ? clampLensCurvature(s.lensCurvature)
+    : DEFAULT_LENS_CURVATURE;
+  const showPerspectiveGuides =
+    typeof s.showPerspectiveGuides === 'boolean' ? s.showPerspectiveGuides : true;
+
   const parsedCamera = parseCameraView(raw.camera, 'camera');
   if (!parsedCamera.ok) {
     return { ok: false, error: parsedCamera.error };
@@ -415,6 +440,9 @@ export function parseSceneFile(raw: unknown): ParseSceneResult {
         jointLimitsEnabled: s.jointLimitsEnabled,
         controlMode: s.controlMode as PoseControlMode,
         keyLight,
+        perspectiveMode,
+        lensCurvature,
+        showPerspectiveGuides,
       },
       camera: parsedCamera.view,
       bookmarks: parsedBookmarks,
