@@ -1,0 +1,839 @@
+'use client';
+
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentRef,
+  type MutableRefObject,
+  type RefObject,
+} from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { CameraControls, Grid } from '@react-three/drei';
+import CameraControlsImpl from 'camera-controls';
+import * as THREE from 'three';
+import { AnatomyModel } from '@/components/AnatomyModel';
+import { StudioProps } from '@/components/StudioProps';
+import { ViewportGizmo } from '@/components/ViewportGizmo';
+import { STUDIO_THEMES, type StudioThemeSpec } from '@/data/studioThemes';
+import type { ViewportProfile } from '@/hooks/useViewportProfile';
+import {
+  CAMERA_PRESETS,
+  type CameraPreset,
+  type DampingPreset,
+  type ElevationCommand,
+  type IKHandleId,
+  type JointAngleCommand,
+  type JointAngles,
+  type JointsDisplayMode,
+  type KeyLightSettings,
+  type PoseControlMode,
+  type PosePresetCommand,
+  type SnapshotBridge,
+  type SnapshotOptions,
+  type SnapshotResult,
+  type StudioThemeId,
+} from '@/types/anatomy';
+import type { PoseBridge, PoseSnapshot } from '@/types/poseIO';
+import type {
+  PropDropCommand,
+  PropTransformMode,
+  StudioProp,
+} from '@/types/props';
+import type { MannequinRecord } from '@/types/scene';
+import type {
+  CameraBookmark,
+  CameraBridge,
+  CameraViewState,
+} from '@/types/sceneIO';
+import { formatPoseTimestamp } from '@/utils/poseSerialization';
+
+interface StudioCanvasProps {
+  mannequins: readonly MannequinRecord[];
+  activeMannequinId: string;
+  sceneLoadId: number;
+  studioTheme: StudioThemeId;
+  activePreset: CameraPreset;
+  snapTrigger: number;
+  onSelectCameraPreset: (preset: CameraPreset) => void;
+  isDragging: boolean;
+  onDraggingChange: (isDragging: boolean) => void;
+  jointsDisplay: JointsDisplayMode;
+  controlMode: PoseControlMode;
+  jointLimitsEnabled: boolean;
+  jointAngleCommand: JointAngleCommand | null;
+  groundEnabled: boolean;
+  elevationCommand: ElevationCommand | null;
+  dropToFloorTrigger: number;
+  moveBodyEnabled: boolean;
+  posePresetCommand: PosePresetCommand | null;
+  gravityEnabled: boolean;
+  dampingPreset: DampingPreset;
+  resetTrigger: number;
+  externalDeselectTrigger: number;
+  keyLight: KeyLightSettings;
+  studioProps: readonly StudioProp[];
+  selectedPropId: string | null;
+  propTransformMode: PropTransformMode;
+  dropPropToFloorCommand: PropDropCommand | null;
+  bookmarks: readonly CameraBookmark[];
+  viewport: ViewportProfile;
+  onSelectMannequin: (id: string) => void;
+  onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
+  onSelectIKHandleChange: (handleId: IKHandleId | null) => void;
+  onBoneAnglesChange: (angles: JointAngles) => void;
+  onElevationSync: (id: string, elevationY: number) => void;
+  onMoveBodyChange: (enabled: boolean) => void;
+  onSelectProp: (id: string | null) => void;
+  onUpdatePropTransform: (
+    id: string,
+    patch: {
+      position: [number, number, number];
+      rotation: [number, number, number];
+      scale: [number, number, number];
+    }
+  ) => void;
+  onAddBookmark: () => void;
+  onSelectBookmark: (bookmark: CameraBookmark) => void;
+  onDeleteBookmark: (id: string) => void;
+  onMannequinBridgeChange: (id: string, bridge: PoseBridge | null) => void;
+  onInitialPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
+  onCommitPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
+  onSnapshotBridgeReady: (bridge: SnapshotBridge | null) => void;
+  onCameraBridgeReady: (bridge: CameraBridge | null) => void;
+}
+
+const KEY_LIGHT_RADIUS = 7;
+
+function formatMatrixNum(value: number): string {
+  return Math.abs(value) < 1e-6 ? '0' : value.toFixed(6);
+}
+
+function StudioLighting({
+  theme,
+  keyLight,
+}: {
+  theme: StudioThemeSpec;
+  keyLight: KeyLightSettings;
+}) {
+  const { invalidate } = useThree();
+  const { lighting } = theme;
+
+  const keyLightTarget = useMemo(() => {
+    const targetObj = new THREE.Object3D();
+    targetObj.position.set(0, 1, 0);
+    return targetObj;
+  }, []);
+
+  const azRad = THREE.MathUtils.degToRad(keyLight.azimuth);
+  const elRad = THREE.MathUtils.degToRad(keyLight.elevation);
+  const horiz = KEY_LIGHT_RADIUS * Math.cos(elRad);
+  const keyPosition: [number, number, number] = [
+    horiz * Math.sin(azRad),
+    1 + KEY_LIGHT_RADIUS * Math.sin(elRad),
+    horiz * Math.cos(azRad),
+  ];
+
+  useEffect(() => {
+    keyLightTarget.updateMatrixWorld();
+    invalidate();
+  }, [
+    keyLight.azimuth,
+    keyLight.elevation,
+    keyLight.intensity,
+    theme,
+    keyLightTarget,
+    invalidate,
+  ]);
+
+  return (
+    <>
+      <ambientLight intensity={lighting.ambient} color="#ffffff" />
+      <hemisphereLight
+        args={[
+          lighting.hemisphereSky,
+          lighting.hemisphereGround,
+          lighting.hemisphereIntensity,
+        ]}
+      />
+      <primitive object={keyLightTarget} />
+      <directionalLight
+        position={keyPosition}
+        target={keyLightTarget}
+        intensity={keyLight.intensity}
+        color="#ffffff"
+        castShadow
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-bias={-0.0004}
+        shadow-normalBias={0.02}
+        shadow-radius={4}
+        shadow-camera-left={-3.5}
+        shadow-camera-right={3.5}
+        shadow-camera-top={3.5}
+        shadow-camera-bottom={-3.5}
+        shadow-camera-near={0.5}
+        shadow-camera-far={25}
+      />
+      <directionalLight
+        position={[-5, 4, 3]}
+        intensity={lighting.fill}
+        color="#ffffff"
+      />
+      <directionalLight
+        position={[0, 6, -6]}
+        intensity={lighting.rim}
+        color="#ffffff"
+      />
+    </>
+  );
+}
+
+interface SnapshotExporterProps {
+  floorGroupRef: RefObject<THREE.Group>;
+  onSnapshotBridgeReady: (bridge: SnapshotBridge | null) => void;
+}
+
+function SnapshotExporter({
+  floorGroupRef,
+  onSnapshotBridgeReady,
+}: SnapshotExporterProps) {
+  const { gl, scene, camera, invalidate } = useThree();
+
+  const captureSnapshot = useCallback(
+    (options: SnapshotOptions): SnapshotResult | null => {
+      const visibilityBackup: Array<{ obj: THREE.Object3D; visible: boolean }> =
+        [];
+      const seen = new Set<THREE.Object3D>();
+
+      const hideObject = (obj: THREE.Object3D | null | undefined) => {
+        if (!obj || seen.has(obj)) return;
+        seen.add(obj);
+        visibilityBackup.push({ obj, visible: obj.visible });
+        obj.visible = false;
+      };
+
+      scene.traverse((child) => {
+        if (
+          child.name === 'mortal-mesh-hitboxes' ||
+          child.name === 'mortal-mesh-ik-handles' ||
+          child.name === 'mortal-mesh-gizmo' ||
+          child.name === 'mortal-mesh-prop-gizmo' ||
+          child.type === 'TransformControls'
+        ) {
+          hideObject(child);
+        }
+      });
+
+      if (options.transparent) {
+        hideObject(floorGroupRef.current);
+      }
+
+      const prevBackground = scene.background;
+      const prevFog = scene.fog;
+      const prevClearAlpha = gl.getClearAlpha();
+      const prevPixelRatio = gl.getPixelRatio();
+      const targetPixelRatio =
+        options.scale === 2
+          ? Math.min(Math.max(window.devicePixelRatio * 2, 2), 3)
+          : Math.min(window.devicePixelRatio || 1, 2);
+
+      let dataUrl = '';
+      let width = gl.domElement.width;
+      let height = gl.domElement.height;
+
+      try {
+        if (options.transparent) {
+          scene.background = null;
+          scene.fog = null;
+          gl.setClearAlpha(0);
+        }
+
+        if (Math.abs(targetPixelRatio - prevPixelRatio) > 1e-3) {
+          gl.setPixelRatio(targetPixelRatio);
+        }
+
+        gl.render(scene, camera);
+        width = gl.domElement.width;
+        height = gl.domElement.height;
+        dataUrl = gl.domElement.toDataURL('image/png');
+      } finally {
+        for (const entry of visibilityBackup) {
+          entry.obj.visible = entry.visible;
+        }
+        scene.background = prevBackground;
+        scene.fog = prevFog;
+        gl.setClearAlpha(prevClearAlpha);
+        if (Math.abs(gl.getPixelRatio() - prevPixelRatio) > 1e-3) {
+          gl.setPixelRatio(prevPixelRatio);
+        }
+        gl.render(scene, camera);
+        invalidate();
+      }
+
+      if (!dataUrl) return null;
+
+      const prefix = options.transparent
+        ? 'mortal-mesh-cutout'
+        : 'mortal-mesh-studio';
+      const filename = `${prefix}-${formatPoseTimestamp()}.png`;
+
+      const anchor = document.createElement('a');
+      anchor.href = dataUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+
+      return { filename, width, height };
+    },
+    [gl, scene, camera, invalidate, floorGroupRef]
+  );
+
+  useEffect(() => {
+    onSnapshotBridgeReady({ captureSnapshot });
+    return () => onSnapshotBridgeReady(null);
+  }, [captureSnapshot, onSnapshotBridgeReady]);
+
+  return null;
+}
+
+function roundCam3(value: number): number {
+  const rounded = Math.round(value * 1000) / 1000;
+  return Object.is(rounded, -0) || Math.abs(rounded) < 1e-4 ? 0 : rounded;
+}
+
+interface CameraRigProps {
+  controlsRef: RefObject<ComponentRef<typeof CameraControls>>;
+  viewCubeRef: RefObject<HTMLDivElement>;
+  invalidateRef: MutableRefObject<(() => void) | null>;
+  activePreset: CameraPreset;
+  snapTrigger: number;
+  isDragging: boolean;
+  onCameraBridgeReady: (bridge: CameraBridge | null) => void;
+}
+
+function CameraRig({
+  controlsRef,
+  viewCubeRef,
+  invalidateRef,
+  activePreset,
+  snapTrigger,
+  isDragging,
+  onCameraBridgeReady,
+}: CameraRigProps) {
+  const { camera, invalidate } = useThree();
+  const hasMountedRef = useRef(false);
+  const lastTransformRef = useRef('');
+
+  useEffect(() => {
+    invalidateRef.current = invalidate;
+    return () => {
+      invalidateRef.current = null;
+    };
+  }, [invalidate, invalidateRef]);
+
+  const syncViewCube = useCallback(() => {
+    const cubeEl = viewCubeRef.current;
+    if (!cubeEl) return;
+
+    const e = camera.matrixWorldInverse.elements;
+    const transform = `matrix3d(${formatMatrixNum(e[0])},${formatMatrixNum(-e[1])},${formatMatrixNum(e[2])},0,${formatMatrixNum(-e[4])},${formatMatrixNum(e[5])},${formatMatrixNum(-e[6])},0,${formatMatrixNum(e[8])},${formatMatrixNum(-e[9])},${formatMatrixNum(e[10])},0,0,0,0,1)`;
+
+    if (transform !== lastTransformRef.current) {
+      lastTransformRef.current = transform;
+      cubeEl.style.transform = transform;
+    }
+  }, [camera, viewCubeRef]);
+
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+
+    controls.touches.one = CameraControlsImpl.ACTION.TOUCH_ROTATE;
+    controls.touches.two = CameraControlsImpl.ACTION.TOUCH_DOLLY_TRUCK;
+    controls.touches.three = CameraControlsImpl.ACTION.TOUCH_TRUCK;
+  }, [controlsRef]);
+
+  useEffect(() => {
+    const bridge: CameraBridge = {
+      getView: () => {
+        const controls = controlsRef.current;
+        if (!controls) return null;
+        const pos = new THREE.Vector3();
+        const tgt = new THREE.Vector3();
+        controls.getPosition(pos);
+        controls.getTarget(tgt);
+        return {
+          position: [roundCam3(pos.x), roundCam3(pos.y), roundCam3(pos.z)],
+          target: [roundCam3(tgt.x), roundCam3(tgt.y), roundCam3(tgt.z)],
+        };
+      },
+      setView: (view: CameraViewState, animate = true) => {
+        const controls = controlsRef.current;
+        if (!controls) return;
+        const allNums = [...view.position, ...view.target];
+        if (allNums.some((n) => !Number.isFinite(n))) return;
+
+        void controls.setLookAt(
+          view.position[0],
+          view.position[1],
+          view.position[2],
+          view.target[0],
+          view.target[1],
+          view.target[2],
+          animate
+        );
+        camera.updateMatrixWorld();
+        syncViewCube();
+        invalidate();
+      },
+      invalidateView: () => invalidate(),
+    };
+
+    onCameraBridgeReady(bridge);
+    return () => onCameraBridgeReady(null);
+  }, [camera, controlsRef, invalidate, syncViewCube, onCameraBridgeReady]);
+
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+
+    const { position, target } = CAMERA_PRESETS[activePreset];
+    const shouldAnimate = hasMountedRef.current;
+    hasMountedRef.current = true;
+
+    void controls.setLookAt(
+      position[0],
+      position[1],
+      position[2],
+      target[0],
+      target[1],
+      target[2],
+      shouldAnimate
+    );
+    camera.updateMatrixWorld();
+    syncViewCube();
+    invalidate();
+  }, [activePreset, snapTrigger, camera, controlsRef, invalidate, syncViewCube]);
+
+  useFrame(() => {
+    syncViewCube();
+  });
+
+  return (
+    <CameraControls
+      ref={controlsRef}
+      makeDefault
+      enabled={!isDragging}
+      minDistance={1.5}
+      maxDistance={15}
+      smoothTime={0.35}
+      onChange={() => syncViewCube()}
+    />
+  );
+}
+
+function InfiniteStudioFloor({
+  groupRef,
+  theme,
+  groundEnabled,
+}: {
+  groupRef: RefObject<THREE.Group>;
+  theme: StudioThemeSpec;
+  groundEnabled: boolean;
+}) {
+  const { invalidate } = useThree();
+
+  useEffect(() => {
+    invalidate();
+  }, [theme, groundEnabled, invalidate]);
+
+  return (
+    <group ref={groupRef} name="mortal-mesh-floor">
+      {groundEnabled && (
+        <>
+          <Grid
+            position={[0, 0.001, 0]}
+            args={[30, 30]}
+            infiniteGrid
+            fadeDistance={24}
+            fadeStrength={2.2}
+            cellSize={0.25}
+            sectionSize={1.0}
+            cellThickness={0.55}
+            sectionThickness={1.0}
+            cellColor={theme.gridCellColor}
+            sectionColor={theme.gridSectionColor}
+            side={THREE.DoubleSide}
+          />
+          <mesh
+            position={[0, 0, 0]}
+            rotation={[-Math.PI / 2, 0, 0]}
+            receiveShadow
+          >
+            <planeGeometry args={[100, 100]} />
+            <shadowMaterial
+              transparent
+              opacity={theme.shadowOpacity}
+              color="#000000"
+            />
+          </mesh>
+        </>
+      )}
+
+      {/* Subtle CAD origin axis marker */}
+      <mesh position={[0, 0.002, 0]}>
+        <boxGeometry args={[1.2, 0.001, 0.004]} />
+        <meshBasicMaterial
+          color={
+            groundEnabled ? theme.originAxisColor : theme.originAxisMutedColor
+          }
+          transparent
+          opacity={groundEnabled ? 0.55 : 0.25}
+        />
+      </mesh>
+      <mesh position={[0, 0.002, 0]}>
+        <boxGeometry args={[0.004, 0.001, 1.2]} />
+        <meshBasicMaterial
+          color={
+            groundEnabled ? theme.originAxisColor : theme.originAxisMutedColor
+          }
+          transparent
+          opacity={groundEnabled ? 0.55 : 0.25}
+        />
+      </mesh>
+    </group>
+  );
+}
+
+interface StageReferenceProps {
+  mannequins: readonly MannequinRecord[];
+  activeMannequinId: string;
+  sceneLoadId: number;
+  studioTheme: StudioThemeId;
+  theme: StudioThemeSpec;
+  floorGroupRef: RefObject<THREE.Group>;
+  jointsDisplay: JointsDisplayMode;
+  controlMode: PoseControlMode;
+  jointLimitsEnabled: boolean;
+  jointAngleCommand: JointAngleCommand | null;
+  groundEnabled: boolean;
+  elevationCommand: ElevationCommand | null;
+  dropToFloorTrigger: number;
+  moveBodyEnabled: boolean;
+  posePresetCommand: PosePresetCommand | null;
+  gravityEnabled: boolean;
+  dampingPreset: DampingPreset;
+  resetTrigger: number;
+  deselectTrigger: number;
+  studioProps: readonly StudioProp[];
+  selectedPropId: string | null;
+  propTransformMode: PropTransformMode;
+  dropPropToFloorCommand: PropDropCommand | null;
+  propDragGuardRef: MutableRefObject<{ isDragging: boolean; lastDragEndTime: number }>;
+  isCoarsePointer: boolean;
+  onSelectMannequin: (id: string) => void;
+  onDraggingChange: (isDragging: boolean) => void;
+  onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
+  onSelectIKHandleChange: (handleId: IKHandleId | null) => void;
+  onBoneAnglesChange: (angles: JointAngles) => void;
+  onElevationSync: (id: string, elevationY: number) => void;
+  onMoveBodyChange: (enabled: boolean) => void;
+  onSelectProp: (id: string | null) => void;
+  onUpdatePropTransform: (
+    id: string,
+    patch: {
+      position: [number, number, number];
+      rotation: [number, number, number];
+      scale: [number, number, number];
+    }
+  ) => void;
+  onMannequinBridgeChange: (id: string, bridge: PoseBridge | null) => void;
+  onInitialPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
+  onCommitPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
+}
+
+function StageReference({
+  mannequins,
+  activeMannequinId,
+  sceneLoadId,
+  studioTheme,
+  theme,
+  floorGroupRef,
+  jointsDisplay,
+  controlMode,
+  jointLimitsEnabled,
+  jointAngleCommand,
+  groundEnabled,
+  elevationCommand,
+  dropToFloorTrigger,
+  moveBodyEnabled,
+  posePresetCommand,
+  gravityEnabled,
+  dampingPreset,
+  resetTrigger,
+  deselectTrigger,
+  studioProps,
+  selectedPropId,
+  propTransformMode,
+  dropPropToFloorCommand,
+  propDragGuardRef,
+  isCoarsePointer,
+  onSelectMannequin,
+  onDraggingChange,
+  onSelectBoneChange,
+  onSelectIKHandleChange,
+  onBoneAnglesChange,
+  onElevationSync,
+  onMoveBodyChange,
+  onSelectProp,
+  onUpdatePropTransform,
+  onMannequinBridgeChange,
+  onInitialPoseSnapshot,
+  onCommitPoseSnapshot,
+}: StageReferenceProps) {
+  return (
+    <group>
+      <AnatomyModel
+        mannequins={mannequins}
+        activeMannequinId={activeMannequinId}
+        sceneLoadId={sceneLoadId}
+        studioTheme={studioTheme}
+        jointsDisplay={jointsDisplay}
+        controlMode={controlMode}
+        jointLimitsEnabled={jointLimitsEnabled}
+        jointAngleCommand={jointAngleCommand}
+        groundEnabled={groundEnabled}
+        elevationCommand={elevationCommand}
+        dropToFloorTrigger={dropToFloorTrigger}
+        moveBodyEnabled={moveBodyEnabled}
+        selectedPropId={selectedPropId}
+        posePresetCommand={posePresetCommand}
+        gravityEnabled={gravityEnabled}
+        dampingPreset={dampingPreset}
+        resetTrigger={resetTrigger}
+        deselectTrigger={deselectTrigger}
+        isCoarsePointer={isCoarsePointer}
+        onSelectMannequin={onSelectMannequin}
+        onDraggingChange={onDraggingChange}
+        onSelectBoneChange={onSelectBoneChange}
+        onSelectIKHandleChange={onSelectIKHandleChange}
+        onBoneAnglesChange={onBoneAnglesChange}
+        onElevationSync={onElevationSync}
+        onMoveBodyChange={onMoveBodyChange}
+        onClearPropSelection={() => onSelectProp(null)}
+        onMannequinBridgeChange={onMannequinBridgeChange}
+        onInitialPoseSnapshot={onInitialPoseSnapshot}
+        onCommitPoseSnapshot={onCommitPoseSnapshot}
+      />
+
+      <StudioProps
+        propsList={studioProps}
+        selectedPropId={selectedPropId}
+        propTransformMode={propTransformMode}
+        studioTheme={studioTheme}
+        groundEnabled={groundEnabled}
+        dropPropToFloorCommand={dropPropToFloorCommand}
+        dragGuardRef={propDragGuardRef}
+        onSelectProp={(id) => onSelectProp(id)}
+        onUpdatePropTransform={onUpdatePropTransform}
+        onDraggingChange={onDraggingChange}
+      />
+
+      <InfiniteStudioFloor
+        groupRef={floorGroupRef}
+        theme={theme}
+        groundEnabled={groundEnabled}
+      />
+    </group>
+  );
+}
+
+export function StudioCanvas({
+  mannequins,
+  activeMannequinId,
+  sceneLoadId,
+  studioTheme,
+  activePreset,
+  snapTrigger,
+  onSelectCameraPreset,
+  isDragging,
+  onDraggingChange,
+  jointsDisplay,
+  controlMode,
+  jointLimitsEnabled,
+  jointAngleCommand,
+  groundEnabled,
+  elevationCommand,
+  dropToFloorTrigger,
+  moveBodyEnabled,
+  posePresetCommand,
+  gravityEnabled,
+  dampingPreset,
+  resetTrigger,
+  externalDeselectTrigger,
+  keyLight,
+  studioProps,
+  selectedPropId,
+  propTransformMode,
+  dropPropToFloorCommand,
+  bookmarks,
+  viewport,
+  onSelectMannequin,
+  onSelectBoneChange,
+  onSelectIKHandleChange,
+  onBoneAnglesChange,
+  onElevationSync,
+  onMoveBodyChange,
+  onSelectProp,
+  onUpdatePropTransform,
+  onAddBookmark,
+  onSelectBookmark,
+  onDeleteBookmark,
+  onMannequinBridgeChange,
+  onInitialPoseSnapshot,
+  onCommitPoseSnapshot,
+  onSnapshotBridgeReady,
+  onCameraBridgeReady,
+}: StudioCanvasProps) {
+  const [deselectTrigger, setDeselectTrigger] = useState(0);
+  const controlsRef = useRef<ComponentRef<typeof CameraControls>>(null);
+  const viewCubeRef = useRef<HTMLDivElement>(null);
+  const floorGroupRef = useRef<THREE.Group>(null);
+  const invalidateRef = useRef<(() => void) | null>(null);
+  const propDragGuardRef = useRef({ isDragging: false, lastDragEndTime: 0 });
+  const theme = STUDIO_THEMES[studioTheme];
+
+  const handleSelectViewCubeFace = useCallback(
+    (direction: [number, number, number]) => {
+      const controls = controlsRef.current;
+      if (!controls) return;
+
+      const targetVec = new THREE.Vector3();
+      controls.getTarget(targetVec);
+      const dist = Math.max(2.0, controls.distance);
+      const dir = new THREE.Vector3(
+        direction[0],
+        direction[1],
+        direction[2]
+      ).normalize();
+
+      void controls.setLookAt(
+        targetVec.x + dir.x * dist,
+        targetVec.y + dir.y * dist,
+        targetVec.z + dir.z * dist,
+        targetVec.x,
+        targetVec.y,
+        targetVec.z,
+        true
+      );
+      invalidateRef.current?.();
+    },
+    []
+  );
+
+  const handleViewCubeOrbitDrag = useCallback((dx: number, dy: number) => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+
+    void controls.rotate(-dx * 0.011, -dy * 0.011, false);
+    invalidateRef.current?.();
+  }, []);
+
+  return (
+    <div
+      className="studio-canvas-shell relative h-full w-full transition-colors duration-200"
+      style={{ backgroundColor: theme.bg }}
+    >
+      <Canvas
+        frameloop="demand"
+        shadows
+        dpr={[1, 2]}
+        camera={{ position: [0, 1, 6], fov: 40, near: 0.1, far: 100 }}
+        gl={{ antialias: true, alpha: true }}
+        onPointerMissed={() => {
+          setDeselectTrigger((prev) => prev + 1);
+          if (
+            !propDragGuardRef.current.isDragging &&
+            performance.now() - propDragGuardRef.current.lastDragEndTime >= 200
+          ) {
+            onSelectProp(null);
+          }
+        }}
+      >
+        <color attach="background" args={[theme.bg]} />
+        <fog attach="fog" args={[theme.bg, theme.fogNear, theme.fogFar]} />
+        <StudioLighting theme={theme} keyLight={keyLight} />
+        <CameraRig
+          controlsRef={controlsRef}
+          viewCubeRef={viewCubeRef}
+          invalidateRef={invalidateRef}
+          activePreset={activePreset}
+          snapTrigger={snapTrigger}
+          isDragging={isDragging}
+          onCameraBridgeReady={onCameraBridgeReady}
+        />
+        <StageReference
+          mannequins={mannequins}
+          activeMannequinId={activeMannequinId}
+          sceneLoadId={sceneLoadId}
+          studioTheme={studioTheme}
+          theme={theme}
+          floorGroupRef={floorGroupRef}
+          jointsDisplay={jointsDisplay}
+          controlMode={controlMode}
+          jointLimitsEnabled={jointLimitsEnabled}
+          jointAngleCommand={jointAngleCommand}
+          groundEnabled={groundEnabled}
+          elevationCommand={elevationCommand}
+          dropToFloorTrigger={dropToFloorTrigger}
+          moveBodyEnabled={moveBodyEnabled}
+          posePresetCommand={posePresetCommand}
+          gravityEnabled={gravityEnabled}
+          dampingPreset={dampingPreset}
+          resetTrigger={resetTrigger}
+          deselectTrigger={deselectTrigger + externalDeselectTrigger}
+          studioProps={studioProps}
+          selectedPropId={selectedPropId}
+          propTransformMode={propTransformMode}
+          dropPropToFloorCommand={dropPropToFloorCommand}
+          propDragGuardRef={propDragGuardRef}
+          isCoarsePointer={viewport.isCoarsePointer}
+          onSelectMannequin={onSelectMannequin}
+          onDraggingChange={onDraggingChange}
+          onSelectBoneChange={onSelectBoneChange}
+          onSelectIKHandleChange={onSelectIKHandleChange}
+          onBoneAnglesChange={onBoneAnglesChange}
+          onElevationSync={onElevationSync}
+          onMoveBodyChange={onMoveBodyChange}
+          onSelectProp={onSelectProp}
+          onUpdatePropTransform={onUpdatePropTransform}
+          onMannequinBridgeChange={onMannequinBridgeChange}
+          onInitialPoseSnapshot={onInitialPoseSnapshot}
+          onCommitPoseSnapshot={onCommitPoseSnapshot}
+        />
+        <SnapshotExporter
+          floorGroupRef={floorGroupRef}
+          onSnapshotBridgeReady={onSnapshotBridgeReady}
+        />
+      </Canvas>
+
+      <ViewportGizmo
+        cubeRef={viewCubeRef}
+        studioTheme={studioTheme}
+        activePreset={activePreset}
+        viewport={viewport}
+        bookmarks={bookmarks}
+        onSelectCameraPreset={onSelectCameraPreset}
+        onSelectFace={handleSelectViewCubeFace}
+        onOrbitDrag={handleViewCubeOrbitDrag}
+        onAddBookmark={onAddBookmark}
+        onSelectBookmark={onSelectBookmark}
+        onDeleteBookmark={onDeleteBookmark}
+      />
+    </div>
+  );
+}

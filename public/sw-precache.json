@@ -1,0 +1,33 @@
+{
+  "version": "eec374766132",
+  "generatedAt": "2026-11-25T21:36:43.189Z",
+  "urls": [
+    "/",
+    "/_next/static/4zc9-kcOTpu-tH6JaOQVw/_buildManifest.js",
+    "/_next/static/4zc9-kcOTpu-tH6JaOQVw/_ssgManifest.js",
+    "/_next/static/chunks/117-8e4c59e923d6a5e8.js",
+    "/_next/static/chunks/12-c3be9c0f4e01a818.js",
+    "/_next/static/chunks/app/_not-found/page-12d4e6e8548a2d4a.js",
+    "/_next/static/chunks/app/layout-4828418c2726d79b.js",
+    "/_next/static/chunks/app/page-76cc436b6ae115f2.js",
+    "/_next/static/chunks/b536a0f1-2b0e1f1523f4786e.js",
+    "/_next/static/chunks/fd9d1056-898d1c4f9326004a.js",
+    "/_next/static/chunks/framework-d1703057b07599d4.js",
+    "/_next/static/chunks/main-42291a07341cb7b4.js",
+    "/_next/static/chunks/main-app-75e34da1f459fafe.js",
+    "/_next/static/chunks/pages/_app-72b849fbd24ac258.js",
+    "/_next/static/chunks/pages/_error-7ba65e1336b92748.js",
+    "/_next/static/chunks/polyfills-42372ed130431b0a.js",
+    "/_next/static/chunks/webpack-a3c37fcbf859f6f9.js",
+    "/_next/static/css/98f4999ffc49b2eb.css",
+    "/draco/draco_decoder.js",
+    "/draco/draco_decoder.wasm",
+    "/draco/draco_wasm_wrapper.js",
+    "/icons/apple-touch-icon.png",
+    "/icons/icon-192.png",
+    "/icons/icon-512.png",
+    "/icons/icon-maskable-512.png",
+    "/manifest.webmanifest",
+    "/models/anatomy.glb"
+  ]
+}

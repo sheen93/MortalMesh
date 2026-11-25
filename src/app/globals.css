@@ -1,0 +1,165 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', ui-monospace,
+    SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+html,
+body {
+  height: 100dvh;
+  width: 100dvw;
+  margin: 0;
+  padding: 0;
+  background-color: #686E78;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.studio-canvas-shell {
+  touch-action: none;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.studio-modal-scroll {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (pointer: coarse) {
+  .studio-range {
+    height: 26px;
+  }
+
+  .studio-range::-webkit-slider-thumb {
+    width: 18px;
+    height: 18px;
+    margin-top: -7px;
+  }
+
+  .studio-range::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+/* Ultra-thin themed CAD studio scrollbar */
+.studio-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--studio-scroll-thumb, rgba(255, 255, 255, 0.18)) transparent;
+}
+
+.studio-scroll::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.studio-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.studio-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--studio-scroll-thumb, rgba(255, 255, 255, 0.18));
+  border-radius: 9999px;
+}
+
+.studio-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--studio-scroll-thumb-hover, rgba(255, 255, 255, 0.34));
+}
+
+/* Precision filled-track range slider */
+.studio-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 18px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.studio-range:focus-visible {
+  outline: 1.5px solid var(--studio-focus, #F4F4F5);
+  outline-offset: 2px;
+  border-radius: 9999px;
+}
+
+.studio-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    to right,
+    var(--studio-track-fill, #F4F4F5) 0%,
+    var(--studio-track-fill, #F4F4F5) var(--range-fill, 0%),
+    var(--studio-track, rgba(255, 255, 255, 0.16)) var(--range-fill, 0%),
+    var(--studio-track, rgba(255, 255, 255, 0.16)) 100%
+  );
+}
+
+.studio-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin-top: -4.5px;
+  background: var(--studio-thumb, #FFFFFF);
+  border: 2px solid var(--studio-thumb-border, #1E2025);
+  border-radius: 9999px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+  transition: transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 140ms ease;
+}
+
+.studio-range:hover::-webkit-slider-thumb,
+.studio-range:active::-webkit-slider-thumb {
+  transform: scale(1.14);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.36);
+}
+
+.studio-range::-moz-range-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    to right,
+    var(--studio-track-fill, #F4F4F5) 0%,
+    var(--studio-track-fill, #F4F4F5) var(--range-fill, 0%),
+    var(--studio-track, rgba(255, 255, 255, 0.16)) var(--range-fill, 0%),
+    var(--studio-track, rgba(255, 255, 255, 0.16)) 100%
+  );
+}
+
+.studio-range::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  background: var(--studio-thumb, #FFFFFF);
+  border: 2px solid var(--studio-thumb-border, #1E2025);
+  border-radius: 9999px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+  transition: transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 140ms ease;
+}
+
+.studio-range:hover::-moz-range-thumb,
+.studio-range:active::-moz-range-thumb {
+  transform: scale(1.14);
+}
+
+/* Interactive CSS-3D ViewCube */
+.viewcube-scene {
+  perspective: 420px;
+}
+
+.viewcube-cube {
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.viewcube-face {
+  backface-visibility: hidden;
+}
