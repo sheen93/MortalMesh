@@ -52,6 +52,7 @@ interface StudioDockProps {
   isShortcutsOpen: boolean;
   onToggleShortcuts: () => void;
   viewport: ViewportProfile;
+  isHudMinimized?: boolean;
 }
 
 const SNAPSHOT_BG_OPTIONS: ReadonlyArray<
@@ -109,6 +110,7 @@ export function StudioDock({
   isShortcutsOpen,
   onToggleShortcuts,
   viewport,
+  isHudMinimized = false,
 }: StudioDockProps) {
   const [snapshotBg, setSnapshotBg] = useState<'transparent' | 'studio'>(
     'transparent'
@@ -119,19 +121,33 @@ export function StudioDock({
   const { ui } = theme;
   const jointsVisible = jointsDisplay !== 'hidden';
   const touchSized = viewport.isMobile || viewport.isCoarsePointer;
-  const dockBtnHeight = touchSized ? 'min-h-[36px]' : '';
-  const dockBtnPad = viewport.isMobile ? 'px-2 py-1' : 'px-2.5 py-1.5';
-  const dockIconBox = touchSized ? 'h-9 w-8 sm:h-9 sm:w-9' : 'h-7 w-7';
+  const dockBtnHeight = viewport.isMobile
+    ? 'h-8'
+    : touchSized
+      ? 'min-h-[36px]'
+      : '';
+  const dockBtnPad = viewport.isMobile ? 'px-1.5 py-1' : 'px-2.5 py-1.5';
+  const dockIconBox = viewport.isMobile
+    ? 'h-8 w-7'
+    : touchSized
+      ? 'h-9 w-8 sm:h-9 sm:w-9'
+      : 'h-7 w-7';
+  const dockPointerClass = isHudMinimized
+    ? 'pointer-events-none'
+    : 'pointer-events-auto';
 
   return (
     <div
-      className="fixed left-1/2 -translate-x-1/2 z-20 flex max-w-[calc(100vw-env(safe-area-inset-left,0px)-env(safe-area-inset-right,0px)-1.5rem)] flex-col items-center gap-2 pointer-events-none select-none"
+      aria-hidden={isHudMinimized}
+      className={`fixed left-1/2 -translate-x-1/2 z-20 flex max-w-[calc(100vw-env(safe-area-inset-left,0px)-env(safe-area-inset-right,0px)-1rem)] flex-col items-center gap-2 pointer-events-none select-none transition-all duration-200 ${
+        isHudMinimized ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'
+      }`}
       style={{
         bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
       }}
     >
       {/* Joint Display Options Popover anchored above the dock */}
-      {isJointsPopoverOpen && (
+      {isJointsPopoverOpen && !isHudMinimized && (
         <div
           role="dialog"
           aria-label="Joint Display Options"
@@ -178,7 +194,7 @@ export function StudioDock({
       )}
 
       {/* Frosted Snapshot Popover anchored above the dock */}
-      {isSnapshotOpen && (
+      {isSnapshotOpen && !isHudMinimized && (
         <div
           role="dialog"
           aria-label="PNG Snapshot Exporter"
@@ -240,8 +256,8 @@ export function StudioDock({
       <nav
         aria-label="Studio quick dock"
         onPointerDown={(event) => event.stopPropagation()}
-        className={`studio-scroll pointer-events-auto flex max-w-full items-center overflow-x-auto rounded-2xl transition-colors duration-200 ${
-          viewport.isMobile ? 'gap-1 px-1.5 py-1' : 'gap-1.5 px-2 py-1.5'
+        className={`studio-scroll ${dockPointerClass} flex max-w-full items-center overflow-x-auto rounded-2xl transition-colors duration-200 ${
+          viewport.isMobile ? 'gap-0.5 px-1.5 py-1' : 'gap-1.5 px-2 py-1.5'
         } ${ui.dock}`}
       >
         {/* FK / IK Mode Segmented Pill */}
@@ -260,7 +276,7 @@ export function StudioDock({
                 title={modeOpt.title}
                 onClick={() => onChangeControlMode(modeOpt.id)}
                 className={`flex ${dockBtnHeight} items-center justify-center rounded-[9px] py-1 font-mono text-[10.5px] font-semibold whitespace-nowrap transition-all duration-150 ${
-                  viewport.isMobile ? 'px-2' : 'px-2.5'
+                  viewport.isMobile ? 'px-1.5' : 'px-2.5'
                 } ${
                   isSelected ? ui.segmentedItemActive : ui.segmentedItem
                 }`}
@@ -277,7 +293,11 @@ export function StudioDock({
         />
 
         {/* Quick Posing Toggles */}
-        <div className="flex shrink-0 items-center gap-1">
+        <div
+          className={`flex shrink-0 items-center ${
+            viewport.isMobile ? 'gap-0.5' : 'gap-1'
+          }`}
+        >
           {/* Split Joints Control: Toggle Core<->Off + Chevron Popover (Core|All|Off + Joint Limits) */}
           <div className="flex shrink-0 items-center">
             <button
@@ -306,7 +326,7 @@ export function StudioDock({
               aria-expanded={isJointsPopoverOpen}
               title="Joint Display Options (Core / All / Off & Limits)"
               onClick={onToggleJointsPopover}
-              className={`flex ${dockBtnHeight} items-center justify-center rounded-r-xl border-l px-1.5 py-1 transition-all duration-150 ${ui.hairline} ${
+              className={`flex ${dockBtnHeight} items-center justify-center rounded-r-xl border-l px-1 py-1 transition-all duration-150 ${ui.hairline} ${
                 isJointsPopoverOpen || jointsVisible
                   ? ui.dockButtonActive
                   : ui.dockButton
@@ -370,7 +390,11 @@ export function StudioDock({
         />
 
         {/* History Undo / Redo & Reset */}
-        <div className="flex shrink-0 items-center gap-1">
+        <div
+          className={`flex shrink-0 items-center ${
+            viewport.isMobile ? 'gap-0.5' : 'gap-1'
+          }`}
+        >
           <button
             type="button"
             disabled={!canUndo}
@@ -425,7 +449,11 @@ export function StudioDock({
         />
 
         {/* Snapshot Exporter & Shortcuts Reference */}
-        <div className="flex shrink-0 items-center gap-1">
+        <div
+          className={`flex shrink-0 items-center ${
+            viewport.isMobile ? 'gap-0.5' : 'gap-1'
+          }`}
+        >
           <button
             type="button"
             aria-expanded={isSnapshotOpen}

@@ -31,6 +31,7 @@ interface StudioRightRailProps {
   studioTheme: StudioThemeId;
   activeTab: RightRailTab | null;
   viewport: ViewportProfile;
+  isHudMinimized?: boolean;
   isLocked: boolean;
   gravityEnabled: boolean;
   dampingPreset: DampingPreset;
@@ -76,6 +77,7 @@ export function StudioRightRail({
   studioTheme,
   activeTab,
   viewport,
+  isHudMinimized = false,
   isLocked,
   gravityEnabled,
   dampingPreset,
@@ -114,10 +116,17 @@ export function StudioRightRail({
   return (
     <div
       data-testid="studio-right-rail"
-      onPointerDown={(e) => e.stopPropagation()}
-      className={railWrapperClass}
+      aria-hidden={isHudMinimized}
+      onPointerDown={(e) => {
+        if (!isHudMinimized) e.stopPropagation();
+      }}
+      className={`${railWrapperClass} transition-all duration-200 ${
+        isHudMinimized
+          ? 'opacity-0 translate-x-4 pointer-events-none'
+          : 'opacity-100 translate-x-0'
+      }`}
     >
-      {activeTab !== null && (
+      {activeTab !== null && !isHudMinimized && (
         <aside
           role="dialog"
           aria-label={

@@ -19,6 +19,7 @@ import {
   type RightRailTab,
 } from '@/components/StudioRightRail';
 import { StudioToast, type StudioToastData } from '@/components/StudioToast';
+import { EyeIcon } from '@/components/StudioPrimitives';
 import { HAND_GESTURE_BY_ID } from '@/data/handGestures';
 import { MODEL_CATALOG, type MannequinModelId } from '@/data/modelCatalog';
 import { getPosePreset } from '@/data/poses';
@@ -171,6 +172,7 @@ export default function HomePage() {
 
   const [keyLight, setKeyLight] = useState<KeyLightSettings>(DEFAULT_KEY_LIGHT);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isHudMinimized, setIsHudMinimized] = useState(false);
   const [activeRightRailTab, setActiveRightRailTab] =
     useState<RightRailTab | null>(null);
   const [isJointsPopoverOpen, setIsJointsPopoverOpen] = useState(false);
@@ -1662,6 +1664,10 @@ export default function HomePage() {
       moveBodyEnabled
     ) {
       handleCloseContextualPopover();
+      return;
+    }
+    if (isHudMinimized) {
+      setIsHudMinimized(false);
     }
   }, [
     isPoseLibraryOpen,
@@ -1674,6 +1680,29 @@ export default function HomePage() {
     selectedIKHandle,
     selectedPropId,
     moveBodyEnabled,
+    isHudMinimized,
+    handleCloseContextualPopover,
+  ]);
+
+  const handleCanvasBackgroundTap = useCallback(() => {
+    if (isHudMinimized) {
+      setIsHudMinimized(false);
+      return;
+    }
+    setIsPoseLibraryOpen(false);
+    setIsSnapshotOpen(false);
+    setIsShortcutsOpen(false);
+    setIsJointsPopoverOpen(false);
+    setActiveRightRailTab(null);
+    if (viewport.isMobile || viewport.isCompactLandscape) {
+      setIsSidebarOpen(false);
+    }
+    handleCloseContextualPopover();
+    setIsHudMinimized(true);
+  }, [
+    isHudMinimized,
+    viewport.isMobile,
+    viewport.isCompactLandscape,
     handleCloseContextualPopover,
   ]);
 
@@ -1736,9 +1765,27 @@ export default function HomePage() {
       }}
     >
       <StudioToast toast={toast} studioTheme={studioTheme} />
+      {isHudMinimized && !contextualAnchor && (
+        <button
+          type="button"
+          data-testid="restore-hud-pill"
+          aria-label="Show studio controls"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => setIsHudMinimized(false)}
+          style={{
+            top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
+            left: 'calc(env(safe-area-inset-left, 0px) + 12px)',
+          }}
+          className={`fixed z-20 inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[10.5px] font-medium opacity-55 hover:opacity-100 transition-opacity duration-150 select-none ${activeTheme.ui.panel}`}
+        >
+          <EyeIcon className="h-3.5 w-3.5 shrink-0" />
+          <span>Controls</span>
+        </button>
+      )}
       <FloatingSidebar
         studioTheme={studioTheme}
         viewport={viewport}
+        isHudMinimized={isHudMinimized}
         isOpen={isSidebarOpen}
         onToggleOpen={setIsSidebarOpen}
         mannequins={mannequins}
@@ -1800,6 +1847,7 @@ export default function HomePage() {
         studioTheme={studioTheme}
         activeTab={activeRightRailTab}
         viewport={viewport}
+        isHudMinimized={isHudMinimized}
         isLocked={activeLocked}
         gravityEnabled={gravityEnabled}
         dampingPreset={dampingPreset}
@@ -1850,11 +1898,13 @@ export default function HomePage() {
         isShortcutsOpen={isShortcutsOpen}
         onToggleShortcuts={handleToggleShortcuts}
         viewport={viewport}
+        isHudMinimized={isHudMinimized}
       />
       <JointControlPopover
         anchor={contextualAnchor}
         studioTheme={studioTheme}
         viewport={viewport}
+        isHudMinimized={isHudMinimized}
         isSidebarOpen={isSidebarOpen}
         jointsDisplay={jointsDisplay}
         jointLimitsEnabled={jointLimitsEnabled}
@@ -1916,6 +1966,8 @@ export default function HomePage() {
         dropPropToFloorCommand={dropPropToFloorCommand}
         bookmarks={bookmarks}
         viewport={viewport}
+        isHudMinimized={isHudMinimized}
+        onCanvasBackgroundTap={handleCanvasBackgroundTap}
         cameraRestSeq={cameraRestSeq}
         onSelectMannequin={handleSelectMannequin}
         onSelectBoneChange={handleSelectBoneChange}

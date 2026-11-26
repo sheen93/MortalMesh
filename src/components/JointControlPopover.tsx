@@ -36,6 +36,7 @@ interface JointControlPopoverProps {
   anchor: ContextualAnchor | null;
   studioTheme: StudioThemeId;
   viewport: ViewportProfile;
+  isHudMinimized?: boolean;
   isSidebarOpen: boolean;
   jointsDisplay: JointsDisplayMode;
   jointLimitsEnabled: boolean;
@@ -103,6 +104,7 @@ export function JointControlPopover({
   anchor,
   studioTheme,
   viewport,
+  isHudMinimized = false,
   isSidebarOpen,
   jointsDisplay,
   jointLimitsEnabled,
@@ -131,10 +133,12 @@ export function JointControlPopover({
   onClose,
 }: JointControlPopoverProps) {
   const [handTab, setHandTab] = useState<'gestures' | 'wrist'>('gestures');
+  const [mobileAxis, setMobileAxis] = useState<AxisKey>('x');
 
   const anchorIdentity = anchor ? `${anchor.kind}:${anchor.id}` : null;
   useEffect(() => {
     setHandTab('gestures');
+    setMobileAxis('x');
   }, [anchorIdentity]);
 
   if (!anchor) return null;
@@ -263,6 +267,356 @@ export function JointControlPopover({
     handSide === 'l'
       ? 'Mirror Left Hand Gesture to Right Hand'
       : 'Mirror Right Hand Gesture to Left Hand';
+
+  // Mobile Bottom Control Tray: docked cleanly above the bottom bar so the
+  // central 75%+ of the portrait screen remains completely unobstructed.
+  if (viewport.isMobile) {
+    const activeMobileAxis: AxisKey = visibleAxes.includes(mobileAxis)
+      ? mobileAxis
+      : (visibleAxes[0] ?? 'x');
+    const activeAxisSpec = selectedSpec?.axes[activeMobileAxis] ?? null;
+    const activeAxisMin =
+      activeAxisSpec && jointLimitsEnabled ? activeAxisSpec.min : -180;
+    const activeAxisMax =
+      activeAxisSpec && jointLimitsEnabled ? activeAxisSpec.max : 180;
+    const activeAxisVal = selectedBoneAngles[activeMobileAxis];
+
+    const headerTitle = isPropMode
+      ? selectedProp.name
+      : isIKMode
+        ? getIKHandleLabel(selectedIKHandle)
+        : (selectedSpec?.label ?? 'Pelvis');
+
+    return (
+      <div
+        role="dialog"
+        aria-label="Contextual joint and object controls"
+        data-testid="joint-control-popover"
+        data-anchor-id={anchor.id}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          left: 10,
+          right: 10,
+          bottom: `calc(env(safe-area-inset-bottom, 0px) + ${
+            isHudMinimized ? 14 : 64
+          }px)`,
+        }}
+        className={`fixed z-30 rounded-2xl px-2.5 py-2 space-y-1.5 select-none transition-all duration-200 ${ui.panel}`}
+      >
+        {/* Ultra-compact 1-row mobile tray header */}
+        <div className="flex items-center justify-between gap-1.5">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span
+              className={`text-[11px] font-semibold leading-tight truncate ${ui.textPrimary}`}
+            >
+              {headerTitle}
+            </span>
+            {showHandUnified && !isIKMode && (
+              <div
+                role="tablist"
+                aria-label="Hand control mode"
+                className={`inline-flex shrink-0 items-center gap-0.5 rounded-md p-0.5 ${ui.segmentedTrack}`}
+              >
+                {HAND_TAB_OPTIONS.map((tab) => {
+                  const active = handTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      role="tab"
+                      data-testid={`hand-tab-${tab.id}`}
+                      aria-selected={active}
+                      onClick={() => setHandTab(tab.id)}
+                      className={`rounded px-1.5 py-0.5 text-[9.5px] font-medium transition-colors ${
+                        active ? ui.segmentedItemActive : ui.segmentedItem
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="flex shrink-0 items-center gap-1">
+            {showHandUnified &&
+              handSide &&
+              hasFingerBones &&
+              (isIKMode || handTab === 'gestures') && (
+                <button
+                  type="button"
+                  title={mirrorTitle}
+                  aria-label={mirrorTitle}
+                  data-testid="hand-gesture-mirror"
+                  onClick={() => onMirrorHandGesture(handSide)}
+                  className={`inline-flex h-6 items-center gap-1 rounded-md px-1.5 font-mono text-[9.5px] font-semibold transition-colors ${ui.pillButton}`}
+                >
+                  <FlipHorizontalIcon className="h-3 w-3" />
+                  <span>{mirrorLabel}</span>
+                </button>
+              )}
+
+            {isBoneMode && selectedIsCore && (
+              <button
+                type="button"
+                aria-pressed={selectedIsPinned}
+                title={selectedIsPinned ? 'Unpin joint' : 'Pin joint against gravity'}
+                onClick={onTogglePinSelectedJoint}
+                className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
+                  selectedIsPinned ? ui.pillButtonActive : ui.iconButton
+                }`}
+              >
+                <PinIcon className="h-3 w-3" />
+              </button>
+            )}
+
+            {isBoneMode && activeBoneId && (
+              <button
+                type="button"
+                title="Reset joint to rest pose"
+                aria-label="Reset joint"
+                onClick={onResetSelectedJoint}
+                className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${ui.iconButton}`}
+              >
+                <RotateCcwIcon className="h-3 w-3" />
+              </button>
+            )}
+
+            {isPropMode && (
+              <>
+                <button
+                  type="button"
+                  aria-label={`Lock ${selectedProp.name}`}
+                  title="Lock prop"
+                  onClick={() => onToggleLockProp(selectedProp.id)}
+                  className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
+                    selectedProp.locked ? ui.pillButtonActive : ui.iconButton
+                  }`}
+                >
+                  {selectedProp.locked ? (
+                    <LockIcon className="h-3 w-3" />
+                  ) : (
+                    <UnlockIcon className="h-3 w-3" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Delete ${selectedProp.name}`}
+                  title="Delete prop"
+                  onClick={() => onDeleteProp(selectedProp.id)}
+                  className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${ui.iconButton}`}
+                >
+                  <TrashIcon className="h-3 w-3" />
+                </button>
+              </>
+            )}
+
+            <button
+              type="button"
+              aria-label="Close joint controls"
+              onClick={onClose}
+              className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${ui.iconButton}`}
+            >
+              <XIcon className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile Body */}
+        {showHandUnified && handSide ? (
+          isIKMode || handTab === 'gestures' ? (
+            hasFingerBones ? (
+              <div className="grid grid-cols-4 gap-1">
+                {HAND_GESTURES.map((gesture) => {
+                  const isSelected = activeHandGestureId === gesture.id;
+                  return (
+                    <button
+                      key={gesture.id}
+                      type="button"
+                      data-hand-gesture={gesture.id}
+                      aria-pressed={isSelected}
+                      title={gesture.description}
+                      onClick={() => onApplyHandGesture(handSide, gesture.id)}
+                      className={`truncate rounded-md px-1 py-1 text-[9.5px] font-medium transition-colors ${
+                        isSelected ? ui.pillButtonActive : ui.pillButton
+                      }`}
+                    >
+                      {gesture.shortLabel}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div
+                className={`rounded-md px-2 py-1.5 text-center text-[10px] font-medium ${ui.card} ${ui.textMuted}`}
+              >
+                No finger rig on this model
+              </div>
+            )
+          ) : (
+            <div className="space-y-1.5">
+              {visibleAxes.length > 0 && (
+                <div className="flex items-center gap-1">
+                  {visibleAxes.map((axis) => {
+                    const axisSpec = selectedSpec?.axes[axis];
+                    if (!axisSpec) return null;
+                    const active = activeMobileAxis === axis;
+                    return (
+                      <button
+                        key={axis}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setMobileAxis(axis)}
+                        className={`flex-1 rounded-md px-1.5 py-1 font-mono text-[9.5px] font-semibold transition-colors ${
+                          active ? ui.pillButtonActive : ui.pillButton
+                        }`}
+                      >
+                        {axisSpec.label} {selectedBoneAngles[axis]}°
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {activeAxisSpec && (
+                <PrecisionSlider
+                  id={`joint-axis-${activeMobileAxis}`}
+                  label={activeAxisSpec.label}
+                  value={activeAxisVal}
+                  min={activeAxisMin}
+                  max={activeAxisMax}
+                  step={1}
+                  displayValue={`${activeAxisVal}°`}
+                  onChange={(nextVal) =>
+                    onChangeAxisAngle(activeMobileAxis, nextVal)
+                  }
+                  onCommit={onCommitSliderHistory}
+                  theme={STUDIO_THEMES[studioTheme]}
+                />
+              )}
+            </div>
+          )
+        ) : isPropMode ? (
+          <div className="flex items-center gap-1.5">
+            <div className="flex-1 min-w-0">
+              <SegmentedControl
+                options={PROP_TRANSFORM_OPTIONS}
+                value={propTransformMode}
+                onChange={onChangePropTransformMode}
+                theme={STUDIO_THEMES[studioTheme]}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => onDropPropToFloor(selectedProp.id)}
+              className={`flex h-7 items-center justify-center gap-1 rounded-md px-2 text-[10px] font-medium transition-colors ${ui.pillButton}`}
+            >
+              <ArrowDownToLineIcon className="h-3 w-3 shrink-0" />
+              <span>Drop</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onResetPropScale(selectedProp.id)}
+              className={`flex h-7 items-center justify-center rounded-md px-2 text-[10px] font-medium transition-colors ${ui.pillButton}`}
+            >
+              <span>1:1</span>
+            </button>
+          </div>
+        ) : isIKMode ? (
+          <div className="flex items-center justify-between gap-2">
+            <p className={`text-[10px] leading-snug ${ui.textMuted}`}>
+              Drag handles to pose live.
+            </p>
+            {selectedIKHandle === 'pelvis' && (
+              <button
+                type="button"
+                onClick={onDropToFloor}
+                className={`flex h-7 items-center gap-1 rounded-md px-2 text-[10px] font-medium transition-colors ${ui.pillButton}`}
+              >
+                <ArrowDownToLineIcon className="h-3 w-3 shrink-0" />
+                <span>Drop</span>
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1">
+              {activeBoneId === 'pelvis' && (
+                <div
+                  className={`flex shrink-0 items-center gap-0.5 rounded-md p-0.5 ${ui.segmentedTrack}`}
+                >
+                  {GIZMO_MODE_OPTIONS.map((opt) => {
+                    const active = (moveBodyEnabled ? 'move' : 'rotate') === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => onSetMoveBody(opt.id === 'move')}
+                        className={`rounded px-1.5 py-0.5 text-[9.5px] font-medium transition-colors ${
+                          active ? ui.segmentedItemActive : ui.segmentedItem
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {!(moveBodyEnabled && activeBoneId === 'pelvis') ? (
+                visibleAxes.map((axis) => {
+                  const axisSpec = selectedSpec?.axes[axis];
+                  if (!axisSpec) return null;
+                  const active = activeMobileAxis === axis;
+                  return (
+                    <button
+                      key={axis}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => setMobileAxis(axis)}
+                      className={`flex-1 rounded-md px-1.5 py-1 font-mono text-[9.5px] font-semibold transition-colors ${
+                        active ? ui.pillButtonActive : ui.pillButton
+                      }`}
+                    >
+                      {axisSpec.label} {selectedBoneAngles[axis]}°
+                    </button>
+                  );
+                })
+              ) : (
+                <button
+                  type="button"
+                  onClick={onDropToFloor}
+                  className={`flex-1 flex h-7 items-center justify-center gap-1 rounded-md px-2 text-[10px] font-medium transition-colors ${ui.pillButton}`}
+                >
+                  <ArrowDownToLineIcon className="h-3 w-3 shrink-0" />
+                  <span>Drop to Floor</span>
+                </button>
+              )}
+            </div>
+
+            {!(moveBodyEnabled && activeBoneId === 'pelvis') &&
+              activeAxisSpec && (
+                <PrecisionSlider
+                  id={`joint-axis-${activeMobileAxis}`}
+                  label={activeAxisSpec.label}
+                  value={activeAxisVal}
+                  min={activeAxisMin}
+                  max={activeAxisMax}
+                  step={1}
+                  displayValue={`${activeAxisVal}°`}
+                  onChange={(nextVal) =>
+                    onChangeAxisAngle(activeMobileAxis, nextVal)
+                  }
+                  onCommit={onCommitSliderHistory}
+                  theme={STUDIO_THEMES[studioTheme]}
+                />
+              )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div

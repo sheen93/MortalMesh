@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -95,6 +96,8 @@ interface StudioCanvasProps {
   dropPropToFloorCommand: PropDropCommand | null;
   bookmarks: readonly CameraBookmark[];
   viewport: ViewportProfile;
+  isHudMinimized?: boolean;
+  onCanvasBackgroundTap?: () => void;
   onSelectMannequin: (id: string) => void;
   onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
   onSelectIKHandleChange: (handleId: IKHandleId | null) => void;
@@ -593,7 +596,16 @@ function CameraRig({
   );
 }
 
-function InfiniteStudioFloor({
+const FLOOR_GRID_POS: [number, number, number] = [0, 0.001, 0];
+const FLOOR_GRID_ARGS: [number, number] = [30, 30];
+const FLOOR_SHADOW_POS: [number, number, number] = [0, 0, 0];
+const FLOOR_SHADOW_ROT: [number, number, number] = [-Math.PI / 2, 0, 0];
+const FLOOR_SHADOW_ARGS: [number, number] = [100, 100];
+const ORIGIN_AXIS_POS: [number, number, number] = [0, 0.002, 0];
+const ORIGIN_AXIS_X_ARGS: [number, number, number] = [1.2, 0.001, 0.004];
+const ORIGIN_AXIS_Z_ARGS: [number, number, number] = [0.004, 0.001, 1.2];
+
+const InfiniteStudioFloor = memo(function InfiniteStudioFloor({
   groupRef,
   theme,
   groundEnabled,
@@ -613,8 +625,8 @@ function InfiniteStudioFloor({
       {groundEnabled && (
         <>
           <Grid
-            position={[0, 0.001, 0]}
-            args={[30, 30]}
+            position={FLOOR_GRID_POS}
+            args={FLOOR_GRID_ARGS}
             infiniteGrid
             fadeDistance={24}
             fadeStrength={2.2}
@@ -627,11 +639,11 @@ function InfiniteStudioFloor({
             side={THREE.DoubleSide}
           />
           <mesh
-            position={[0, 0, 0]}
-            rotation={[-Math.PI / 2, 0, 0]}
+            position={FLOOR_SHADOW_POS}
+            rotation={FLOOR_SHADOW_ROT}
             receiveShadow
           >
-            <planeGeometry args={[100, 100]} />
+            <planeGeometry args={FLOOR_SHADOW_ARGS} />
             <shadowMaterial
               transparent
               opacity={theme.shadowOpacity}
@@ -642,8 +654,8 @@ function InfiniteStudioFloor({
       )}
 
       {/* Subtle CAD origin axis marker */}
-      <mesh position={[0, 0.002, 0]}>
-        <boxGeometry args={[1.2, 0.001, 0.004]} />
+      <mesh position={ORIGIN_AXIS_POS}>
+        <boxGeometry args={ORIGIN_AXIS_X_ARGS} />
         <meshBasicMaterial
           color={
             groundEnabled ? theme.originAxisColor : theme.originAxisMutedColor
@@ -652,8 +664,8 @@ function InfiniteStudioFloor({
           opacity={groundEnabled ? 0.55 : 0.25}
         />
       </mesh>
-      <mesh position={[0, 0.002, 0]}>
-        <boxGeometry args={[0.004, 0.001, 1.2]} />
+      <mesh position={ORIGIN_AXIS_POS}>
+        <boxGeometry args={ORIGIN_AXIS_Z_ARGS} />
         <meshBasicMaterial
           color={
             groundEnabled ? theme.originAxisColor : theme.originAxisMutedColor
@@ -664,7 +676,7 @@ function InfiniteStudioFloor({
       </mesh>
     </group>
   );
-}
+});
 
 interface StageReferenceProps {
   mannequins: readonly MannequinRecord[];
@@ -861,6 +873,8 @@ export function StudioCanvas({
   dropPropToFloorCommand,
   bookmarks,
   viewport,
+  isHudMinimized = false,
+  onCanvasBackgroundTap,
   onSelectMannequin,
   onSelectBoneChange,
   onSelectIKHandleChange,
@@ -889,6 +903,21 @@ export function StudioCanvas({
   const invalidateRef = useRef<(() => void) | null>(null);
   const curvilinearRenderRef = useRef<CurvilinearRenderHook | null>(null);
   const propDragGuardRef = useRef({ isDragging: false, lastDragEndTime: 0 });
+  const bgTapRef = useRef<{
+    activePointers: Set<number>;
+    primaryId: number | null;
+    startX: number;
+    startY: number;
+    maxTravel: number;
+    multiTouch: boolean;
+  }>({
+    activePointers: new Set(),
+    primaryId: null,
+    startX: 0,
+    startY: 0,
+    maxTravel: 0,
+    multiTouch: false,
+  });
   const theme = STUDIO_THEMES[studioTheme];
 
   const handleSelectViewCubeFace = useCallback(
@@ -931,6 +960,47 @@ export function StudioCanvas({
     <div
       className="studio-canvas-shell relative h-full w-full transition-colors duration-200"
       style={{ backgroundColor: theme.bg }}
+      onPointerDownCapture={(e) => {
+        const tap = bgTapRef.current;
+        tap.activePointers.add(e.pointerId);
+        if (tap.activePointers.size > 1) {
+          tap.multiTouch = true;
+        } else {
+          tap.primaryId = e.pointerId;
+          tap.startX = e.clientX;
+          tap.startY = e.clientY;
+          tap.maxTravel = 0;
+          tap.multiTouch = false;
+        }
+      }}
+      onPointerMoveCapture={(e) => {
+        const tap = bgTapRef.current;
+        if (e.pointerId === tap.primaryId) {
+          const dist = Math.hypot(
+            e.clientX - tap.startX,
+            e.clientY - tap.startY
+          );
+          if (dist > tap.maxTravel) {
+            tap.maxTravel = dist;
+          }
+        }
+      }}
+      onPointerUpCapture={(e) => {
+        const tap = bgTapRef.current;
+        if (e.pointerId === tap.primaryId) {
+          const dist = Math.hypot(
+            e.clientX - tap.startX,
+            e.clientY - tap.startY
+          );
+          if (dist > tap.maxTravel) {
+            tap.maxTravel = dist;
+          }
+        }
+        tap.activePointers.delete(e.pointerId);
+      }}
+      onPointerCancelCapture={(e) => {
+        bgTapRef.current.activePointers.delete(e.pointerId);
+      }}
     >
       <Canvas
         frameloop="demand"
@@ -939,12 +1009,23 @@ export function StudioCanvas({
         camera={{ position: [0, 1, 6], fov: 40, near: 0.1, far: 100 }}
         gl={{ antialias: true, alpha: true }}
         onPointerMissed={() => {
+          const tap = bgTapRef.current;
+          const isCleanTap =
+            !isDragging &&
+            !propDragGuardRef.current.isDragging &&
+            performance.now() - propDragGuardRef.current.lastDragEndTime >=
+              220 &&
+            !tap.multiTouch &&
+            tap.maxTravel < 8;
           setDeselectTrigger((prev) => prev + 1);
           if (
             !propDragGuardRef.current.isDragging &&
             performance.now() - propDragGuardRef.current.lastDragEndTime >= 200
           ) {
             onSelectProp(null);
+          }
+          if (isCleanTap) {
+            onCanvasBackgroundTap?.();
           }
         }}
       >
@@ -1036,6 +1117,7 @@ export function StudioCanvas({
         lensCurvature={lensCurvature}
         showPerspectiveGuides={showPerspectiveGuides}
         viewport={viewport}
+        isHudMinimized={isHudMinimized}
         bookmarks={bookmarks}
         onSelectCameraPreset={onSelectCameraPreset}
         onChangeLensCurvature={onChangeLensCurvature}

@@ -1,8 +1,9 @@
 'use client';
 
-import { useMemo, useRef, useState, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
   BookmarkIcon,
+  ChevronDownIcon,
   HomeIcon,
   PlusIcon,
   PrecisionSlider,
@@ -29,6 +30,7 @@ interface ViewportGizmoProps {
   lensCurvature: number;
   showPerspectiveGuides: boolean;
   viewport: ViewportProfile;
+  isHudMinimized?: boolean;
   bookmarks: readonly CameraBookmark[];
   onSelectCameraPreset: (preset: CameraPreset) => void;
   onChangeLensCurvature: (value: number) => void;
@@ -161,6 +163,7 @@ export function ViewportGizmo({
   lensCurvature,
   showPerspectiveGuides,
   viewport,
+  isHudMinimized = false,
   bookmarks,
   onSelectCameraPreset,
   onChangeLensCurvature,
@@ -179,13 +182,32 @@ export function ViewportGizmo({
   } | null>(null);
   const [isDraggingCube, setIsDraggingCube] = useState(false);
   const [bookmarksOpen, setBookmarksOpen] = useState(false);
+  const [compactCameraOpen, setCompactCameraOpen] = useState(false);
+  const [desktopLensCardOpen, setDesktopLensCardOpen] = useState(false);
 
   const compact = viewport.isMobile || viewport.isCompactLandscape;
-  const cubeSize = compact ? 52 : 64;
+  const cubeSize = compact ? 46 : 64;
   const halfDepth = cubeSize / 2;
   const atBookmarkLimit = bookmarks.length >= MAX_CAMERA_BOOKMARKS;
   const isFisheye = isFisheyePreset(activePreset);
   const curvaturePct = Math.round(lensCurvature * 100);
+  const pointerClass = isHudMinimized
+    ? 'pointer-events-none'
+    : 'pointer-events-auto';
+
+  useEffect(() => {
+    if (isHudMinimized) {
+      setBookmarksOpen(false);
+      setCompactCameraOpen(false);
+      setHoveredZone(null);
+    }
+  }, [isHudMinimized]);
+
+  useEffect(() => {
+    if (!isFisheye) {
+      setDesktopLensCardOpen(false);
+    }
+  }, [isFisheye]);
 
   const dragStateRef = useRef<{
     active: boolean;
@@ -277,9 +299,30 @@ export function ViewportGizmo({
   const iconBtnSize =
     compact || viewport.isCoarsePointer ? 'h-8 w-8' : 'h-7 w-7';
 
+  const handleSelectPresetClick = (presetId: CameraPreset) => {
+    if (presetId === 'fisheye') {
+      if (isFisheye) {
+        if (!compact) {
+          setDesktopLensCardOpen((prev) => !prev);
+        }
+      } else {
+        onSelectCameraPreset('fisheye');
+        if (!compact) {
+          setDesktopLensCardOpen(true);
+        }
+      }
+      return;
+    }
+    setDesktopLensCardOpen(false);
+    onSelectCameraPreset(presetId);
+  };
+
   return (
     <div
-      className="fixed z-20 flex flex-col items-end gap-1.5 pointer-events-none select-none"
+      aria-hidden={isHudMinimized}
+      className={`fixed z-20 flex flex-col items-end gap-1.5 pointer-events-none select-none transition-all duration-200 ${
+        isHudMinimized ? 'opacity-0 translate-x-4' : 'opacity-100 translate-x-0'
+      }`}
       style={{
         top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
         right: 'calc(env(safe-area-inset-right, 0px) + 12px)',
@@ -304,8 +347,8 @@ export function ViewportGizmo({
               setHoveredZone(null);
             }
           }}
-          className={`pointer-events-auto relative flex items-center justify-center rounded-2xl viewcube-scene ${
-            compact ? 'h-[78px] w-[78px]' : 'h-[104px] w-[104px]'
+          className={`${pointerClass} relative flex items-center justify-center rounded-2xl viewcube-scene ${
+            compact ? 'h-[64px] w-[64px]' : 'h-[104px] w-[104px]'
           } ${isDraggingCube ? 'cursor-grabbing' : 'cursor-grab'}`}
           style={{ touchAction: 'none' }}
         >
@@ -428,76 +471,234 @@ export function ViewportGizmo({
         </div>
       </div>
 
-      {/* Compact Frosted Camera Perspective (1-PT..5-PT) & Bookmarks Bar */}
-      <div
-        role="toolbar"
-        aria-label="Camera perspective shortcuts"
-        onPointerDown={(event) => event.stopPropagation()}
-        className={`pointer-events-auto flex items-center gap-0.5 rounded-xl p-1 sm:gap-1 ${ui.dock}`}
-      >
-        <button
-          type="button"
-          onClick={() => onSelectCameraPreset('1-point')}
-          aria-label="Reset camera view"
-          title="Reset View (Home)"
-          className={`flex ${iconBtnSize} items-center justify-center rounded-lg transition-colors duration-150 ${ui.iconButton}`}
+      {/* Compact Mobile Camera Pill vs Full Desktop Perspective Bar */}
+      {compact ? (
+        <div
+          role="toolbar"
+          aria-label="Camera perspective controls"
+          onPointerDown={(event) => event.stopPropagation()}
+          className={`${pointerClass} flex items-center gap-0.5 rounded-xl p-1 ${ui.dock}`}
         >
-          <HomeIcon className="h-3.5 w-3.5" />
-        </button>
-        <span
-          className={`h-4 w-px shrink-0 ${ui.verticalDivider}`}
-          aria-hidden="true"
-        />
-        {compactPills.map((pill) => {
-          const isSelected = activePreset === pill.id;
-          return (
-            <button
-              key={pill.id}
-              type="button"
-              aria-pressed={isSelected}
-              title={pill.description}
-              onClick={() => onSelectCameraPreset(pill.id)}
-              className={`${pillBtnSize} rounded-lg font-mono font-semibold tracking-tight transition-all duration-150 ${
-                compact ? 'px-1.5 text-[9.5px]' : 'px-2 text-[10px]'
-              } ${isSelected ? ui.dockButtonActive : ui.dockButton}`}
-            >
-              {pill.shortLabel}
-            </button>
-          );
-        })}
-        <span
-          className={`h-4 w-px shrink-0 ${ui.verticalDivider}`}
-          aria-hidden="true"
-        />
-        <button
-          type="button"
-          aria-label="Camera bookmarks"
-          aria-expanded={bookmarksOpen}
-          title="Saved Camera Views"
-          onClick={() => setBookmarksOpen((prev) => !prev)}
-          className={`relative flex ${iconBtnSize} items-center justify-center rounded-lg transition-colors duration-150 ${
-            bookmarksOpen ? ui.dockButtonActive : ui.iconButton
-          }`}
-        >
-          <BookmarkIcon className="h-3.5 w-3.5" />
-          {bookmarks.length > 0 && (
-            <span
-              className={`absolute -top-0.5 -right-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full px-1 font-mono text-[8.5px] font-bold leading-none ${ui.monoPill}`}
-            >
-              {bookmarks.length}
+          <button
+            type="button"
+            data-testid="compact-camera-trigger"
+            aria-expanded={compactCameraOpen}
+            aria-label="Camera perspective options"
+            onClick={() => {
+              setBookmarksOpen(false);
+              setCompactCameraOpen((prev) => !prev);
+            }}
+            className={`flex h-7 items-center gap-1 rounded-lg px-2 font-mono text-[10px] font-semibold whitespace-nowrap transition-colors ${
+              compactCameraOpen ? ui.dockButtonActive : ui.dockButton
+            }`}
+          >
+            <span>
+              {isFisheye ? `Fisheye · ${curvaturePct}%` : CAMERA_PRESETS[activePreset].label}
             </span>
-          )}
-        </button>
-      </div>
+            <ChevronDownIcon
+              className={`h-3 w-3 shrink-0 transition-transform duration-150 ${
+                compactCameraOpen ? 'rotate-180' : ''
+              }`}
+            />
+          </button>
 
-      {/* Fisheye Lens Options Card (Visible when Fisheye is active) */}
-      {isFisheye && (
+          <span
+            className={`h-4 w-px shrink-0 ${ui.verticalDivider}`}
+            aria-hidden="true"
+          />
+
+          <button
+            type="button"
+            aria-label="Camera bookmarks"
+            aria-expanded={bookmarksOpen}
+            title="Saved Camera Views"
+            onClick={() => {
+              setCompactCameraOpen(false);
+              setBookmarksOpen((prev) => !prev);
+            }}
+            className={`relative flex h-7 w-7 items-center justify-center rounded-lg transition-colors duration-150 ${
+              bookmarksOpen ? ui.dockButtonActive : ui.iconButton
+            }`}
+          >
+            <BookmarkIcon className="h-3.5 w-3.5" />
+            {bookmarks.length > 0 && (
+              <span
+                className={`absolute -top-0.5 -right-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full px-1 font-mono text-[8.5px] font-bold leading-none ${ui.monoPill}`}
+              >
+                {bookmarks.length}
+              </span>
+            )}
+          </button>
+        </div>
+      ) : (
+        <div
+          role="toolbar"
+          aria-label="Camera perspective shortcuts"
+          onPointerDown={(event) => event.stopPropagation()}
+          className={`${pointerClass} flex items-center gap-0.5 rounded-xl p-1 sm:gap-1 ${ui.dock}`}
+        >
+          <button
+            type="button"
+            onClick={() => handleSelectPresetClick('1-point')}
+            aria-label="Reset camera view"
+            title="Reset View (Home)"
+            className={`flex ${iconBtnSize} items-center justify-center rounded-lg transition-colors duration-150 ${ui.iconButton}`}
+          >
+            <HomeIcon className="h-3.5 w-3.5" />
+          </button>
+          <span
+            className={`h-4 w-px shrink-0 ${ui.verticalDivider}`}
+            aria-hidden="true"
+          />
+          {compactPills.map((pill) => {
+            const isSelected = activePreset === pill.id;
+            return (
+              <button
+                key={pill.id}
+                type="button"
+                aria-pressed={isSelected}
+                title={pill.description}
+                onClick={() => handleSelectPresetClick(pill.id)}
+                className={`${pillBtnSize} rounded-lg font-mono font-semibold tracking-tight transition-all duration-150 px-2 text-[10px] ${
+                  isSelected ? ui.dockButtonActive : ui.dockButton
+                }`}
+              >
+                {pill.shortLabel}
+              </button>
+            );
+          })}
+          <span
+            className={`h-4 w-px shrink-0 ${ui.verticalDivider}`}
+            aria-hidden="true"
+          />
+          <button
+            type="button"
+            aria-label="Camera bookmarks"
+            aria-expanded={bookmarksOpen}
+            title="Saved Camera Views"
+            onClick={() => setBookmarksOpen((prev) => !prev)}
+            className={`relative flex ${iconBtnSize} items-center justify-center rounded-lg transition-colors duration-150 ${
+              bookmarksOpen ? ui.dockButtonActive : ui.iconButton
+            }`}
+          >
+            <BookmarkIcon className="h-3.5 w-3.5" />
+            {bookmarks.length > 0 && (
+              <span
+                className={`absolute -top-0.5 -right-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full px-1 font-mono text-[8.5px] font-bold leading-none ${ui.monoPill}`}
+              >
+                {bookmarks.length}
+              </span>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* Compact Mobile Camera & Lens Popover */}
+      {compact && compactCameraOpen && !isHudMinimized && (
+        <div
+          role="dialog"
+          aria-label="Camera & Lens"
+          onPointerDown={(event) => event.stopPropagation()}
+          className={`pointer-events-auto w-[236px] max-w-[calc(100vw-1.5rem)] rounded-2xl p-3 space-y-2.5 ${ui.panel}`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span
+              className={`text-[10.5px] font-semibold uppercase tracking-[0.11em] ${ui.textPrimary}`}
+            >
+              Camera &amp; Lens
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => handleSelectPresetClick('1-point')}
+                aria-label="Reset camera view"
+                title="Reset View"
+                className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${ui.iconButton}`}
+              >
+                <HomeIcon className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCompactCameraOpen(false)}
+                aria-label="Close camera options"
+                className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${ui.iconButton}`}
+              >
+                <XIcon className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+
+          <div
+            role="group"
+            aria-label="Camera perspective shortcuts"
+            className={`grid grid-cols-4 gap-1 rounded-xl p-1 ${ui.segmentedTrack}`}
+          >
+            {compactPills.map((pill) => {
+              const isSelected = activePreset === pill.id;
+              return (
+                <button
+                  key={pill.id}
+                  type="button"
+                  aria-pressed={isSelected}
+                  onClick={() => handleSelectPresetClick(pill.id)}
+                  className={`h-7 rounded-lg font-mono text-[10px] font-semibold transition-colors ${
+                    isSelected ? ui.segmentedItemActive : ui.segmentedItem
+                  }`}
+                >
+                  {pill.shortLabel}
+                </button>
+              );
+            })}
+          </div>
+
+          {isFisheye && (
+            <div className="space-y-2 pt-0.5">
+              <PrecisionSlider
+                id="lens-curvature-slider"
+                label="Fisheye Dome"
+                value={lensCurvature}
+                min={MIN_LENS_CURVATURE}
+                max={MAX_LENS_CURVATURE}
+                step={0.05}
+                displayValue={`${curvaturePct}%`}
+                theme={theme}
+                onChange={onChangeLensCurvature}
+              />
+              <ToggleSwitch
+                id="perspective-guides-toggle"
+                label="Perspective Guides"
+                checked={showPerspectiveGuides}
+                theme={theme}
+                onChange={() => onTogglePerspectiveGuides(!showPerspectiveGuides)}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Desktop Fisheye Lens Options Card */}
+      {!compact && isFisheye && desktopLensCardOpen && !isHudMinimized && (
         <div
           role="region"
           aria-label="Fisheye lens controls"
           onPointerDown={(event) => event.stopPropagation()}
           className={`pointer-events-auto w-[216px] max-w-[calc(100vw-1.5rem)] rounded-2xl px-3 py-2.5 space-y-2 ${ui.panel}`}
         >
+          <div className="flex items-center justify-between gap-2">
+            <span
+              className={`text-[10px] font-semibold uppercase tracking-[0.11em] ${ui.textMuted}`}
+            >
+              Fisheye Lens
+            </span>
+            <button
+              type="button"
+              onClick={() => setDesktopLensCardOpen(false)}
+              aria-label="Hide lens controls"
+              className={`flex h-5 w-5 items-center justify-center rounded-md transition-colors ${ui.iconButton}`}
+            >
+              <XIcon className="h-3 w-3" />
+            </button>
+          </div>
           <PrecisionSlider
             id="lens-curvature-slider"
             label="Fisheye Dome"
@@ -520,7 +721,7 @@ export function ViewportGizmo({
       )}
 
       {/* Saved Camera Bookmarks Popover */}
-      {bookmarksOpen && (
+      {bookmarksOpen && !isHudMinimized && (
         <div
           role="dialog"
           aria-label="Camera Bookmarks"

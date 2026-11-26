@@ -16,8 +16,9 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { JointArcGizmo } from '@/components/JointArcGizmo';
+import { JointRingMarkers } from '@/components/JointRingMarkers';
 import {
-  getJointHitboxRadius,
   IK_HANDLE_ORDER,
   isCoreBoneName,
   ZERO_JOINT_ANGLES,
@@ -272,15 +273,12 @@ function MannequinInstance({
   const hitboxRefs = useRef<Map<string, THREE.Object3D>>(new Map());
   const ikHandleRefs = useRef<Map<IKHandleId, THREE.Group>>(new Map());
   const ikProxyRef = useRef<THREE.Object3D>(new THREE.Object3D());
-  const boneGizmoProxyRef = useRef<THREE.Object3D>(new THREE.Object3D());
   const transformRef = useRef<ComponentRef<typeof TransformControls>>(null);
   const localDraggingRef = useRef(false);
   const ikDraggingRef = useRef(false);
-  const fkDraggingRef = useRef(false);
+  const [isDraggingFK, setIsDraggingFK] = useState(false);
   const ikDragStartProxyRef = useRef<THREE.Vector3 | null>(null);
   const ikDragStartRootRef = useRef<THREE.Vector3 | null>(null);
-  const fkDragStartProxyQuatRef = useRef(new THREE.Quaternion());
-  const fkDragStartCanonDeltaRef = useRef(new THREE.Quaternion());
 
   const lastHandledSeqRef = useRef(jointAngleCommand?.seq ?? 0);
   const lastElevationSeqRef = useRef(elevationCommand?.seq ?? 0);
@@ -509,19 +507,6 @@ function MannequinInstance({
       if (bone) {
         bone.getWorldPosition(ikProxyRef.current.position);
         ikProxyRef.current.updateMatrixWorld(true);
-      }
-    }
-
-    const activeBoneName = selectedBoneNameRef.current;
-    if (activeBoneName && !fkDraggingRef.current) {
-      const bone = instance.bonesByName.get(activeBoneName);
-      if (bone) {
-        bone.getWorldPosition(boneGizmoProxyRef.current.position);
-        instance.rigAdapter.getCanonicalCurrentWorldQuat(
-          activeBoneName,
-          boneGizmoProxyRef.current.quaternion
-        );
-        boneGizmoProxyRef.current.updateMatrixWorld(true);
       }
     }
 
@@ -910,14 +895,12 @@ function MannequinInstance({
       transformRef.current as unknown as DraggingChangedDispatcher | null;
     const hasIKGizmo =
       controlMode === 'ik' && selectedIKHandle !== null && !moveBodyEnabled;
-    const hasFKGizmo =
-      controlMode === 'fk' && selectedBoneName !== null && !moveBodyEnabled;
     if (
       !controls ||
       !isActive ||
       record.locked ||
       !record.visible ||
-      (!hasIKGizmo && !hasFKGizmo && !moveBodyEnabled)
+      (!hasIKGizmo && !moveBodyEnabled)
     ) {
       return;
     }
@@ -928,31 +911,10 @@ function MannequinInstance({
       localDraggingRef.current = dragging;
       dragGuardRef.current.isDragging = dragging;
       ikDraggingRef.current = dragging && hasIKGizmo;
-      fkDraggingRef.current = dragging && hasFKGizmo;
 
       if (dragging && hasIKGizmo) {
         ikDragStartProxyRef.current = ikProxyRef.current.position.clone();
         ikDragStartRootRef.current = instance.rootGroup.position.clone();
-      }
-
-      if (dragging && hasFKGizmo && selectedBoneName) {
-        const bone = instance.bonesByName.get(selectedBoneName);
-        if (bone) {
-          instance.rootGroup.updateMatrixWorld(true);
-          bone.getWorldPosition(boneGizmoProxyRef.current.position);
-          instance.rigAdapter.getCanonicalCurrentWorldQuat(
-            selectedBoneName,
-            boneGizmoProxyRef.current.quaternion
-          );
-          boneGizmoProxyRef.current.updateMatrixWorld(true);
-          fkDragStartProxyQuatRef.current.copy(
-            boneGizmoProxyRef.current.quaternion
-          );
-          instance.rigAdapter.readCanonicalDeltaQuat(
-            selectedBoneName,
-            fkDragStartCanonDeltaRef.current
-          );
-        }
       }
 
       if (!dragging) {
@@ -965,18 +927,6 @@ function MannequinInstance({
             instance.rootGroup.updateMatrixWorld(true);
             bone.getWorldPosition(ikProxyRef.current.position);
             ikProxyRef.current.updateMatrixWorld(true);
-          }
-        }
-        if (hasFKGizmo && selectedBoneName) {
-          const bone = instance.bonesByName.get(selectedBoneName);
-          if (bone) {
-            instance.rootGroup.updateMatrixWorld(true);
-            bone.getWorldPosition(boneGizmoProxyRef.current.position);
-            instance.rigAdapter.getCanonicalCurrentWorldQuat(
-              selectedBoneName,
-              boneGizmoProxyRef.current.quaternion
-            );
-            boneGizmoProxyRef.current.updateMatrixWorld(true);
           }
         }
         if (wasDragging) {
@@ -1000,7 +950,6 @@ function MannequinInstance({
       controls.removeEventListener('dragging-changed', handleDraggingChanged);
       localDraggingRef.current = false;
       ikDraggingRef.current = false;
-      fkDraggingRef.current = false;
       ikDragStartProxyRef.current = null;
       ikDragStartRootRef.current = null;
       dragGuardRef.current.isDragging = false;
@@ -1013,7 +962,6 @@ function MannequinInstance({
     record.locked,
     record.visible,
     controlMode,
-    selectedBoneName,
     selectedIKHandle,
     moveBodyEnabled,
     activePreset,
@@ -1521,98 +1469,124 @@ function MannequinInstance({
     }
   });
 
-  const handleTransformObjectChange = useCallback(() => {
-    const activeBoneName = selectedBoneName;
-    if (
-      lockedRef.current ||
-      !activeBoneName ||
-      !selectedSpec ||
-      !instance.rigAdapter.hasJoint(activeBoneName)
-    ) {
+  const setHitboxRef = useCallback(
+    (canonicalName: string, obj: THREE.Object3D | null) => {
+      if (obj) {
+        hitboxRefs.current.set(canonicalName, obj);
+      } else {
+        hitboxRefs.current.delete(canonicalName);
+      }
+    },
+    []
+  );
+
+  const handleBoneMarkerOver = useCallback(
+    (canonicalName: string, event: { stopPropagation: () => void }) => {
+      event.stopPropagation();
+      setHoveredBoneName(canonicalName);
+      invalidate();
+    },
+    [invalidate]
+  );
+
+  const handleBoneMarkerOut = useCallback(
+    (canonicalName: string, event: { stopPropagation: () => void }) => {
+      event.stopPropagation();
+      setHoveredBoneName((prev) => (prev === canonicalName ? null : prev));
+      invalidate();
+    },
+    [invalidate]
+  );
+
+  const handleBoneMarkerClick = useCallback(
+    (
+      entry: { canonicalName: string; bone: THREE.Bone },
+      event: { stopPropagation: () => void }
+    ) => {
+      event.stopPropagation();
+      onClearPropSelection();
+      onMoveBodyChange(false);
+      setSelectedIKHandle(null);
+      onSelectIKHandleChangeRef.current(null);
+      setSelectedBoneName(entry.canonicalName);
+      const spec = getJointSpec(entry.canonicalName);
+      const currentAngles = instance.rigAdapter.readCanonicalAngles(
+        entry.canonicalName,
+        spec
+      );
+      onSelectBoneChangeRef.current(entry.canonicalName, currentAngles);
+      invalidate();
+    },
+    [instance, onClearPropSelection, onMoveBodyChange, invalidate]
+  );
+
+  const handleArcDraggingChange = useCallback(
+    (dragging: boolean) => {
+      localDraggingRef.current = dragging;
+      setIsDraggingFK(dragging);
+      onDraggingChange(dragging);
+      invalidate();
+    },
+    [onDraggingChange, invalidate]
+  );
+
+  const handleArcAnglesUpdate = useCallback(
+    (angles: JointAngles) => {
+      const activeBoneName = selectedBoneNameRef.current;
+      onBoneAnglesChange(angles);
+
+      if (activeBoneName) {
+        solverRef.current.zeroBoneVelocity(activeBoneName);
+      }
+
+      // Avoid full ground-snap pivot bouncing mid-drag; only guard floor penetration.
+      let minY = computeSkinnedMinY();
+      if (groundEnabled && minY < 0) {
+        instance.rootGroup.position.y += -minY;
+        instance.rootGroup.updateMatrixWorld(true);
+        minY = 0;
+      }
+
       syncHitboxPositions();
-      return;
-    }
+      onElevationSyncRef.current(record.id, round2(minY));
 
-    const totalDeltaLocal = fkDragStartProxyQuatRef.current
-      .clone()
-      .invert()
-      .multiply(boneGizmoProxyRef.current.quaternion);
-    const targetCanonDelta = fkDragStartCanonDeltaRef.current
-      .clone()
-      .multiply(totalDeltaLocal)
-      .normalize();
+      if (gravityEnabled && activeBoneName) {
+        solverRef.current.wakeDownstream(
+          activeBoneName,
+          !groundEnabled || minY > 0.03
+        );
+        solverAwakeRef.current = true;
+      }
+      invalidate();
+    },
+    [
+      instance,
+      record.id,
+      groundEnabled,
+      gravityEnabled,
+      onBoneAnglesChange,
+      computeSkinnedMinY,
+      syncHitboxPositions,
+      invalidate,
+    ]
+  );
 
-    const euler = new THREE.Euler(0, 0, 0, selectedSpec.order).setFromQuaternion(
-      targetCanonDelta,
-      selectedSpec.order
-    );
-    const rawDeg: JointAngles = {
-      x: THREE.MathUtils.radToDeg(euler.x),
-      y: THREE.MathUtils.radToDeg(euler.y),
-      z: THREE.MathUtils.radToDeg(euler.z),
-    };
-    const clamped = clampJointAngles(rawDeg, selectedSpec, jointLimitsEnabled);
-
-    if (jointLimitsEnabled) {
-      instance.rigAdapter.applyCanonicalAngles(
-        activeBoneName,
-        clamped,
-        selectedSpec.order
-      );
-    } else {
-      instance.rigAdapter.applyCanonicalDeltaQuat(
-        activeBoneName,
-        targetCanonDelta
-      );
-    }
-
-    onBoneAnglesChange({
-      x: Math.round(clamped.x),
-      y: Math.round(clamped.y),
-      z: Math.round(clamped.z),
-    });
-
-    solverRef.current.zeroBoneVelocity(activeBoneName);
-
+  const handleArcDragCommit = useCallback(() => {
     if (record.groundSnapEnabled) {
       recomputeGroundOffset(0);
     } else {
       syncHitboxPositions();
       onElevationSyncRef.current(record.id, round2(computeSkinnedMinY()));
     }
-
-    const activeBone = instance.bonesByName.get(activeBoneName);
-    if (activeBone) {
-      instance.rootGroup.updateMatrixWorld(true);
-      activeBone.getWorldPosition(boneGizmoProxyRef.current.position);
-      instance.rigAdapter.getCanonicalCurrentWorldQuat(
-        activeBoneName,
-        boneGizmoProxyRef.current.quaternion
-      );
-      boneGizmoProxyRef.current.updateMatrixWorld(true);
-    }
-
-    if (gravityEnabled) {
-      solverRef.current.wakeDownstream(
-        activeBoneName,
-        !groundEnabled || computeSkinnedMinY() > 0.03
-      );
-      solverAwakeRef.current = true;
-      invalidate();
-    }
+    onCommitPoseSnapshotRef.current(record.id, captureSnapshot());
+    invalidate();
   }, [
-    instance,
     record.id,
     record.groundSnapEnabled,
-    selectedBoneName,
-    selectedSpec,
-    jointLimitsEnabled,
-    groundEnabled,
-    gravityEnabled,
-    onBoneAnglesChange,
     recomputeGroundOffset,
     syncHitboxPositions,
     computeSkinnedMinY,
+    captureSnapshot,
     invalidate,
   ]);
 
@@ -1738,11 +1712,34 @@ function MannequinInstance({
   return (
     <group>
       <primitive object={ikProxyRef.current} />
-      <primitive object={boneGizmoProxyRef.current} />
       <primitive
         object={instance.rootGroup}
-        onClick={(event: { stopPropagation: () => void }) => {
+        onClick={(event: {
+          stopPropagation: () => void;
+          intersections?: Array<{ object: THREE.Object3D }>;
+        }) => {
           if (!record.visible) return;
+          if (isActive && Array.isArray(event.intersections)) {
+            const hitsControl = event.intersections.some((hit) => {
+              let obj: THREE.Object3D | null = hit.object;
+              while (obj) {
+                if (
+                  obj.name === 'mortal-mesh-hitboxes' ||
+                  obj.name === 'mortal-mesh-ik-handles' ||
+                  obj.name === 'mortal-mesh-gizmo'
+                ) {
+                  return true;
+                }
+                obj = obj.parent;
+              }
+              return false;
+            });
+            if (hitsControl) {
+              // Yield to joint pin-rings / IK handles / arc gizmo behind the skin mesh
+              return;
+            }
+          }
+          event.stopPropagation();
           if (
             dragGuardRef.current.isDragging ||
             performance.now() - dragGuardRef.current.lastDragEndTime < 200
@@ -1751,7 +1748,6 @@ function MannequinInstance({
           }
           onClearPropSelection();
           if (!isActive) {
-            event.stopPropagation();
             onSelectMannequin(record.id);
             invalidate();
           }
@@ -1760,142 +1756,20 @@ function MannequinInstance({
 
       {showInteractive && (
         <>
-          <group name="mortal-mesh-hitboxes">
-            {visibleBones.map(({ canonicalName, bone }) => {
-              const isSelected =
-                !moveBodyEnabled && selectedBoneName === canonicalName;
-              const isHovered = hoveredBoneName === canonicalName;
-              const isPinned = pinnedSet.has(canonicalName);
-              const radius = getJointHitboxRadius(canonicalName);
-              const scale = isSelected
-                ? 1.25
-                : isHovered || isPinned
-                  ? 1.15
-                  : 1;
-              const color = isSelected
-                ? hitboxColors.selectedColor
-                : isPinned
-                  ? hitboxColors.pinnedColor
-                  : isHovered
-                    ? hitboxColors.hoverColor
-                    : hitboxColors.idleColor;
-              const opacity = isSelected
-                ? hitboxColors.selectedOpacity
-                : isHovered
-                  ? hitboxColors.hoverOpacity
-                  : isPinned
-                    ? hitboxColors.pinnedOpacity
-                    : hitboxColors.idleOpacity;
-
-              const handleBoneOver = (event: { stopPropagation: () => void }) => {
-                event.stopPropagation();
-                setHoveredBoneName(canonicalName);
-                invalidate();
-              };
-              const handleBoneOut = (event: { stopPropagation: () => void }) => {
-                event.stopPropagation();
-                setHoveredBoneName((prev) =>
-                  prev === canonicalName ? null : prev
-                );
-                invalidate();
-              };
-              const handleBoneClick = (event: { stopPropagation: () => void }) => {
-                event.stopPropagation();
-                onClearPropSelection();
-                onMoveBodyChange(false);
-                setSelectedIKHandle(null);
-                onSelectIKHandleChangeRef.current(null);
-                instance.rootGroup.updateMatrixWorld(true);
-                bone.getWorldPosition(boneGizmoProxyRef.current.position);
-                instance.rigAdapter.getCanonicalCurrentWorldQuat(
-                  canonicalName,
-                  boneGizmoProxyRef.current.quaternion
-                );
-                boneGizmoProxyRef.current.updateMatrixWorld(true);
-                fkDragStartProxyQuatRef.current.copy(
-                  boneGizmoProxyRef.current.quaternion
-                );
-                instance.rigAdapter.readCanonicalDeltaQuat(
-                  canonicalName,
-                  fkDragStartCanonDeltaRef.current
-                );
-                setSelectedBoneName(canonicalName);
-                const spec = getJointSpec(canonicalName);
-                const currentAngles = instance.rigAdapter.readCanonicalAngles(
-                  canonicalName,
-                  spec
-                );
-                onSelectBoneChangeRef.current(canonicalName, currentAngles);
-                invalidate();
-              };
-
-              if (isCoarsePointer) {
-                const colliderRadius =
-                  radius < 0.02 ? radius * 2.4 : radius * 2.1;
-                return (
-                  <group
-                    key={canonicalName}
-                    ref={(obj) => {
-                      if (obj) {
-                        hitboxRefs.current.set(canonicalName, obj);
-                      } else {
-                        hitboxRefs.current.delete(canonicalName);
-                      }
-                    }}
-                  >
-                    <mesh scale={scale} renderOrder={10}>
-                      <sphereGeometry args={[radius, 12, 12]} />
-                      <meshBasicMaterial
-                        color={color}
-                        transparent
-                        opacity={opacity}
-                        depthTest={false}
-                      />
-                    </mesh>
-                    <mesh
-                      renderOrder={9}
-                      onPointerOver={handleBoneOver}
-                      onPointerOut={handleBoneOut}
-                      onClick={handleBoneClick}
-                    >
-                      <sphereGeometry args={[colliderRadius, 10, 10]} />
-                      <meshBasicMaterial
-                        transparent
-                        opacity={0}
-                        depthWrite={false}
-                      />
-                    </mesh>
-                  </group>
-                );
-              }
-
-              return (
-                <mesh
-                  key={canonicalName}
-                  ref={(mesh) => {
-                    if (mesh) {
-                      hitboxRefs.current.set(canonicalName, mesh);
-                    } else {
-                      hitboxRefs.current.delete(canonicalName);
-                    }
-                  }}
-                  scale={scale}
-                  renderOrder={10}
-                  onPointerOver={handleBoneOver}
-                  onPointerOut={handleBoneOut}
-                  onClick={handleBoneClick}
-                >
-                  <sphereGeometry args={[radius, 12, 12]} />
-                  <meshBasicMaterial
-                    color={color}
-                    transparent
-                    opacity={opacity}
-                    depthTest={false}
-                  />
-                </mesh>
-              );
-            })}
-          </group>
+          <JointRingMarkers
+            entries={visibleBones}
+            selectedBoneName={selectedBoneName}
+            hoveredBoneName={hoveredBoneName}
+            pinnedSet={pinnedSet}
+            moveBodyEnabled={moveBodyEnabled}
+            isDraggingFK={isDraggingFK}
+            isCoarsePointer={isCoarsePointer}
+            hitboxColors={hitboxColors}
+            setHitboxRef={setHitboxRef}
+            onBoneOver={handleBoneMarkerOver}
+            onBoneOut={handleBoneMarkerOut}
+            onBoneClick={handleBoneMarkerClick}
+          />
 
           {showIKHandles && (
             <group name="mortal-mesh-ik-handles">
@@ -1904,9 +1778,9 @@ function MannequinInstance({
                   !moveBodyEnabled && selectedIKHandle === handleId;
                 const isHovered = hoveredIKHandle === handleId;
                 const isPelvis = handleId === 'pelvis';
-                const diamondRadius = isPelvis ? 0.044 : 0.034;
-                const ringRadius = isPelvis ? 0.062 : 0.05;
-                const colliderRadius = isCoarsePointer ? 0.095 : 0.056;
+                const diamondRadius = isPelvis ? 0.028 : 0.022;
+                const ringRadius = isPelvis ? 0.046 : 0.038;
+                const colliderRadius = isCoarsePointer ? 0.088 : 0.056;
                 const scale = isSelected ? 1.24 : isHovered ? 1.12 : 1;
 
                 return (
@@ -1930,16 +1804,16 @@ function MannequinInstance({
                             : hitboxColors.ikCoreColor
                         }
                         transparent
-                        opacity={isSelected ? 0.96 : isHovered ? 0.92 : 0.74}
+                        opacity={isSelected ? 0.92 : isHovered ? 0.85 : 0.65}
                         depthTest={false}
                       />
                     </mesh>
                     <mesh rotation={[Math.PI / 2, 0, 0]} renderOrder={11}>
-                      <torusGeometry args={[ringRadius, 0.0055, 8, 24]} />
+                      <torusGeometry args={[ringRadius, 0.004, 8, 28]} />
                       <meshBasicMaterial
                         color={hitboxColors.ikRingColor}
                         transparent
-                        opacity={isSelected ? 0.95 : isHovered ? 0.85 : 0.54}
+                        opacity={isSelected ? 0.92 : isHovered ? 0.82 : 0.48}
                         depthTest={false}
                       />
                     </mesh>
@@ -2013,26 +1887,21 @@ function MannequinInstance({
               controlMode === 'fk' &&
               selectedBoneName &&
               selectedSpec && (
-                <TransformControls
-                  key={`gizmo-rotate-bone-${record.id}-${selectedBoneName}`}
-                  ref={transformRef}
-                  object={boneGizmoProxyRef.current}
-                  mode="rotate"
-                  space="local"
-                  showX={jointLimitsEnabled ? selectedSpec.showX : true}
-                  showY={jointLimitsEnabled ? selectedSpec.showY : true}
-                  showZ={jointLimitsEnabled ? selectedSpec.showZ : true}
-                  size={
-                    getJointHitboxRadius(selectedBoneName) < 0.02
-                      ? isCoarsePointer
-                        ? 0.42
-                        : 0.28
-                      : isCoarsePointer
-                        ? 0.72
-                        : 0.55
-                  }
-                  onObjectChange={handleTransformObjectChange}
-                  onChange={() => invalidate()}
+                <JointArcGizmo
+                  key={`arc-gizmo-${record.id}-${selectedBoneName}`}
+                  rigAdapter={instance.rigAdapter}
+                  boneName={selectedBoneName}
+                  spec={selectedSpec}
+                  rootGroup={instance.rootGroup}
+                  jointLimitsEnabled={jointLimitsEnabled}
+                  studioTheme={studioTheme}
+                  activePreset={activePreset}
+                  lensCurvature={lensCurvature}
+                  isCoarsePointer={isCoarsePointer}
+                  dragGuardRef={dragGuardRef}
+                  onDraggingChange={handleArcDraggingChange}
+                  onAnglesUpdate={handleArcAnglesUpdate}
+                  onDragCommit={handleArcDragCommit}
                 />
               )
             )}

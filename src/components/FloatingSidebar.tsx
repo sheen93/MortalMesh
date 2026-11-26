@@ -60,6 +60,7 @@ import {
 interface FloatingSidebarProps {
   studioTheme: StudioThemeId;
   viewport: ViewportProfile;
+  isHudMinimized?: boolean;
   isOpen: boolean;
   onToggleOpen: (open: boolean) => void;
   mannequins: readonly MannequinRecord[];
@@ -97,6 +98,7 @@ interface FloatingSidebarProps {
 export function FloatingSidebar({
   studioTheme,
   viewport,
+  isHudMinimized = false,
   isOpen,
   onToggleOpen,
   mannequins,
@@ -176,9 +178,14 @@ export function FloatingSidebar({
     return (
       <aside
         aria-label="Viewport controls"
+        aria-hidden={isHudMinimized}
         onPointerDown={(event) => event.stopPropagation()}
         style={{ top: safeTopStyle, left: safeLeftStyle }}
-        className={`fixed z-20 flex min-h-[42px] items-center gap-2 rounded-2xl px-3 py-1.5 select-none transition-all duration-200 ${ui.panel}`}
+        className={`fixed z-20 flex min-h-[42px] items-center gap-2 rounded-2xl px-3 py-1.5 select-none transition-all duration-200 ${ui.panel} ${
+          isHudMinimized
+            ? 'opacity-0 -translate-x-4 pointer-events-none'
+            : 'opacity-100 translate-x-0 pointer-events-auto'
+        }`}
       >
         <button
           type="button"
@@ -211,6 +218,7 @@ export function FloatingSidebar({
       )}
       <aside
         aria-label="Viewport controls"
+        aria-hidden={isHudMinimized}
         onPointerDown={(event) => event.stopPropagation()}
         style={{
           top: safeTopStyle,
@@ -220,6 +228,10 @@ export function FloatingSidebar({
             : 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 5.75rem)',
         }}
         className={`fixed flex flex-col overflow-hidden rounded-2xl select-none transition-all duration-200 ${ui.panel} ${
+          isHudMinimized
+            ? 'opacity-0 -translate-x-4 pointer-events-none'
+            : 'opacity-100 translate-x-0 pointer-events-auto'
+        } ${
           isDrawerOverlay
             ? 'z-40 w-[min(88vw,320px)]'
             : viewport.isTablet

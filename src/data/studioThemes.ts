@@ -31,6 +31,15 @@ export interface StudioThemeHitboxColors {
   selectedOpacity: number;
   pinnedColor: string;
   pinnedOpacity: number;
+  ringIdleColor: string;
+  ringIdleOpacity: number;
+  ringContrastColor: string;
+  ringHoverColor: string;
+  ringSelectedColor: string;
+  ringPinnedColor: string;
+  gizmoX: string;
+  gizmoY: string;
+  gizmoZ: string;
   ikCoreColor: string;
   ikSelectedColor: string;
   ikRingColor: string;
@@ -139,6 +148,15 @@ export const STUDIO_THEMES: Record<StudioThemeId, StudioThemeSpec> = {
       selectedOpacity: 0.98,
       pinnedColor: '#18181B',
       pinnedOpacity: 0.82,
+      ringIdleColor: '#3F3F46',
+      ringIdleOpacity: 0.44,
+      ringContrastColor: '#FFFFFF',
+      ringHoverColor: '#09090B',
+      ringSelectedColor: '#09090B',
+      ringPinnedColor: '#DC5848',
+      gizmoX: '#DC5848',
+      gizmoY: '#2A9672',
+      gizmoZ: '#3878D4',
       ikCoreColor: '#18181B',
       ikSelectedColor: '#09090B',
       ikRingColor: '#3F3F46',
@@ -232,7 +250,16 @@ export const STUDIO_THEMES: Record<StudioThemeId, StudioThemeSpec> = {
       selectedColor: '#09090B',
       selectedOpacity: 0.95,
       pinnedColor: '#18181B',
-      pinnedOpacity: 0.80,
+      pinnedOpacity: 0.8,
+      ringIdleColor: '#F4F4F5',
+      ringIdleOpacity: 0.48,
+      ringContrastColor: '#18181B',
+      ringHoverColor: '#FFFFFF',
+      ringSelectedColor: '#FFFFFF',
+      ringPinnedColor: '#F06A57',
+      gizmoX: '#F06A57',
+      gizmoY: '#3EC495',
+      gizmoZ: '#5A9BF0',
       ikCoreColor: '#F4F4F5',
       ikSelectedColor: '#09090B',
       ikRingColor: '#FFFFFF',
@@ -320,13 +347,22 @@ export const STUDIO_THEMES: Record<StudioThemeId, StudioThemeSpec> = {
     },
     hitbox: {
       idleColor: '#FFFFFF',
-      idleOpacity: 0.50,
+      idleOpacity: 0.5,
       hoverColor: '#FFFFFF',
       hoverOpacity: 0.95,
       selectedColor: '#09090B',
       selectedOpacity: 0.95,
       pinnedColor: '#18181B',
-      pinnedOpacity: 0.80,
+      pinnedOpacity: 0.8,
+      ringIdleColor: '#E4E4E7',
+      ringIdleOpacity: 0.46,
+      ringContrastColor: '#09090B',
+      ringHoverColor: '#FFFFFF',
+      ringSelectedColor: '#FFFFFF',
+      ringPinnedColor: '#F06A57',
+      gizmoX: '#F06A57',
+      gizmoY: '#3EC495',
+      gizmoZ: '#5A9BF0',
       ikCoreColor: '#F4F4F5',
       ikSelectedColor: '#09090B',
       ikRingColor: '#D4D4D8',

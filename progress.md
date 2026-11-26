@@ -1,7 +1,7 @@
 # Mortal Mesh — Project Progress & Handoff Guide
 
-**Last Updated:** 2026-11-25  
-**Status:** Phase 10 Complete — Milestones 24–26 Built, Multi-Viewport & Offline Verified  
+**Last Updated:** 2026-11-26  
+**Status:** Phase 12 Complete — Clean Mobile UI, Studio Tap-to-Minimize Zen Mode, Precision Joint Pin-Rings & Custom Arc Gizmo Built & Verified  
 **Local Server:** Stopped cleanly (start preview via `rm -rf .next && npm run build && npm run start`, or dev via `npm run dev`)
 
 ---
@@ -315,3 +315,36 @@ All four new GLB assets from `/home/sheen/Documents/Mortal Mesh/models/` were cl
   - **Mixed Multi-Figure Gravity, Scene JSON & Responsive Layouts:** Verified `Female` (Locked) + `Skeleton` (`Action Lunge`, Gravity ON), `Save Scene` JSON exporting `["female", "skeleton"]`, `localStorage` autosave reload preservation, and zero overflow/overlap across `1440×900`, `412×915`, `915×412`, `1280×800`, and `800×1280`.
   - **Full Offline Multi-Model Switching:** Reloaded under CDP offline emulation (`Offline Mode`) and switched Figure 2 across `["female", "mannequin-2", "skeleton"]` completely offline with `0` console errors, `0` page exceptions, and `0` app/model network failures.
 - **Phase 10 Regression Suite (`verify_phase10_cdp.mjs`):** Exited `0` (`"status": "PASS"`, `transparentPngFisheye` `2880×1800` `cornerAlpha: 0, centerAlpha: 255`, `consoleErrorCount: 0`, `pageExceptionCount: 0`). Production server stopped cleanly afterward.
+
+---
+
+## 10. Phase 12: Clean Mobile UI, Studio Tap-to-Minimize Zen Mode, Precision Joint Pin-Rings & Custom Arc Rotation Gizmo
+
+### 10.1 Delivered Systems & UX Refinements
+
+- **Non-Distracting Precision Joint Pin-Rings (`src/components/JointRingMarkers.tsx`, `src/data/studioThemes.ts`):**
+  - Replaced bulky filled dark spheres with camera-facing GLSL SDF anti-aliased hollow pin-rings (`PlaneGeometry(1, 1)` + crisp contrasting outer hairline, core diameter `0.027m` / finger `0.014m`, transparent center letting surface musculature and joints stay visible).
+  - Visual states via uniforms: idle translucent ring (`uState=0`), hover glow (`uState=1`), selected pinpoint dot (`uState=2`), double-ring pinned (`uState=3`), `0.24x` dimming of unselected joints on active selection, and complete fade-out of unselected rings during active FK arc dragging (`isDraggingFK`).
+  - Expanded `StudioThemeHitboxColors` across `White`, `Gray`, and `Dark` themes (`ringIdleColor`, `ringIdleOpacity`, `ringContrastColor`, `ringHoverColor`, `ringSelectedColor`, `ringPinnedColor`) paired with generous invisible hit-sphere colliders (`0.042m` desktop / `0.058m` coarse core; `0.02m` / `0.032m` fingers).
+- **Custom Studio Joint Arc Rotation Gizmo (`src/components/JointArcGizmo.tsx`, `src/components/AnatomyModel.tsx`, `src/components/StudioCanvas.tsx`):**
+  - Replaced stock Three.js `<TransformControls mode="rotate" />` with an aesthetic, studio-matched 3-axis intrinsic-Euler rotation arc gizmo (`mortal-mesh-arc-gizmo` inside `mortal-mesh-gizmo` for clean exclusion from Transparent/Studio PNG exports), using muted architectural axis colors (`gizmoX`, `gizmoY`, `gizmoZ`).
+  - Computes exact intrinsic Euler axis world frames (`XYZ` limbs and `YZX` pelvis) directly from `rigAdapter.getCanonicalRestWorldQuat` + current canonical angles so dragging axis `a` mutates only `angles[a]` through `clampJointAngles`, eliminating cross-axis drift and ±180° Euler gimbal flips.
+  - Combines face-on ray-plane `atan2` rotation (with curvilinear Fisheye inverse pointer warp via `screenNdcToSourceNdc`) and smooth screen-tangent projection when grazing edge-on (`|axisWorld · viewDir| <= 0.28`), plus live frosted degree readout (`[data-testid="gizmo-angle-readout"]`), translucent swept angle wedge, ROM span indicator, active radial needle, synchronous `CameraControls` locking on drag start (`enabled=false; cancel(); stop()`), floor-penetration-only guard mid-drag (re-snapping once on release), and memoized `InfiniteStudioFloor` tuple props so the CAD floor grid never flickers during drag.
+- **Studio Tap-to-Minimize Zen Mode (`src/components/StudioCanvas.tsx`, `src/components/AnatomyModel.tsx`, `src/app/page.tsx`):**
+  - Tapping empty studio space (single pointer `< 8px` travel, not multi-touch, `>= 220ms` after any orbit/gizmo drag end) cleanly fades & slides out all floating chrome (`FloatingSidebar`, `ViewportGizmo`, `StudioRightRail`, `StudioDock`, and active popovers) and exposes a compact translucent top-left restore pill (`[data-testid="restore-hud-pill"]`, `"Controls"`).
+  - Tapping/clicking the 3D mannequin mesh (`instance.rootGroup` yielding automatically when `event.intersections` includes `mortal-mesh-hitboxes`, `mortal-mesh-ik-handles`, or `mortal-mesh-gizmo`), dragging camera orbit, or pinching never triggers Zen Mode; tapping empty space again, pressing `Escape`, or clicking `"Controls"` restores the studio HUD.
+- **Mobile Clean-Canvas UI (`src/components/ViewportGizmo.tsx`, `src/components/JointControlPopover.tsx`, `src/components/StudioDock.tsx`):**
+  - Compacted phone/compact-landscape top-right chrome into a `46px` ViewCube (`64×64px` stage) plus a single `Camera & Lens` trigger pill (`[data-testid="compact-camera-trigger"]`, showing e.g. `Fisheye · 70%`) and bookmark button opening an on-demand popover (removing the permanent `Fisheye Dome` card on mobile while adding a close button on desktop).
+  - Converted phone contextual editing (`viewport.isMobile`) into an ultra-compact docked **Bottom Control Tray** (`left: 10px, right: 10px`) with 4-column hand gesture micro-grid, inline `Gestures | Wrist` tabs, single-axis pill + slider selector, and full unobstructed upper studio space (`79%` clear height on `412×915`), plus tightened mobile `StudioDock` padding to eliminate horizontal overflow (`dockOverflow: false`).
+
+### 10.2 Phase 12 Final Verification Outputs
+
+- **TypeScript (`npx tsc --noEmit`):** Exited `0` (`0` errors).
+- **Pose & Hand Gesture Validation (`node scripts/validatePoses.mjs`):** Exited `0` — `VALIDATED 50 POSES (categories={"foundation":5,"classical":10,"action":10,"combat":8,"dance":8,"gesture":9}) + 12x2 HAND GESTURES (0 ROM/bone violations)`.
+- **Log Audit (`grep -rn "console\.log" src/`):** Zero matches (`ZERO_CONSOLE_LOG`).
+- **Production Build (`rm -rf .next && npm run build`):** Exited `0` (`/` `327 kB`, First Load JS `415 kB`, `0` TypeScript/ESLint errors), generated `public/sw-precache.json` (`version=fdc898936541`, `27` core URLs, `4` optional models).
+- **Phase 12 Headless Chrome QA (`verify_phase12_cdp.mjs`):** Exited `0` (`"status": "PASS"`, `consoleErrorCount: 0`, `pageExceptionCount: 0`):
+  - Selected `upperarm_l` precision pin-ring (`x: 755, y: 334`), dragged `JointArcGizmo` with live frosted readout (`"Twist -32°"` -> final `y: -52°`) and zero cross-axis drift (`x: 0, z: 0`), verified `idleDrawCalls: 0` after release under `frameloop="demand"`, and verified `Fisheye 70%` arc gizmo + Transparent PNG cutout (`cornerAlpha: 0, centerAlpha: 255`).
+  - Verified Desktop & Galaxy S25 Ultra (`412×915`) Zen Mode: empty studio tap minimizes HUD (`sidebarOpacity: "0"`, `dockOpacity: "0"`, `railOpacity: "0"`, `[data-testid="restore-hud-pill"]` shown), mannequin tap & orbit drag keep Zen active, and second empty tap restores HUD cleanly.
+  - Verified Mobile (`412×915`) layout: compact camera pill (`"Fisheye · 70%"`, `hasBigLensCard: false`), zero overflow (`docOverflow: false, dockOverflow: false`), `hand_l` selection (`368, 338`) + `Peace` gesture inside docked Bottom Tray (`popHeight: 131`, `upperClearFraction: 0.79`, `overlapsDock: false`, `overlapsStage: false`). Visually inspected all 7 Phase 12 PNG screenshots (`p12_desktop_rings.png`, `p12_desktop_arc_gizmo.png`, `p12_desktop_arc_dragging.png`, `p12_desktop_fisheye_gizmo.png`, `p12_desktop_zen.png`, `p12_mobile_fisheye_clean.png`, `p12_mobile_hand_tray.png`, `p12_mobile_zen.png`).
+- **Phase 11 & Phase 10 Regression Suites (`verify_phase11_cdp.mjs`, `verify_phase10_cdp.mjs`):** Both exited `0` (`"status": "PASS"`, `consoleErrorCount: 0`, `pageExceptionCount: 0`, `networkFailureCount: 0`) covering all 5 `.glb` models, offline model switching, Skeleton Mode, FK/IK/gestures, Fisheye HDR/PNG export (`2880×1800`, `cornerAlpha: 0`), and 5-viewport zero-overlap layout audits. Production server stopped cleanly afterward (`0` background tasks remaining).
