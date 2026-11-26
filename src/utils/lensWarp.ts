@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { isCurvilinearPreset, type CameraPreset } from '@/types/anatomy';
 
-export const MIN_LENS_CURVATURE = 0.2;
+export const MIN_LENS_CURVATURE = 0.1;
 export const MAX_LENS_CURVATURE = 1.0;
 export const DEFAULT_LENS_CURVATURE = 0.65;
 
@@ -18,6 +18,12 @@ export interface ScreenProjection {
   visible: boolean;
 }
 
+export interface FisheyeOptics {
+  fov: number;
+  phi: number;
+  t: number;
+}
+
 export function clampLensCurvature(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_LENS_CURVATURE;
   return Math.min(MAX_LENS_CURVATURE, Math.max(MIN_LENS_CURVATURE, value));
@@ -28,9 +34,28 @@ function normalizeAspect(aspect: number): number {
 }
 
 /**
- * Forward screen-to-source warp matching the curvilinear GLSL post-pass.
- * Maps a distorted screen NDC coordinate [-1, 1]^2 to the source rectilinear
- * camera NDC coordinate used for texture sampling and inverse pointer raycasting.
+ * Dual-stage Fisheye dome optics shared symmetrically between CPU math
+ * and GLSL post-processing: ramps source PerspectiveCamera FOV (56° -> 122°)
+ * and hemispherical dome curvature phi (0.30 -> 1.35 rad) across 10%..100%.
+ */
+export function getFisheyeOptics(curvature: number): FisheyeOptics {
+  const k = clampLensCurvature(curvature);
+  const t = Math.max(
+    0,
+    Math.min(
+      1,
+      (k - MIN_LENS_CURVATURE) / (MAX_LENS_CURVATURE - MIN_LENS_CURVATURE)
+    )
+  );
+  const fov = 56 + 66 * Math.pow(t, 1.08);
+  const phi = 0.3 + 1.05 * Math.pow(t, 0.92);
+  return { fov, phi, t };
+}
+
+/**
+ * Forward screen-to-source warp matching the Fisheye GLSL post-pass.
+ * Maps distorted screen NDC [-1, 1]^2 to rectilinear source camera NDC
+ * for texture sampling and inverse pointer raycasting.
  */
 export function screenNdcToSourceNdc(
   x: number,
@@ -42,22 +67,11 @@ export function screenNdcToSourceNdc(
   if (!isCurvilinearPreset(preset)) {
     return { x, y };
   }
-  const k = clampLensCurvature(curvature);
-
-  if (preset === '4-point') {
-    const c = 0.42 * k;
-    const theta = 0.72 * k;
-    const tanTheta = Math.tan(theta);
-    const sx = x * (1 - c + c * y * y);
-    const sy = tanTheta > 1e-6 ? Math.tan(y * theta) / tanTheta : y;
-    return { x: sx, y: sy };
-  }
-
+  const { phi } = getFisheyeOptics(curvature);
   const safeAspect = normalizeAspect(aspect);
   const rxScale = safeAspect >= 1 ? safeAspect : 1;
   const ryScale = safeAspect >= 1 ? 1 : 1 / safeAspect;
   const rMax = Math.hypot(rxScale, ryScale);
-  const phi = 1.05 * k;
   const tanPhi = Math.tan(phi);
   const r = Math.hypot(x * rxScale, y * ryScale);
   const u = r / rMax;
@@ -67,8 +81,8 @@ export function screenNdcToSourceNdc(
 
 /**
  * Analytic inverse of screenNdcToSourceNdc.
- * Maps a rectilinear source camera NDC coordinate to curved screen NDC [-1, 1]^2
- * for SVG perspective guides and 2D screen anchoring of 3D joints.
+ * Maps rectilinear source camera NDC to curved screen NDC [-1, 1]^2
+ * for dynamic Fisheye dome guides and 2D screen anchoring of 3D joints.
  */
 export function sourceNdcToScreenNdc(
   sx: number,
@@ -80,23 +94,11 @@ export function sourceNdcToScreenNdc(
   if (!isCurvilinearPreset(preset)) {
     return { x: sx, y: sy };
   }
-  const k = clampLensCurvature(curvature);
-
-  if (preset === '4-point') {
-    const c = 0.42 * k;
-    const theta = 0.72 * k;
-    const tanTheta = Math.tan(theta);
-    const y = theta > 1e-6 ? Math.atan(sy * tanTheta) / theta : sy;
-    const denom = 1 - c + c * y * y;
-    const x = Math.abs(denom) > 1e-6 ? sx / denom : sx;
-    return { x, y };
-  }
-
+  const { phi } = getFisheyeOptics(curvature);
   const safeAspect = normalizeAspect(aspect);
   const rxScale = safeAspect >= 1 ? safeAspect : 1;
   const ryScale = safeAspect >= 1 ? 1 : 1 / safeAspect;
   const rMax = Math.hypot(rxScale, ryScale);
-  const phi = 1.05 * k;
   const tanPhi = Math.tan(phi);
   const rSrc = Math.hypot(sx * rxScale, sy * ryScale);
   const uSrc = rSrc / rMax;
@@ -105,11 +107,25 @@ export function sourceNdcToScreenNdc(
   return { x: sx * invFactor, y: sy * invFactor };
 }
 
+/**
+ * Computes closed-form dolly-zoom camera distance so a 2m figure stays
+ * cleanly centered and framed while close limbs punch forward as FOV widens.
+ */
+export function getFisheyeReferenceDistance(curvature: number): number {
+  const k = clampLensCurvature(curvature);
+  const { fov, t } = getFisheyeOptics(k);
+  const yTgt = 0.56 + 0.14 * t;
+  const syTgt = screenNdcToSourceNdc(0, yTgt, 'fisheye', k, 1.5).y;
+  const halfTan = Math.tan((fov * Math.PI) / 360);
+  const raw = 1.0 / (Math.max(0.12, syTgt) * Math.max(1e-3, halfTan));
+  return Math.min(5.5, Math.max(1.25, raw));
+}
+
 const _projVec = new THREE.Vector3();
 
 /**
  * Projects a 3D world-space point to 2D CSS pixel coordinates within the canvas,
- * accounting for active 4-PT/5-PT curvilinear lens distortion.
+ * accounting for active Fisheye lens distortion.
  */
 export function projectWorldPointToScreen(
   worldPos: THREE.Vector3,
@@ -151,7 +167,7 @@ interface TransformControlsPointerTarget {
 
 /**
  * Wraps Three.js TransformControls._getPointer so gizmo axis hover and drag
- * raycasting track the distorted curvilinear viewport instead of flat screen NDC.
+ * raycasting track the distorted Fisheye viewport instead of flat screen NDC.
  */
 export function attachCurvilinearPointerWarp(
   controlsUnknown: unknown,
@@ -173,8 +189,7 @@ export function attachCurvilinearPointerWarp(
       return raw;
     }
     const rect = this.domElement?.getBoundingClientRect();
-    const aspect =
-      rect && rect.height > 0 ? rect.width / rect.height : 1;
+    const aspect = rect && rect.height > 0 ? rect.width / rect.height : 1;
     const mapped = screenNdcToSourceNdc(
       raw.x,
       raw.y,

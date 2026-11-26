@@ -13,14 +13,21 @@ import { TransformControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { STUDIO_THEMES } from '@/data/studioThemes';
-import type { CameraPreset, StudioThemeId } from '@/types/anatomy';
+import type {
+  CameraPreset,
+  ContextualAnchor,
+  StudioThemeId,
+} from '@/types/anatomy';
 import type {
   PropDropCommand,
   PropTransformMode,
   StudioProp,
   StudioPropType,
 } from '@/types/props';
-import { attachCurvilinearPointerWarp } from '@/utils/lensWarp';
+import {
+  attachCurvilinearPointerWarp,
+  projectWorldPointToScreen,
+} from '@/utils/lensWarp';
 
 interface DragGuardState {
   isDragging: boolean;
@@ -48,7 +55,9 @@ interface StudioPropsStageProps {
   dragGuardRef: MutableRefObject<DragGuardState>;
   activePreset: CameraPreset;
   lensCurvature: number;
+  cameraRestSeq: number;
   onSelectProp: (id: string) => void;
+  onPropAnchorChange: (anchor: ContextualAnchor | null) => void;
   onUpdatePropTransform: (
     id: string,
     patch: {
@@ -152,17 +161,23 @@ export function StudioProps({
   dragGuardRef,
   activePreset,
   lensCurvature,
+  cameraRestSeq,
   onSelectProp,
   onUpdatePropTransform,
   onDraggingChange,
+  onPropAnchorChange,
 }: StudioPropsStageProps) {
-  const { invalidate } = useThree();
+  const { camera, size, invalidate } = useThree();
   const propGroupRefs = useRef<Map<string, THREE.Group>>(new Map());
   const [selectedGroup, setSelectedGroup] = useState<THREE.Group | null>(null);
   const transformRef = useRef<ComponentRef<typeof TransformControls>>(null);
   const localDraggingRef = useRef(false);
   const lastDropSeqRef = useRef(dropPropToFloorCommand?.seq ?? 0);
   const tempBoxRef = useRef(new THREE.Box3());
+  const anchorWorldVecRef = useRef(new THREE.Vector3());
+  const emittedPropIdRef = useRef<string | null>(null);
+  const onPropAnchorChangeRef = useRef(onPropAnchorChange);
+  onPropAnchorChangeRef.current = onPropAnchorChange;
   const activePresetRef = useRef<CameraPreset>(activePreset);
   const lensCurvatureRef = useRef<number>(lensCurvature);
   activePresetRef.current = activePreset;
@@ -190,6 +205,54 @@ export function StudioProps({
     const group = propGroupRefs.current.get(selectedProp.id) ?? null;
     setSelectedGroup(group);
   }, [selectedProp, propsList]);
+
+  useEffect(() => {
+    if (localDraggingRef.current) return;
+    if (!selectedProp || !selectedGroup) {
+      if (emittedPropIdRef.current !== null) {
+        emittedPropIdRef.current = null;
+        onPropAnchorChangeRef.current(null);
+      }
+      return;
+    }
+
+    selectedGroup.updateMatrixWorld(true);
+    selectedGroup.getWorldPosition(anchorWorldVecRef.current);
+    const proj = projectWorldPointToScreen(
+      anchorWorldVecRef.current,
+      camera,
+      size.width,
+      size.height,
+      activePreset,
+      lensCurvature
+    );
+    emittedPropIdRef.current = selectedProp.id;
+    onPropAnchorChangeRef.current({
+      kind: 'prop',
+      id: selectedProp.id,
+      screenX: proj.screenX,
+      screenY: proj.screenY,
+      figureCenterScreenX: size.width * 0.5,
+    });
+  }, [
+    selectedProp,
+    selectedGroup,
+    activePreset,
+    lensCurvature,
+    cameraRestSeq,
+    camera,
+    size.width,
+    size.height,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (emittedPropIdRef.current !== null) {
+        emittedPropIdRef.current = null;
+        onPropAnchorChangeRef.current(null);
+      }
+    };
+  }, []);
 
   const readTransformPatch = useCallback((group: THREE.Group) => {
     const clampedScale: [number, number, number] = [

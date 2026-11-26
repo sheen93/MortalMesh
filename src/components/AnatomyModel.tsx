@@ -23,10 +23,10 @@ import {
   isPoseableBoneName,
   ZERO_JOINT_ANGLES,
   type CameraPreset,
+  type ContextualAnchor,
   type DampingPreset,
   type ElevationCommand,
   type HandGestureId,
-  type HandScreenAnchor,
   type HandSide,
   type IKHandleId,
   type JointAngleCommand,
@@ -113,6 +113,7 @@ interface AnatomyModelProps {
   isCoarsePointer: boolean;
   activePreset: CameraPreset;
   lensCurvature: number;
+  cameraRestSeq: number;
   onSelectMannequin: (id: string) => void;
   onDraggingChange: (isDragging: boolean) => void;
   onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
@@ -124,7 +125,7 @@ interface AnatomyModelProps {
   onMannequinBridgeChange: (id: string, bridge: PoseBridge | null) => void;
   onInitialPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onCommitPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
-  onHandAnchorChange: (anchor: HandScreenAnchor | null) => void;
+  onContextualAnchorChange: (anchor: ContextualAnchor | null) => void;
 }
 
 interface MannequinInstanceProps {
@@ -150,6 +151,7 @@ interface MannequinInstanceProps {
   isCoarsePointer: boolean;
   activePreset: CameraPreset;
   lensCurvature: number;
+  cameraRestSeq: number;
   onSelectMannequin: (id: string) => void;
   onDraggingChange: (isDragging: boolean) => void;
   onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
@@ -161,7 +163,7 @@ interface MannequinInstanceProps {
   onMannequinBridgeChange: (id: string, bridge: PoseBridge | null) => void;
   onInitialPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onCommitPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
-  onHandAnchorChange: (anchor: HandScreenAnchor | null) => void;
+  onContextualAnchorChange: (anchor: ContextualAnchor | null) => void;
 }
 
 interface DraggingChangedDispatcher {
@@ -247,6 +249,7 @@ function MannequinInstance({
   isCoarsePointer,
   activePreset,
   lensCurvature,
+  cameraRestSeq,
   onSelectMannequin,
   onDraggingChange,
   onSelectBoneChange,
@@ -258,7 +261,7 @@ function MannequinInstance({
   onMannequinBridgeChange,
   onInitialPoseSnapshot,
   onCommitPoseSnapshot,
-  onHandAnchorChange,
+  onContextualAnchorChange,
 }: MannequinInstanceProps) {
   const [selectedBone, setSelectedBone] = useState<THREE.Bone | null>(null);
   const [hoveredBoneName, setHoveredBoneName] = useState<string | null>(null);
@@ -315,18 +318,15 @@ function MannequinInstance({
   const onElevationSyncRef = useRef(onElevationSync);
   const onInitialPoseSnapshotRef = useRef(onInitialPoseSnapshot);
   const onCommitPoseSnapshotRef = useRef(onCommitPoseSnapshot);
-  const onHandAnchorChangeRef = useRef(onHandAnchorChange);
+  const onContextualAnchorChangeRef = useRef(onContextualAnchorChange);
 
   const solverRef = useRef(new JointSpaceGravitySolver());
   const solverAwakeRef = useRef(false);
   const gravityMovedSinceWakeRef = useRef(false);
   const tempWorldPosRef = useRef(new THREE.Vector3());
-  const handWorldVecRef = useRef(new THREE.Vector3());
-  const emittedHandAnchorRef = useRef<{
-    boneName: 'hand_l' | 'hand_r';
-    x: number;
-    y: number;
-  } | null>(null);
+  const anchorWorldVecRef = useRef(new THREE.Vector3());
+  const figureCenterWorldVecRef = useRef(new THREE.Vector3());
+  const emittedAnchorKeyRef = useRef<string | null>(null);
   const tempBoxRef = useRef(new THREE.Box3());
 
   groundEnabledRef.current = groundEnabled;
@@ -344,7 +344,7 @@ function MannequinInstance({
   onElevationSyncRef.current = onElevationSync;
   onInitialPoseSnapshotRef.current = onInitialPoseSnapshot;
   onCommitPoseSnapshotRef.current = onCommitPoseSnapshot;
-  onHandAnchorChangeRef.current = onHandAnchorChange;
+  onContextualAnchorChangeRef.current = onContextualAnchorChange;
 
   const { camera, size, invalidate } = useThree();
 
@@ -1029,46 +1029,87 @@ function MannequinInstance({
   ]);
 
   useEffect(() => {
-    const shouldShowHandAnchor =
-      isActive &&
-      !record.locked &&
-      record.visible &&
-      jointsDisplay === 'core' &&
-      controlMode === 'fk' &&
-      !moveBodyEnabled &&
-      (selectedBone?.name === 'hand_l' || selectedBone?.name === 'hand_r');
+    if (localDraggingRef.current || dragGuardRef.current.isDragging) return;
 
-    if (!shouldShowHandAnchor || !selectedBone) {
-      if (emittedHandAnchorRef.current) {
-        emittedHandAnchorRef.current = null;
-        onHandAnchorChangeRef.current(null);
+    const clearIfEmitted = () => {
+      if (emittedAnchorKeyRef.current !== null) {
+        emittedAnchorKeyRef.current = null;
+        onContextualAnchorChangeRef.current(null);
       }
+    };
+
+    if (!isActive || record.locked || !record.visible) {
+      clearIfEmitted();
       return;
     }
 
-    const boneName = selectedBone.name as 'hand_l' | 'hand_r';
-    const side: HandSide = boneName === 'hand_l' ? 'l' : 'r';
+    let kind: 'bone' | 'ik' | null = null;
+    let id: string | null = null;
+    let worldTarget: THREE.Vector3 | null = null;
+
     instance.rootGroup.updateMatrixWorld(true);
-    selectedBone.getWorldPosition(handWorldVecRef.current);
+
+    if (moveBodyEnabled) {
+      const pelvis = instance.bonesByName.get('pelvis');
+      if (pelvis) {
+        kind = 'bone';
+        id = 'pelvis';
+        pelvis.getWorldPosition(anchorWorldVecRef.current);
+        worldTarget = anchorWorldVecRef.current;
+      }
+    } else if (controlMode === 'fk' && selectedBone) {
+      kind = 'bone';
+      id = selectedBone.name;
+      selectedBone.getWorldPosition(anchorWorldVecRef.current);
+      worldTarget = anchorWorldVecRef.current;
+    } else if (controlMode === 'ik' && selectedIKHandle) {
+      kind = 'ik';
+      id = selectedIKHandle;
+      const handleBone = instance.bonesByName.get(selectedIKHandle);
+      if (handleBone) {
+        handleBone.getWorldPosition(anchorWorldVecRef.current);
+      } else {
+        anchorWorldVecRef.current.copy(ikProxyRef.current.position);
+      }
+      worldTarget = anchorWorldVecRef.current;
+    }
+
+    if (!kind || !id || !worldTarget) {
+      clearIfEmitted();
+      return;
+    }
+
     const proj = projectWorldPointToScreen(
-      handWorldVecRef.current,
+      worldTarget,
       camera,
       size.width,
       size.height,
       activePreset,
       lensCurvature
     );
-    emittedHandAnchorRef.current = {
-      boneName,
-      x: proj.screenX,
-      y: proj.screenY,
-    };
-    onHandAnchorChangeRef.current({
+
+    const pelvisBone = instance.bonesByName.get('pelvis');
+    let figureCenterScreenX = size.width * 0.5;
+    if (pelvisBone) {
+      pelvisBone.getWorldPosition(figureCenterWorldVecRef.current);
+      figureCenterScreenX = projectWorldPointToScreen(
+        figureCenterWorldVecRef.current,
+        camera,
+        size.width,
+        size.height,
+        activePreset,
+        lensCurvature
+      ).screenX;
+    }
+
+    emittedAnchorKeyRef.current = `${kind}:${id}`;
+    onContextualAnchorChangeRef.current({
+      kind,
+      id,
       mannequinId: record.id,
-      side,
-      boneName,
       screenX: proj.screenX,
       screenY: proj.screenY,
+      figureCenterScreenX,
     });
   }, [
     isActive,
@@ -1080,8 +1121,11 @@ function MannequinInstance({
     controlMode,
     moveBodyEnabled,
     selectedBone,
+    selectedIKHandle,
     activePreset,
     lensCurvature,
+    cameraRestSeq,
+    dragGuardRef,
     camera,
     size.width,
     size.height,
@@ -1089,9 +1133,9 @@ function MannequinInstance({
 
   useEffect(() => {
     return () => {
-      if (emittedHandAnchorRef.current) {
-        emittedHandAnchorRef.current = null;
-        onHandAnchorChangeRef.current(null);
+      if (emittedAnchorKeyRef.current !== null) {
+        emittedAnchorKeyRef.current = null;
+        onContextualAnchorChangeRef.current(null);
       }
     };
   }, []);
@@ -1467,49 +1511,7 @@ function MannequinInstance({
     invalidate,
   ]);
 
-  useFrame(({ camera: frameCam, size: frameSize }, delta) => {
-    if (
-      emittedHandAnchorRef.current &&
-      isActiveRef.current &&
-      !lockedRef.current &&
-      jointsDisplay === 'core' &&
-      controlMode === 'fk' &&
-      !moveBodyEnabled &&
-      selectedBoneRef.current &&
-      (selectedBoneRef.current.name === 'hand_l' ||
-        selectedBoneRef.current.name === 'hand_r')
-    ) {
-      const boneName = selectedBoneRef.current.name as 'hand_l' | 'hand_r';
-      const side: HandSide = boneName === 'hand_l' ? 'l' : 'r';
-      selectedBoneRef.current.getWorldPosition(handWorldVecRef.current);
-      const proj = projectWorldPointToScreen(
-        handWorldVecRef.current,
-        frameCam,
-        frameSize.width,
-        frameSize.height,
-        activePresetRef.current,
-        lensCurvatureRef.current
-      );
-      const prev = emittedHandAnchorRef.current;
-      if (
-        prev.boneName !== boneName ||
-        Math.hypot(prev.x - proj.screenX, prev.y - proj.screenY) >= 1.5
-      ) {
-        emittedHandAnchorRef.current = {
-          boneName,
-          x: proj.screenX,
-          y: proj.screenY,
-        };
-        onHandAnchorChangeRef.current({
-          mannequinId: record.id,
-          side,
-          boneName,
-          screenX: proj.screenX,
-          screenY: proj.screenY,
-        });
-      }
-    }
-
+  useFrame((_, delta) => {
     if (record.locked || !gravityEnabled || !solverAwakeRef.current) return;
 
     const result = solverRef.current.step({
@@ -2052,6 +2054,7 @@ export function AnatomyModel({
   isCoarsePointer,
   activePreset,
   lensCurvature,
+  cameraRestSeq,
   onSelectMannequin,
   onDraggingChange,
   onSelectBoneChange,
@@ -2063,7 +2066,7 @@ export function AnatomyModel({
   onMannequinBridgeChange,
   onInitialPoseSnapshot,
   onCommitPoseSnapshot,
-  onHandAnchorChange,
+  onContextualAnchorChange,
 }: AnatomyModelProps) {
   const [template, setTemplate] = useState<MannequinTemplate | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -2198,6 +2201,7 @@ export function AnatomyModel({
           isCoarsePointer={isCoarsePointer}
           activePreset={activePreset}
           lensCurvature={lensCurvature}
+          cameraRestSeq={cameraRestSeq}
           onSelectMannequin={onSelectMannequin}
           onDraggingChange={onDraggingChange}
           onSelectBoneChange={onSelectBoneChange}
@@ -2209,7 +2213,7 @@ export function AnatomyModel({
           onMannequinBridgeChange={onMannequinBridgeChange}
           onInitialPoseSnapshot={onInitialPoseSnapshot}
           onCommitPoseSnapshot={onCommitPoseSnapshot}
-          onHandAnchorChange={onHandAnchorChange}
+          onContextualAnchorChange={onContextualAnchorChange}
         />
       ))}
     </group>

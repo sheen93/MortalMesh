@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { STUDIO_THEMES } from '@/data/studioThemes';
 import {
-  isCurvilinearPreset,
+  isFisheyePreset,
   type CameraPreset,
   type StudioThemeId,
 } from '@/types/anatomy';
@@ -18,7 +18,7 @@ interface PerspectiveGuidesProps {
   height: number;
 }
 
-const SAMPLE_STEPS = 44;
+const SAMPLE_STEPS = 48;
 
 function buildSampledCurve(
   width: number,
@@ -41,9 +41,9 @@ function buildSampledCurve(
 }
 
 /**
- * Architectural perspective overlay for 4-PT (vertical curved meridians & horizon)
- * and 5-PT (hemispherical dome & cardinal vanishing arcs). Rendered as a DOM SVG
- * above the WebGL canvas so it never appears in studio or transparent PNG cutouts.
+ * Dynamic hemispherical Fisheye perspective guide overlay that tightens
+ * and bends in real time as the Fisheye Dome strength climbs toward 100%.
+ * Rendered in DOM SVG so it never appears in studio or transparent PNG cutouts.
  */
 export function PerspectiveGuides({
   preset,
@@ -55,81 +55,45 @@ export function PerspectiveGuides({
 }: PerspectiveGuidesProps) {
   const safeW = Math.max(100, Math.round(width));
   const safeH = Math.max(100, Math.round(height));
-  const active = visible && isCurvilinearPreset(preset);
+  const active = visible && isFisheyePreset(preset);
   const strokeColor = STUDIO_THEMES[studioTheme].perspectiveGuideColor;
 
   const geometry = useMemo(() => {
     if (!active) return null;
     const aspect = safeW / safeH;
 
-    if (preset === '4-point') {
-      const verticalMeridians = [-0.9, -0.6, -0.3, 0, 0.3, 0.6, 0.9].map(
-        (sx) => ({
-          key: `v-${sx}`,
-          major: sx === 0,
-          d: buildSampledCurve(safeW, safeH, preset, curvature, aspect, (t) => ({
-            sx,
-            sy: -1 + 2 * t,
-          })),
-        })
-      );
-
-      const horizontals = [-0.55, 0, 0.55].map((sy) => ({
-        key: `h-${sy}`,
-        major: sy === 0,
-        d: buildSampledCurve(safeW, safeH, preset, curvature, aspect, (t) => ({
-          sx: -1 + 2 * t,
-          sy,
-        })),
-      }));
-
-      return {
-        paths: [...verticalMeridians, ...horizontals],
-        domeEllipses: [] as Array<{ rx: number; ry: number; key: string }>,
-        vanishingTicks: [
-          { x: safeW * 0.5, y: 10, key: 'vp-top' },
-          { x: safeW * 0.5, y: safeH - 10, key: 'vp-bottom' },
-        ],
-      };
-    }
-
-    const verticalArcs = [-0.72, -0.36, 0, 0.36, 0.72].map((sx) => ({
-      key: `v5-${sx}`,
+    const verticalArcs = [-0.78, -0.4, 0, 0.4, 0.78].map((sx) => ({
+      key: `v-${sx}`,
       major: sx === 0,
       d: buildSampledCurve(safeW, safeH, preset, curvature, aspect, (t) => ({
         sx,
-        sy: -1 + 2 * t,
+        sy: -1.15 + 2.3 * t,
       })),
     }));
 
-    const horizontalArcs = [-0.72, -0.36, 0, 0.36, 0.72].map((sy) => ({
-      key: `h5-${sy}`,
+    const horizontalArcs = [-0.78, -0.4, 0, 0.4, 0.78].map((sy) => ({
+      key: `h-${sy}`,
       major: sy === 0,
       d: buildSampledCurve(safeW, safeH, preset, curvature, aspect, (t) => ({
-        sx: -1 + 2 * t,
+        sx: -1.15 + 2.3 * t,
         sy,
       })),
     }));
 
-    const rxEdge = sourceNdcToScreenNdc(0.92, 0, preset, curvature, aspect).x;
-    const ryEdge = sourceNdcToScreenNdc(0, 0.92, preset, curvature, aspect).y;
-    const rxMid = sourceNdcToScreenNdc(0.46, 0, preset, curvature, aspect).x;
-    const ryMid = sourceNdcToScreenNdc(0, 0.46, preset, curvature, aspect).y;
+    const domeEllipses = [0.42, 0.84, 0.98].map((r) => {
+      const rx = sourceNdcToScreenNdc(r, 0, preset, curvature, aspect).x;
+      const ry = sourceNdcToScreenNdc(0, r, preset, curvature, aspect).y;
+      return {
+        key: `dome-${r}`,
+        rx: Math.abs(rx) * (safeW * 0.5),
+        ry: Math.abs(ry) * (safeH * 0.5),
+        outer: r >= 0.95,
+      };
+    });
 
     return {
       paths: [...verticalArcs, ...horizontalArcs],
-      domeEllipses: [
-        {
-          key: 'dome-mid',
-          rx: Math.abs(rxMid) * (safeW * 0.5),
-          ry: Math.abs(ryMid) * (safeH * 0.5),
-        },
-        {
-          key: 'dome-outer',
-          rx: Math.abs(rxEdge) * (safeW * 0.5),
-          ry: Math.abs(ryEdge) * (safeH * 0.5),
-        },
-      ],
+      domeEllipses,
       vanishingTicks: [
         { x: safeW * 0.5, y: safeH * 0.5, key: 'vp-center' },
         { x: safeW * 0.5, y: 10, key: 'vp-north' },
@@ -171,9 +135,9 @@ export function PerspectiveGuides({
           ry={e.ry}
           fill="none"
           stroke={strokeColor}
-          strokeWidth={0.9}
-          strokeDasharray="3 5"
-          opacity={0.68}
+          strokeWidth={e.outer ? 1.05 : 0.85}
+          strokeDasharray={e.outer ? '5 4' : '3 5'}
+          opacity={e.outer ? 0.8 : 0.65}
           vectorEffect="non-scaling-stroke"
         />
       ))}

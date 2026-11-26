@@ -26,11 +26,11 @@ import { STUDIO_THEMES, type StudioThemeSpec } from '@/data/studioThemes';
 import type { ViewportProfile } from '@/hooks/useViewportProfile';
 import {
   CAMERA_PRESETS,
-  isCurvilinearPreset,
+  isFisheyePreset,
   type CameraPreset,
+  type ContextualAnchor,
   type DampingPreset,
   type ElevationCommand,
-  type HandScreenAnchor,
   type IKHandleId,
   type JointAngleCommand,
   type JointAngles,
@@ -44,6 +44,10 @@ import {
   type StudioThemeId,
 } from '@/types/anatomy';
 import type { PoseBridge, PoseSnapshot } from '@/types/poseIO';
+import {
+  getFisheyeOptics,
+  getFisheyeReferenceDistance,
+} from '@/utils/lensWarp';
 import type {
   PropDropCommand,
   PropTransformMode,
@@ -109,10 +113,13 @@ interface StudioCanvasProps {
   onAddBookmark: () => void;
   onSelectBookmark: (bookmark: CameraBookmark) => void;
   onDeleteBookmark: (id: string) => void;
+  cameraRestSeq: number;
   onMannequinBridgeChange: (id: string, bridge: PoseBridge | null) => void;
   onInitialPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onCommitPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
-  onHandAnchorChange: (anchor: HandScreenAnchor | null) => void;
+  onMannequinAnchorChange: (anchor: ContextualAnchor | null) => void;
+  onPropAnchorChange: (anchor: ContextualAnchor | null) => void;
+  onCameraRest: () => void;
   onSnapshotBridgeReady: (bridge: SnapshotBridge | null) => void;
   onCameraBridgeReady: (bridge: CameraBridge | null) => void;
 }
@@ -340,8 +347,10 @@ interface CameraRigProps {
   viewCubeRef: RefObject<HTMLDivElement>;
   invalidateRef: MutableRefObject<(() => void) | null>;
   activePreset: CameraPreset;
+  lensCurvature: number;
   snapTrigger: number;
   isDragging: boolean;
+  onCameraRest: () => void;
   onCameraBridgeReady: (bridge: CameraBridge | null) => void;
 }
 
@@ -350,8 +359,10 @@ function CameraRig({
   viewCubeRef,
   invalidateRef,
   activePreset,
+  lensCurvature,
   snapTrigger,
   isDragging,
+  onCameraRest,
   onCameraBridgeReady,
 }: CameraRigProps) {
   const { camera, invalidate } = useThree();
@@ -359,6 +370,14 @@ function CameraRig({
   const lastTransformRef = useRef('');
   const activePresetRef = useRef<CameraPreset>(activePreset);
   activePresetRef.current = activePreset;
+  const lensCurvatureRef = useRef<number>(lensCurvature);
+  lensCurvatureRef.current = lensCurvature;
+  const onCameraRestRef = useRef(onCameraRest);
+  onCameraRestRef.current = onCameraRest;
+  const prevPresetRef = useRef<CameraPreset>(activePreset);
+  const prevFisheyeRefDistRef = useRef<number>(
+    getFisheyeReferenceDistance(lensCurvature)
+  );
 
   useEffect(() => {
     invalidateRef.current = invalidate;
@@ -430,29 +449,123 @@ function CameraRig({
   }, [camera, controlsRef, invalidate, syncViewCube, onCameraBridgeReady]);
 
   useEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+
+    const handleRest = () => {
+      onCameraRestRef.current();
+    };
+    controls.addEventListener('rest', handleRest);
+    return () => {
+      controls.removeEventListener('rest', handleRest);
+    };
+  }, [controlsRef]);
+
+  useEffect(() => {
+    let settleTimer: number | null = null;
+    const isFisheye = isFisheyePreset(activePreset);
+    const nextRefDist = getFisheyeReferenceDistance(lensCurvature);
+
     if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
       const persp = camera as THREE.PerspectiveCamera;
-      const nextFov = CAMERA_PRESETS[activePreset].fov;
-      if (persp.fov !== nextFov) {
+      const nextFov = isFisheye
+        ? getFisheyeOptics(lensCurvature).fov
+        : CAMERA_PRESETS[activePreset].fov;
+      if (Math.abs(persp.fov - nextFov) > 1e-3) {
         persp.fov = nextFov;
         persp.updateProjectionMatrix();
         invalidate();
       }
     }
-  }, [activePreset, camera, invalidate]);
+
+    if (
+      isFisheye &&
+      prevPresetRef.current === 'fisheye' &&
+      Math.abs(nextRefDist - prevFisheyeRefDistRef.current) > 1e-4 &&
+      controlsRef.current
+    ) {
+      const controls = controlsRef.current;
+      const pos = new THREE.Vector3();
+      const tgt = new THREE.Vector3();
+      controls.getPosition(pos);
+      controls.getTarget(tgt);
+      const currDist = pos.distanceTo(tgt);
+      const ratio = nextRefDist / prevFisheyeRefDistRef.current;
+      const newDist = THREE.MathUtils.clamp(currDist * ratio, 1.0, 15.0);
+      const dir = pos.sub(tgt);
+      if (dir.lengthSq() < 1e-6) {
+        dir.set(0, 0, 1);
+      } else {
+        dir.normalize();
+      }
+
+      void controls.setLookAt(
+        tgt.x + dir.x * newDist,
+        tgt.y + dir.y * newDist,
+        tgt.z + dir.z * newDist,
+        tgt.x,
+        tgt.y,
+        tgt.z,
+        false
+      );
+      camera.updateMatrixWorld();
+      syncViewCube();
+      invalidate();
+
+      settleTimer = window.setTimeout(() => {
+        onCameraRestRef.current();
+      }, 140);
+    } else if (prevPresetRef.current !== activePreset) {
+      settleTimer = window.setTimeout(() => {
+        onCameraRestRef.current();
+      }, 140);
+    }
+
+    prevFisheyeRefDistRef.current = nextRefDist;
+    prevPresetRef.current = activePreset;
+
+    return () => {
+      if (settleTimer !== null) {
+        window.clearTimeout(settleTimer);
+      }
+    };
+  }, [activePreset, lensCurvature, camera, controlsRef, invalidate, syncViewCube]);
 
   useEffect(() => {
     const controls = controlsRef.current;
     if (!controls) return;
 
-    const { position, target } = CAMERA_PRESETS[activePresetRef.current];
+    const preset = activePresetRef.current;
+    const { position, target } = CAMERA_PRESETS[preset];
     const shouldAnimate = hasMountedRef.current;
     hasMountedRef.current = true;
 
+    let nextPosX = position[0];
+    let nextPosY = position[1];
+    let nextPosZ = position[2];
+
+    if (isFisheyePreset(preset)) {
+      const refDist = getFisheyeReferenceDistance(lensCurvatureRef.current);
+      prevFisheyeRefDistRef.current = refDist;
+      const dir = new THREE.Vector3(
+        position[0] - target[0],
+        position[1] - target[1],
+        position[2] - target[2]
+      );
+      if (dir.lengthSq() < 1e-6) {
+        dir.set(0, 0, 1);
+      } else {
+        dir.normalize();
+      }
+      nextPosX = target[0] + dir.x * refDist;
+      nextPosY = target[1] + dir.y * refDist;
+      nextPosZ = target[2] + dir.z * refDist;
+    }
+
     void controls.setLookAt(
-      position[0],
-      position[1],
-      position[2],
+      nextPosX,
+      nextPosY,
+      nextPosZ,
       target[0],
       target[1],
       target[2],
@@ -472,7 +585,7 @@ function CameraRig({
       ref={controlsRef}
       makeDefault
       enabled={!isDragging}
-      minDistance={1.5}
+      minDistance={isFisheyePreset(activePreset) ? 1.0 : 1.5}
       maxDistance={15}
       smoothTime={0.35}
       onChange={() => syncViewCube()}
@@ -581,6 +694,7 @@ interface StageReferenceProps {
   isCoarsePointer: boolean;
   activePreset: CameraPreset;
   lensCurvature: number;
+  cameraRestSeq: number;
   onSelectMannequin: (id: string) => void;
   onDraggingChange: (isDragging: boolean) => void;
   onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
@@ -600,7 +714,8 @@ interface StageReferenceProps {
   onMannequinBridgeChange: (id: string, bridge: PoseBridge | null) => void;
   onInitialPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onCommitPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
-  onHandAnchorChange: (anchor: HandScreenAnchor | null) => void;
+  onMannequinAnchorChange: (anchor: ContextualAnchor | null) => void;
+  onPropAnchorChange: (anchor: ContextualAnchor | null) => void;
 }
 
 function StageReference({
@@ -631,6 +746,7 @@ function StageReference({
   isCoarsePointer,
   activePreset,
   lensCurvature,
+  cameraRestSeq,
   onSelectMannequin,
   onDraggingChange,
   onSelectBoneChange,
@@ -643,7 +759,8 @@ function StageReference({
   onMannequinBridgeChange,
   onInitialPoseSnapshot,
   onCommitPoseSnapshot,
-  onHandAnchorChange,
+  onMannequinAnchorChange,
+  onPropAnchorChange,
 }: StageReferenceProps) {
   return (
     <group>
@@ -669,6 +786,7 @@ function StageReference({
         isCoarsePointer={isCoarsePointer}
         activePreset={activePreset}
         lensCurvature={lensCurvature}
+        cameraRestSeq={cameraRestSeq}
         onSelectMannequin={onSelectMannequin}
         onDraggingChange={onDraggingChange}
         onSelectBoneChange={onSelectBoneChange}
@@ -680,7 +798,7 @@ function StageReference({
         onMannequinBridgeChange={onMannequinBridgeChange}
         onInitialPoseSnapshot={onInitialPoseSnapshot}
         onCommitPoseSnapshot={onCommitPoseSnapshot}
-        onHandAnchorChange={onHandAnchorChange}
+        onContextualAnchorChange={onMannequinAnchorChange}
       />
 
       <StudioProps
@@ -693,9 +811,11 @@ function StageReference({
         dragGuardRef={propDragGuardRef}
         activePreset={activePreset}
         lensCurvature={lensCurvature}
+        cameraRestSeq={cameraRestSeq}
         onSelectProp={(id) => onSelectProp(id)}
         onUpdatePropTransform={onUpdatePropTransform}
         onDraggingChange={onDraggingChange}
+        onPropAnchorChange={onPropAnchorChange}
       />
 
       <InfiniteStudioFloor
@@ -752,10 +872,13 @@ export function StudioCanvas({
   onAddBookmark,
   onSelectBookmark,
   onDeleteBookmark,
+  cameraRestSeq,
   onMannequinBridgeChange,
   onInitialPoseSnapshot,
   onCommitPoseSnapshot,
-  onHandAnchorChange,
+  onMannequinAnchorChange,
+  onPropAnchorChange,
+  onCameraRest,
   onSnapshotBridgeReady,
   onCameraBridgeReady,
 }: StudioCanvasProps) {
@@ -775,7 +898,7 @@ export function StudioCanvas({
 
       const targetVec = new THREE.Vector3();
       controls.getTarget(targetVec);
-      const dist = Math.max(2.0, controls.distance);
+      const dist = Math.max(1.15, controls.distance);
       const dir = new THREE.Vector3(
         direction[0],
         direction[1],
@@ -833,8 +956,10 @@ export function StudioCanvas({
           viewCubeRef={viewCubeRef}
           invalidateRef={invalidateRef}
           activePreset={activePreset}
+          lensCurvature={lensCurvature}
           snapTrigger={snapTrigger}
           isDragging={isDragging}
+          onCameraRest={onCameraRest}
           onCameraBridgeReady={onCameraBridgeReady}
         />
         <StageReference
@@ -865,6 +990,7 @@ export function StudioCanvas({
           isCoarsePointer={viewport.isCoarsePointer}
           activePreset={activePreset}
           lensCurvature={lensCurvature}
+          cameraRestSeq={cameraRestSeq}
           onSelectMannequin={onSelectMannequin}
           onDraggingChange={onDraggingChange}
           onSelectBoneChange={onSelectBoneChange}
@@ -877,9 +1003,10 @@ export function StudioCanvas({
           onMannequinBridgeChange={onMannequinBridgeChange}
           onInitialPoseSnapshot={onInitialPoseSnapshot}
           onCommitPoseSnapshot={onCommitPoseSnapshot}
-          onHandAnchorChange={onHandAnchorChange}
+          onMannequinAnchorChange={onMannequinAnchorChange}
+          onPropAnchorChange={onPropAnchorChange}
         />
-        {isCurvilinearPreset(activePreset) && (
+        {isFisheyePreset(activePreset) && (
           <CurvilinearLens
             preset={activePreset}
             curvature={lensCurvature}

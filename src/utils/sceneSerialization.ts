@@ -205,6 +205,24 @@ function parseKeyLight(rawLight: unknown): KeyLightSettings | null {
   };
 }
 
+function parseCameraPreset(raw: unknown): CameraPreset {
+  if (typeof raw !== 'string') return '1-point';
+  if (isCameraPreset(raw)) return raw;
+  const norm = raw.trim().toLowerCase();
+  if (norm === '1pt') return '1-point';
+  if (norm === '2pt') return '2-point';
+  if (norm === '3pt') return '3-point';
+  if (
+    norm === '4-point' ||
+    norm === '5-point' ||
+    norm === '4pt' ||
+    norm === '5pt'
+  ) {
+    return 'fisheye';
+  }
+  return '1-point';
+}
+
 export function parseSceneFile(raw: unknown): ParseSceneResult {
   if (!isPlainObject(raw)) {
     return { ok: false, error: 'Invalid scene JSON: expected an object' };
@@ -381,10 +399,7 @@ export function parseSceneFile(raw: unknown): ParseSceneResult {
     return { ok: false, error: 'Invalid scene JSON: invalid keyLight settings' };
   }
 
-  const perspectiveMode: CameraPreset =
-    typeof s.perspectiveMode === 'string' && isCameraPreset(s.perspectiveMode)
-      ? s.perspectiveMode
-      : '1-point';
+  const perspectiveMode: CameraPreset = parseCameraPreset(s.perspectiveMode);
   const lensCurvature = isFiniteNumber(s.lensCurvature)
     ? clampLensCurvature(s.lensCurvature)
     : DEFAULT_LENS_CURVATURE;

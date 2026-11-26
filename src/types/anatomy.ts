@@ -172,7 +172,7 @@ export const POSEABLE_BONE_NAMES: readonly string[] = [
   'ball_r',
 ];
 
-export type CameraPreset = '1-point' | '2-point' | '3-point' | '4-point' | '5-point';
+export type CameraPreset = '1-point' | '2-point' | '3-point' | 'fisheye';
 
 export interface CameraPresetConfig {
   id: CameraPreset;
@@ -208,21 +208,13 @@ export const CAMERA_PRESETS: Record<CameraPreset, CameraPresetConfig> = {
     target: [0, 0.9, 0],
     fov: 40,
   },
-  '4-point': {
-    id: '4-point',
-    label: '4-PT',
-    description: 'Vertical curvilinear panorama (4 vanishing points)',
-    position: [2.35, 1.0, 2.35],
+  fisheye: {
+    id: 'fisheye',
+    label: 'Fisheye',
+    description: 'Exaggerated hemispherical fisheye dome lens',
+    position: [1.55, 1.55, 1.55],
     target: [0, 0.95, 0],
-    fov: 62,
-  },
-  '5-point': {
-    id: '5-point',
-    label: '5-PT',
-    description: 'Hemispherical fisheye perspective (5 vanishing points)',
-    position: [1.9, 1.85, 1.9],
-    target: [0, 0.9, 0],
-    fov: 74,
+    fov: 95,
   },
 };
 
@@ -230,8 +222,7 @@ export const CAMERA_PRESET_ORDER: CameraPreset[] = [
   '1-point',
   '2-point',
   '3-point',
-  '4-point',
-  '5-point',
+  'fisheye',
 ];
 
 export function isCameraPreset(value: string): value is CameraPreset {
@@ -239,14 +230,15 @@ export function isCameraPreset(value: string): value is CameraPreset {
     value === '1-point' ||
     value === '2-point' ||
     value === '3-point' ||
-    value === '4-point' ||
-    value === '5-point'
+    value === 'fisheye'
   );
 }
 
 export function isCurvilinearPreset(preset: CameraPreset): boolean {
-  return preset === '4-point' || preset === '5-point';
+  return preset === 'fisheye';
 }
+
+export const isFisheyePreset = isCurvilinearPreset;
 
 export type HandSide = 'l' | 'r';
 
@@ -264,12 +256,13 @@ export type HandGestureId =
   | 'thumbs-up'
   | 'pinch';
 
-export interface HandScreenAnchor {
-  mannequinId: string;
-  side: HandSide;
-  boneName: 'hand_l' | 'hand_r';
+export interface ContextualAnchor {
+  kind: 'bone' | 'ik' | 'prop';
+  id: string;
+  mannequinId?: string;
   screenX: number;
   screenY: number;
+  figureCenterScreenX?: number;
 }
 
 export interface KeyLightSettings {

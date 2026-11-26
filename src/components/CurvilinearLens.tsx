@@ -37,7 +37,7 @@ void main() {
 
 const FRAGMENT_SHADER = /* glsl */ `
 uniform sampler2D tDiffuse;
-uniform int uMode;
+uniform int uActive;
 uniform float uCurvature;
 uniform float uAspect;
 uniform float uTransparent;
@@ -47,17 +47,12 @@ void main() {
   vec2 ndc = vUv * 2.0 - 1.0;
   vec2 srcNdc = ndc;
 
-  if (uMode == 1) {
-    float c = 0.42 * uCurvature;
-    float theta = 0.72 * uCurvature;
-    float tanTheta = tan(theta);
-    srcNdc.x = ndc.x * (1.0 - c + c * ndc.y * ndc.y);
-    srcNdc.y = tanTheta > 0.00001 ? tan(ndc.y * theta) / tanTheta : ndc.y;
-  } else if (uMode == 2) {
+  if (uActive == 1) {
     float rxScale = uAspect >= 1.0 ? uAspect : 1.0;
     float ryScale = uAspect >= 1.0 ? 1.0 : 1.0 / max(uAspect, 0.05);
     float rMax = length(vec2(rxScale, ryScale));
-    float phi = 1.05 * uCurvature;
+    float t = clamp((uCurvature - 0.1) / 0.9, 0.0, 1.0);
+    float phi = 0.30 + 1.05 * pow(t, 0.92);
     float tanPhi = tan(phi);
     float r = length(vec2(ndc.x * rxScale, ndc.y * ryScale));
     float u = r / rMax;
@@ -89,9 +84,9 @@ void main() {
 const _savedClearColor = new THREE.Color();
 
 /**
- * Curvilinear post-process pass for 4-PT (vertical cylindrical) and 5-PT
- * (hemispherical fisheye) camera modes. Intercepts R3F pointer raycasting so
- * joint/prop picking and gizmo dragging align pixel-for-pixel with the warp.
+ * Exaggerated hemispherical Fisheye dome post-process pass. Intercepts R3F
+ * pointer raycasting so joint/prop picking and gizmo dragging stay locked
+ * pixel-for-pixel onto the distorted dome output.
  */
 export function CurvilinearLens({
   preset,
@@ -111,7 +106,7 @@ export function CurvilinearLens({
     const mat = new THREE.ShaderMaterial({
       uniforms: {
         tDiffuse: { value: null },
-        uMode: { value: 1 },
+        uActive: { value: 1 },
         uCurvature: { value: curvatureRef.current },
         uAspect: { value: 1 },
         uTransparent: { value: 0 },
@@ -184,15 +179,9 @@ export function CurvilinearLens({
       gl.clear(true, true, true);
       gl.render(scene, camera);
 
-      const modeInt =
-        presetRef.current === '4-point'
-          ? 1
-          : presetRef.current === '5-point'
-            ? 2
-            : 0;
       const uniforms = postScene.mat.uniforms;
       uniforms.tDiffuse.value = renderTarget.texture;
-      uniforms.uMode.value = modeInt;
+      uniforms.uActive.value = presetRef.current === 'fisheye' ? 1 : 0;
       uniforms.uCurvature.value = curvatureRef.current;
       uniforms.uAspect.value = safeW / Math.max(1, safeH);
       uniforms.uTransparent.value = transparent ? 1 : 0;
@@ -216,7 +205,6 @@ export function CurvilinearLens({
     };
   }, [renderHookRef, renderCurvilinearFrame]);
 
-  // Warp R3F pointer coordinates so 3D bone/prop picking matches curvilinear output.
   useEffect(() => {
     setEvents({
       compute: (event, state) => {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { STUDIO_THEMES, STUDIO_THEME_ORDER } from '@/data/studioThemes';
+import { STUDIO_THEMES } from '@/data/studioThemes';
 import type { ViewportProfile } from '@/hooks/useViewportProfile';
 import type {
   JointsDisplayMode,
@@ -11,18 +11,15 @@ import type {
 } from '@/types/anatomy';
 import {
   CameraIcon,
-  ContrastIcon,
-  GridFloorIcon,
+  ChevronDownIcon,
   HelpCircleIcon,
   JointNodesIcon,
   LockIcon,
-  MoonIcon,
   Move3dIcon,
-  OrbitIcon,
   RedoIcon,
   RotateCcwIcon,
   SegmentedControl,
-  SunIcon,
+  ToggleSwitch,
   UndoIcon,
   UnlockIcon,
   XIcon,
@@ -31,15 +28,15 @@ import {
 
 interface StudioDockProps {
   studioTheme: StudioThemeId;
-  onChangeStudioTheme: (theme: StudioThemeId) => void;
   jointsDisplay: JointsDisplayMode;
   onChangeJointsDisplay: (mode: JointsDisplayMode) => void;
+  jointLimitsEnabled: boolean;
+  onToggleJointLimits: () => void;
+  isJointsPopoverOpen: boolean;
+  onToggleJointsPopover: () => void;
+  onCloseJointsPopover: () => void;
   controlMode: PoseControlMode;
   onChangeControlMode: (mode: PoseControlMode) => void;
-  gravityEnabled: boolean;
-  onToggleGravity: () => void;
-  groundEnabled: boolean;
-  onToggleGround: () => void;
   moveBodyEnabled: boolean;
   onSetMoveBody: (enabled: boolean) => void;
   activeMannequinLocked: boolean;
@@ -69,6 +66,14 @@ const SNAPSHOT_SCALE_OPTIONS: ReadonlyArray<SegmentedOption<'1' | '2'>> = [
   { id: '2', label: '2x HD' },
 ];
 
+const JOINTS_DISPLAY_OPTIONS: ReadonlyArray<
+  SegmentedOption<JointsDisplayMode>
+> = [
+  { id: 'core', label: 'Core', title: '22 core posing joints' },
+  { id: 'all', label: 'All', title: 'All 52 poseable bones incl. fingers' },
+  { id: 'hidden', label: 'Off', title: 'Hide joint handles' },
+];
+
 const CONTROL_MODE_PILLS: ReadonlyArray<{
   id: PoseControlMode;
   label: string;
@@ -78,24 +83,17 @@ const CONTROL_MODE_PILLS: ReadonlyArray<{
   { id: 'ik', label: 'IK', title: 'IK End-Effector Target Mode (I)' },
 ];
 
-function ThemeIcon({ themeId }: { themeId: StudioThemeId }) {
-  if (themeId === 'light') return <SunIcon className="h-3.5 w-3.5 shrink-0" />;
-  if (themeId === 'gray')
-    return <ContrastIcon className="h-3.5 w-3.5 shrink-0" />;
-  return <MoonIcon className="h-3.5 w-3.5 shrink-0" />;
-}
-
 export function StudioDock({
   studioTheme,
-  onChangeStudioTheme,
   jointsDisplay,
   onChangeJointsDisplay,
+  jointLimitsEnabled,
+  onToggleJointLimits,
+  isJointsPopoverOpen,
+  onToggleJointsPopover,
+  onCloseJointsPopover,
   controlMode,
   onChangeControlMode,
-  gravityEnabled,
-  onToggleGravity,
-  groundEnabled,
-  onToggleGround,
   moveBodyEnabled,
   onSetMoveBody,
   activeMannequinLocked,
@@ -121,8 +119,9 @@ export function StudioDock({
   const { ui } = theme;
   const jointsVisible = jointsDisplay !== 'hidden';
   const touchSized = viewport.isMobile || viewport.isCoarsePointer;
-  const dockBtnHeight = touchSized ? 'min-h-[40px]' : '';
-  const dockIconBox = touchSized ? 'h-10 w-10' : 'h-7 w-7';
+  const dockBtnHeight = touchSized ? 'min-h-[36px]' : '';
+  const dockBtnPad = viewport.isMobile ? 'px-2 py-1' : 'px-2.5 py-1.5';
+  const dockIconBox = touchSized ? 'h-9 w-8 sm:h-9 sm:w-9' : 'h-7 w-7';
 
   return (
     <div
@@ -131,6 +130,53 @@ export function StudioDock({
         bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
       }}
     >
+      {/* Joint Display Options Popover anchored above the dock */}
+      {isJointsPopoverOpen && (
+        <div
+          role="dialog"
+          aria-label="Joint Display Options"
+          onPointerDown={(event) => event.stopPropagation()}
+          className={`pointer-events-auto w-[244px] max-w-[calc(100vw-2rem)] rounded-2xl p-3 space-y-2.5 ${ui.panel}`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 min-w-0">
+              <JointNodesIcon className={`h-3.5 w-3.5 shrink-0 ${ui.textMuted}`} />
+              <span
+                className={`text-[11px] font-semibold uppercase tracking-[0.11em] ${ui.textPrimary}`}
+              >
+                Joint Display Options
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={onCloseJointsPopover}
+              aria-label="Close joint display options"
+              className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${ui.iconButton}`}
+            >
+              <XIcon className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          <SegmentedControl
+            label="Visible Joints"
+            options={JOINTS_DISPLAY_OPTIONS}
+            value={jointsDisplay}
+            onChange={onChangeJointsDisplay}
+            theme={theme}
+          />
+
+          <ToggleSwitch
+            id="dock-joint-limits-toggle"
+            label="Joint Limits"
+            description="Anatomical ROM clamping"
+            checked={jointLimitsEnabled}
+            disabled={activeMannequinLocked}
+            onChange={onToggleJointLimits}
+            theme={theme}
+          />
+        </div>
+      )}
+
       {/* Frosted Snapshot Popover anchored above the dock */}
       {isSnapshotOpen && (
         <div
@@ -194,40 +240,10 @@ export function StudioDock({
       <nav
         aria-label="Studio quick dock"
         onPointerDown={(event) => event.stopPropagation()}
-        className={`studio-scroll pointer-events-auto flex max-w-full items-center gap-1.5 overflow-x-auto rounded-2xl px-2 py-1.5 transition-colors duration-200 ${ui.dock}`}
+        className={`studio-scroll pointer-events-auto flex max-w-full items-center overflow-x-auto rounded-2xl transition-colors duration-200 ${
+          viewport.isMobile ? 'gap-1 px-1.5 py-1' : 'gap-1.5 px-2 py-1.5'
+        } ${ui.dock}`}
       >
-        {/* Theme Segmented Pill */}
-        <div
-          role="group"
-          aria-label="Studio background theme"
-          className={`flex shrink-0 items-center gap-0.5 rounded-xl p-0.5 ${ui.segmentedTrack}`}
-        >
-          {STUDIO_THEME_ORDER.map((themeId) => {
-            const option = STUDIO_THEMES[themeId];
-            const isSelected = studioTheme === themeId;
-            return (
-              <button
-                key={themeId}
-                type="button"
-                aria-pressed={isSelected}
-                title={`Switch to ${option.label} studio`}
-                onClick={() => onChangeStudioTheme(themeId)}
-                className={`flex ${dockBtnHeight} items-center gap-1.5 rounded-[9px] px-2.5 py-1 text-[11px] font-medium whitespace-nowrap transition-all duration-150 ${
-                  isSelected ? ui.segmentedItemActive : ui.segmentedItem
-                }`}
-              >
-                <ThemeIcon themeId={themeId} />
-                <span className="hidden sm:inline">{option.label}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        <span
-          className={`h-5 w-px shrink-0 ${ui.verticalDivider}`}
-          aria-hidden="true"
-        />
-
         {/* FK / IK Mode Segmented Pill */}
         <div
           role="group"
@@ -243,7 +259,9 @@ export function StudioDock({
                 aria-pressed={isSelected}
                 title={modeOpt.title}
                 onClick={() => onChangeControlMode(modeOpt.id)}
-                className={`flex ${dockBtnHeight} items-center justify-center rounded-[9px] px-2.5 py-1 font-mono text-[10.5px] font-semibold whitespace-nowrap transition-all duration-150 ${
+                className={`flex ${dockBtnHeight} items-center justify-center rounded-[9px] py-1 font-mono text-[10.5px] font-semibold whitespace-nowrap transition-all duration-150 ${
+                  viewport.isMobile ? 'px-2' : 'px-2.5'
+                } ${
                   isSelected ? ui.segmentedItemActive : ui.segmentedItem
                 }`}
               >
@@ -258,50 +276,49 @@ export function StudioDock({
           aria-hidden="true"
         />
 
-        {/* Quick Studio Toggles */}
+        {/* Quick Posing Toggles */}
         <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            aria-pressed={jointsVisible}
-            title={
-              jointsVisible ? 'Hide joint handles (H)' : 'Show core joints (H)'
-            }
-            onClick={() =>
-              onChangeJointsDisplay(jointsVisible ? 'hidden' : 'core')
-            }
-            className={`flex ${dockBtnHeight} items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-medium whitespace-nowrap transition-all duration-150 ${
-              jointsVisible ? ui.dockButtonActive : ui.dockButton
-            }`}
-          >
-            <JointNodesIcon className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden lg:inline">Joints</span>
-          </button>
-
-          <button
-            type="button"
-            aria-pressed={gravityEnabled}
-            title="Toggle joint-space gravity"
-            onClick={onToggleGravity}
-            className={`flex ${dockBtnHeight} items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-medium whitespace-nowrap transition-all duration-150 ${
-              gravityEnabled ? ui.dockButtonActive : ui.dockButton
-            }`}
-          >
-            <OrbitIcon className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden lg:inline">Gravity</span>
-          </button>
-
-          <button
-            type="button"
-            aria-pressed={groundEnabled}
-            title="Toggle infinite floor boundary"
-            onClick={onToggleGround}
-            className={`flex ${dockBtnHeight} items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-medium whitespace-nowrap transition-all duration-150 ${
-              groundEnabled ? ui.dockButtonActive : ui.dockButton
-            }`}
-          >
-            <GridFloorIcon className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden lg:inline">Ground</span>
-          </button>
+          {/* Split Joints Control: Toggle Core<->Off + Chevron Popover (Core|All|Off + Joint Limits) */}
+          <div className="flex shrink-0 items-center">
+            <button
+              type="button"
+              aria-pressed={jointsVisible}
+              title={
+                jointsVisible
+                  ? 'Hide joint handles (H)'
+                  : 'Show core joints (H)'
+              }
+              onClick={() =>
+                onChangeJointsDisplay(jointsVisible ? 'hidden' : 'core')
+              }
+              className={`flex ${dockBtnHeight} ${dockBtnPad} items-center gap-1.5 rounded-l-xl text-[11px] font-medium whitespace-nowrap transition-all duration-150 ${
+                jointsVisible ? ui.dockButtonActive : ui.dockButton
+              }`}
+            >
+              <JointNodesIcon className="h-3.5 w-3.5 shrink-0" />
+              <span className="hidden lg:inline">
+                {jointsDisplay === 'all' ? 'Joints (All)' : 'Joints'}
+              </span>
+            </button>
+            <button
+              type="button"
+              aria-label="Joint Display Options"
+              aria-expanded={isJointsPopoverOpen}
+              title="Joint Display Options (Core / All / Off & Limits)"
+              onClick={onToggleJointsPopover}
+              className={`flex ${dockBtnHeight} items-center justify-center rounded-r-xl border-l px-1.5 py-1 transition-all duration-150 ${ui.hairline} ${
+                isJointsPopoverOpen || jointsVisible
+                  ? ui.dockButtonActive
+                  : ui.dockButton
+              }`}
+            >
+              <ChevronDownIcon
+                className={`h-3 w-3 shrink-0 transition-transform duration-150 ${
+                  isJointsPopoverOpen ? '' : 'rotate-180'
+                }`}
+              />
+            </button>
+          </div>
 
           <button
             type="button"
@@ -311,7 +328,7 @@ export function StudioDock({
             onClick={() => {
               if (!activeMannequinLocked) onSetMoveBody(!moveBodyEnabled);
             }}
-            className={`flex ${dockBtnHeight} items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-medium whitespace-nowrap transition-all duration-150 ${
+            className={`flex ${dockBtnHeight} ${dockBtnPad} items-center gap-1.5 rounded-xl text-[11px] font-medium whitespace-nowrap transition-all duration-150 ${
               activeMannequinLocked
                 ? `opacity-35 cursor-not-allowed ${ui.textMuted}`
                 : moveBodyEnabled
@@ -332,7 +349,7 @@ export function StudioDock({
                 : 'Lock active figure (freeze edits & gravity)'
             }
             onClick={onToggleLockActive}
-            className={`flex ${dockBtnHeight} items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-medium whitespace-nowrap transition-all duration-150 ${
+            className={`flex ${dockBtnHeight} ${dockBtnPad} items-center gap-1.5 rounded-xl text-[11px] font-medium whitespace-nowrap transition-all duration-150 ${
               activeMannequinLocked ? ui.dockButtonActive : ui.dockButton
             }`}
           >
@@ -391,7 +408,7 @@ export function StudioDock({
             onClick={() => {
               if (!activeMannequinLocked) onResetPose();
             }}
-            className={`flex shrink-0 ${dockBtnHeight} items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-medium whitespace-nowrap transition-all duration-150 ${
+            className={`flex shrink-0 ${dockBtnHeight} ${dockBtnPad} items-center gap-1.5 rounded-xl text-[11px] font-medium whitespace-nowrap transition-all duration-150 ${
               activeMannequinLocked
                 ? `opacity-35 cursor-not-allowed ${ui.textMuted}`
                 : ui.dockButton
@@ -414,7 +431,7 @@ export function StudioDock({
             aria-expanded={isSnapshotOpen}
             title="Export PNG Snapshot"
             onClick={onToggleSnapshot}
-            className={`flex ${dockBtnHeight} items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-medium whitespace-nowrap transition-all duration-150 ${
+            className={`flex ${dockBtnHeight} ${dockBtnPad} items-center gap-1.5 rounded-xl text-[11px] font-medium whitespace-nowrap transition-all duration-150 ${
               isSnapshotOpen ? ui.dockButtonActive : ui.dockButton
             }`}
           >

@@ -8,12 +8,16 @@ import {
   type CSSProperties,
 } from 'react';
 import { FloatingSidebar } from '@/components/FloatingSidebar';
-import { HandGesturePopover } from '@/components/HandGesturePopover';
+import { JointControlPopover } from '@/components/JointControlPopover';
 import { PoseLibraryModal } from '@/components/PoseLibraryModal';
 import { usePwaState } from '@/components/PwaManager';
 import { ShortcutsModal } from '@/components/ShortcutsModal';
 import { StudioCanvas } from '@/components/StudioCanvas';
 import { StudioDock } from '@/components/StudioDock';
+import {
+  StudioRightRail,
+  type RightRailTab,
+} from '@/components/StudioRightRail';
 import { StudioToast, type StudioToastData } from '@/components/StudioToast';
 import { HAND_GESTURE_BY_ID } from '@/data/handGestures';
 import { getPosePreset } from '@/data/poses';
@@ -31,10 +35,10 @@ import {
   ZERO_JOINT_ANGLES,
   type AxisKey,
   type CameraPreset,
+  type ContextualAnchor,
   type DampingPreset,
   type ElevationCommand,
   type HandGestureId,
-  type HandScreenAnchor,
   type HandSide,
   type IKHandleId,
   type JointAngleCommand,
@@ -129,7 +133,9 @@ export default function HomePage() {
   const [selectedIKHandle, setSelectedIKHandle] = useState<IKHandleId | null>(
     null
   );
-  const [handAnchor, setHandAnchor] = useState<HandScreenAnchor | null>(null);
+  const [contextualAnchor, setContextualAnchor] =
+    useState<ContextualAnchor | null>(null);
+  const [cameraRestSeq, setCameraRestSeq] = useState(0);
   const [activeHandGestureId, setActiveHandGestureId] =
     useState<HandGestureId | null>(null);
   const [jointAngleCommand, setJointAngleCommand] =
@@ -163,6 +169,10 @@ export default function HomePage() {
   const [dampingPreset, setDampingPreset] = useState<DampingPreset>('natural');
 
   const [keyLight, setKeyLight] = useState<KeyLightSettings>(DEFAULT_KEY_LIGHT);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [activeRightRailTab, setActiveRightRailTab] =
+    useState<RightRailTab | null>(null);
+  const [isJointsPopoverOpen, setIsJointsPopoverOpen] = useState(false);
   const [isSnapshotOpen, setIsSnapshotOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isPoseLibraryOpen, setIsPoseLibraryOpen] = useState(false);
@@ -198,11 +208,25 @@ export default function HomePage() {
 
   const viewport = useViewportProfile(handleViewportResize);
   const pwa = usePwaState();
+  const prevAutoCollapseRef = useRef(false);
+
+  const isDrawerOverlay = viewport.isMobile || viewport.isCompactLandscape;
+  const shouldAutoCollapseSidebar =
+    isDrawerOverlay || (viewport.isTablet && !viewport.isLandscape);
+
+  useEffect(() => {
+    if (shouldAutoCollapseSidebar && !prevAutoCollapseRef.current) {
+      setIsSidebarOpen(false);
+    }
+    prevAutoCollapseRef.current = shouldAutoCollapseSidebar;
+  }, [shouldAutoCollapseSidebar]);
 
   const activeMannequin =
     mannequins.find((m) => m.id === activeMannequinId) ?? mannequins[0];
   const activeLocked = activeMannequin?.locked ?? false;
   const activeHistory = historyById[activeMannequin.id] ?? EMPTY_POSE_HISTORY;
+  const selectedProp =
+    studioProps.find((p) => p.id === selectedPropId) ?? null;
 
   useEffect(() => {
     return () => {
@@ -315,8 +339,10 @@ export default function HomePage() {
       setSelectedBoneName(null);
       setSelectedBoneAngles(ZERO_JOINT_ANGLES);
       setSelectedIKHandle(null);
-      setHandAnchor(null);
+      setContextualAnchor(null);
       setActiveHandGestureId(null);
+      setActiveRightRailTab(null);
+      setIsJointsPopoverOpen(false);
       setMoveBodyEnabled(false);
       setSceneLoadId((prev) => prev + 1);
 
@@ -535,6 +561,8 @@ export default function HomePage() {
       setSelectedBoneName(null);
       setSelectedBoneAngles(ZERO_JOINT_ANGLES);
       setSelectedIKHandle(null);
+      setContextualAnchor(null);
+      setActiveHandGestureId(null);
       setMoveBodyEnabled(false);
     },
     [activeMannequinId]
@@ -568,6 +596,8 @@ export default function HomePage() {
     setSelectedBoneName(null);
     setSelectedBoneAngles(ZERO_JOINT_ANGLES);
     setSelectedIKHandle(null);
+    setContextualAnchor(null);
+    setActiveHandGestureId(null);
     setMoveBodyEnabled(false);
     showToast(`Added ${newRecord.name}`, 'success');
   }, [mannequins, groundEnabled, showToast]);
@@ -608,6 +638,8 @@ export default function HomePage() {
     setSelectedBoneName(null);
     setSelectedBoneAngles(ZERO_JOINT_ANGLES);
     setSelectedIKHandle(null);
+    setContextualAnchor(null);
+    setActiveHandGestureId(null);
     setMoveBodyEnabled(false);
     showToast(`Duplicated ${source.name}`, 'success');
   }, [mannequins, activeMannequin, showToast]);
@@ -626,6 +658,8 @@ export default function HomePage() {
         setSelectedBoneName(null);
         setSelectedBoneAngles(ZERO_JOINT_ANGLES);
         setSelectedIKHandle(null);
+        setContextualAnchor(null);
+        setActiveHandGestureId(null);
         setMoveBodyEnabled(false);
       }
 
@@ -651,6 +685,8 @@ export default function HomePage() {
         setSelectedBoneName(null);
         setSelectedBoneAngles(ZERO_JOINT_ANGLES);
         setSelectedIKHandle(null);
+        setContextualAnchor(null);
+        setActiveHandGestureId(null);
         setMoveBodyEnabled(false);
       }
     },
@@ -690,6 +726,8 @@ export default function HomePage() {
         setSelectedBoneName(null);
         setSelectedBoneAngles(ZERO_JOINT_ANGLES);
         setSelectedIKHandle(null);
+        setContextualAnchor(null);
+        setActiveHandGestureId(null);
         setMoveBodyEnabled(false);
       }
 
@@ -710,10 +748,15 @@ export default function HomePage() {
       [targetId]: nextHistory,
     }));
     applyRestoredSnapshot(targetId, nextHistory.present);
-    if (handAnchor && handAnchor.mannequinId === targetId) {
+    if (
+      contextualAnchor &&
+      contextualAnchor.kind !== 'prop' &&
+      contextualAnchor.mannequinId === targetId &&
+      (contextualAnchor.id === 'hand_l' || contextualAnchor.id === 'hand_r')
+    ) {
+      const side: HandSide = contextualAnchor.id === 'hand_l' ? 'l' : 'r';
       setActiveHandGestureId(
-        bridgesRef.current.get(targetId)?.getHandGestureId(handAnchor.side) ??
-          null
+        bridgesRef.current.get(targetId)?.getHandGestureId(side) ?? null
       );
     }
     setPoseCommitVersion((prev) => prev + 1);
@@ -722,7 +765,7 @@ export default function HomePage() {
     activeHistory,
     activeMannequin.id,
     applyRestoredSnapshot,
-    handAnchor,
+    contextualAnchor,
   ]);
 
   const handleRedo = useCallback(() => {
@@ -737,10 +780,15 @@ export default function HomePage() {
       [targetId]: nextHistory,
     }));
     applyRestoredSnapshot(targetId, nextHistory.present);
-    if (handAnchor && handAnchor.mannequinId === targetId) {
+    if (
+      contextualAnchor &&
+      contextualAnchor.kind !== 'prop' &&
+      contextualAnchor.mannequinId === targetId &&
+      (contextualAnchor.id === 'hand_l' || contextualAnchor.id === 'hand_r')
+    ) {
+      const side: HandSide = contextualAnchor.id === 'hand_l' ? 'l' : 'r';
       setActiveHandGestureId(
-        bridgesRef.current.get(targetId)?.getHandGestureId(handAnchor.side) ??
-          null
+        bridgesRef.current.get(targetId)?.getHandGestureId(side) ?? null
       );
     }
     setPoseCommitVersion((prev) => prev + 1);
@@ -749,7 +797,7 @@ export default function HomePage() {
     activeHistory,
     activeMannequin.id,
     applyRestoredSnapshot,
-    handAnchor,
+    contextualAnchor,
   ]);
 
   const handleMirrorPose = useCallback(() => {
@@ -877,8 +925,10 @@ export default function HomePage() {
     setActivePreset('1-point');
     setLensCurvature(DEFAULT_LENS_CURVATURE);
     setShowPerspectiveGuides(true);
-    setHandAnchor(null);
+    setContextualAnchor(null);
     setActiveHandGestureId(null);
+    setActiveRightRailTab(null);
+    setIsJointsPopoverOpen(false);
     setSnapTrigger((prev) => prev + 1);
     setSceneLoadId((prev) => prev + 1);
     showToast('Started new blank scene', 'success');
@@ -891,6 +941,8 @@ export default function HomePage() {
     setSelectedBoneName(null);
     setSelectedBoneAngles(ZERO_JOINT_ANGLES);
     setSelectedIKHandle(null);
+    setContextualAnchor(null);
+    setActiveHandGestureId(null);
     if (mode === 'ik') {
       setJointsDisplay((prev) => (prev === 'hidden' ? 'core' : prev));
     }
@@ -932,6 +984,11 @@ export default function HomePage() {
       setStudioProps((prev) =>
         prev.map((p) => (p.id === id ? { ...p, locked: nextLocked } : p))
       );
+      if (nextLocked) {
+        setContextualAnchor((prev) =>
+          prev?.kind === 'prop' && prev.id === id ? null : prev
+        );
+      }
       showToast(
         nextLocked ? `${target.name} locked` : `${target.name} unlocked`,
         'success'
@@ -954,6 +1011,9 @@ export default function HomePage() {
       if (selectedPropId === id) {
         setSelectedPropId(null);
       }
+      setContextualAnchor((prev) =>
+        prev?.kind === 'prop' && prev.id === id ? null : prev
+      );
       showToast(`Removed ${target.name}`, 'success');
     },
     [studioProps, selectedPropId, showToast]
@@ -1044,8 +1104,31 @@ export default function HomePage() {
     });
   }, [studioTheme]);
 
+  const handleToggleRightRailTab = useCallback((tab: RightRailTab) => {
+    setActiveRightRailTab((prev) => {
+      const next = prev === tab ? null : tab;
+      if (next !== null) {
+        setIsJointsPopoverOpen(false);
+        setIsSnapshotOpen(false);
+        setIsShortcutsOpen(false);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleToggleJointsPopover = useCallback(() => {
+    if (!isJointsPopoverOpen) {
+      setActiveRightRailTab(null);
+      setIsSnapshotOpen(false);
+      setIsShortcutsOpen(false);
+    }
+    setIsJointsPopoverOpen(!isJointsPopoverOpen);
+  }, [isJointsPopoverOpen]);
+
   const handleToggleSnapshot = useCallback(() => {
     if (!isSnapshotOpen) {
+      setActiveRightRailTab(null);
+      setIsJointsPopoverOpen(false);
       setIsShortcutsOpen(false);
     }
     setIsSnapshotOpen(!isSnapshotOpen);
@@ -1053,6 +1136,8 @@ export default function HomePage() {
 
   const handleToggleShortcuts = useCallback(() => {
     if (!isShortcutsOpen) {
+      setActiveRightRailTab(null);
+      setIsJointsPopoverOpen(false);
       setIsSnapshotOpen(false);
     }
     setIsShortcutsOpen(!isShortcutsOpen);
@@ -1097,18 +1182,45 @@ export default function HomePage() {
     setSnapTrigger((prev) => prev + 1);
   }, []);
 
-  const handleHandAnchorChange = useCallback(
-    (anchor: HandScreenAnchor | null) => {
-      setHandAnchor(anchor);
-      if (anchor) {
+  const handleCameraRest = useCallback(() => {
+    setCameraRestSeq((prev) => prev + 1);
+  }, []);
+
+  const handleMannequinAnchorChange = useCallback(
+    (anchor: ContextualAnchor | null) => {
+      if (anchor === null) {
+        setContextualAnchor((prev) =>
+          prev && prev.kind !== 'prop' ? null : prev
+        );
+        setActiveHandGestureId(null);
+        return;
+      }
+      setContextualAnchor(anchor);
+      if (
+        anchor.mannequinId &&
+        (anchor.id === 'hand_l' || anchor.id === 'hand_r')
+      ) {
+        const side: HandSide = anchor.id === 'hand_l' ? 'l' : 'r';
         const matched =
           bridgesRef.current
             .get(anchor.mannequinId)
-            ?.getHandGestureId(anchor.side) ?? null;
+            ?.getHandGestureId(side) ?? null;
         setActiveHandGestureId(matched);
       } else {
         setActiveHandGestureId(null);
       }
+    },
+    []
+  );
+
+  const handlePropAnchorChange = useCallback(
+    (anchor: ContextualAnchor | null) => {
+      if (anchor === null) {
+        setContextualAnchor((prev) => (prev?.kind === 'prop' ? null : prev));
+        return;
+      }
+      setContextualAnchor(anchor);
+      setActiveHandGestureId(null);
     },
     []
   );
@@ -1165,9 +1277,14 @@ export default function HomePage() {
     [activeLocked, activeMannequin.id, handleCommitPoseSnapshot, showToast]
   );
 
-  const handleCloseHandPopover = useCallback(() => {
-    setHandAnchor(null);
+  const handleCloseContextualPopover = useCallback(() => {
+    setContextualAnchor(null);
     setActiveHandGestureId(null);
+    setSelectedPropId(null);
+    setSelectedBoneName(null);
+    setSelectedBoneAngles(ZERO_JOINT_ANGLES);
+    setSelectedIKHandle(null);
+    setMoveBodyEnabled(false);
     setExternalDeselectTrigger((prev) => prev + 1);
   }, []);
 
@@ -1444,19 +1561,42 @@ export default function HomePage() {
   }, [activeLocked, activeMannequin.id]);
 
   const handleEscape = useCallback(() => {
-    if (isPoseLibraryOpen || isSnapshotOpen || isShortcutsOpen) {
+    if (
+      isPoseLibraryOpen ||
+      isSnapshotOpen ||
+      isShortcutsOpen ||
+      isJointsPopoverOpen ||
+      activeRightRailTab !== null
+    ) {
       setIsPoseLibraryOpen(false);
       setIsSnapshotOpen(false);
       setIsShortcutsOpen(false);
+      setIsJointsPopoverOpen(false);
+      setActiveRightRailTab(null);
       return;
     }
-    if (handAnchor) {
-      setHandAnchor(null);
-      setActiveHandGestureId(null);
+    if (
+      contextualAnchor ||
+      selectedBoneName ||
+      selectedIKHandle ||
+      selectedPropId ||
+      moveBodyEnabled
+    ) {
+      handleCloseContextualPopover();
     }
-    setSelectedPropId(null);
-    setExternalDeselectTrigger((prev) => prev + 1);
-  }, [isPoseLibraryOpen, isSnapshotOpen, isShortcutsOpen, handAnchor]);
+  }, [
+    isPoseLibraryOpen,
+    isSnapshotOpen,
+    isShortcutsOpen,
+    isJointsPopoverOpen,
+    activeRightRailTab,
+    contextualAnchor,
+    selectedBoneName,
+    selectedIKHandle,
+    selectedPropId,
+    moveBodyEnabled,
+    handleCloseContextualPopover,
+  ]);
 
   const handleInstallApp = useCallback(async () => {
     const outcome = await pwa.promptInstall();
@@ -1503,9 +1643,16 @@ export default function HomePage() {
       className="relative h-[100dvh] w-[100dvw] overflow-hidden overscroll-none transition-colors duration-200"
       style={themeVars}
       onPointerDown={() => {
-        if (isSnapshotOpen || isShortcutsOpen) {
+        if (
+          isSnapshotOpen ||
+          isShortcutsOpen ||
+          isJointsPopoverOpen ||
+          activeRightRailTab !== null
+        ) {
           setIsSnapshotOpen(false);
           setIsShortcutsOpen(false);
+          setIsJointsPopoverOpen(false);
+          setActiveRightRailTab(null);
         }
       }}
     >
@@ -1513,6 +1660,8 @@ export default function HomePage() {
       <FloatingSidebar
         studioTheme={studioTheme}
         viewport={viewport}
+        isOpen={isSidebarOpen}
+        onToggleOpen={setIsSidebarOpen}
         mannequins={mannequins}
         activeMannequinId={activeMannequin.id}
         onSelectMannequin={handleSelectMannequin}
@@ -1524,44 +1673,15 @@ export default function HomePage() {
         onDeleteMannequin={handleDeleteMannequin}
         layers={layers}
         onToggleLayer={handleToggleLayer}
-        jointsDisplay={jointsDisplay}
-        onChangeJointsDisplay={setJointsDisplay}
-        controlMode={controlMode}
-        onChangeControlMode={handleChangeControlMode}
-        jointLimitsEnabled={jointLimitsEnabled}
-        onToggleJointLimits={() => {
-          if (!activeLocked) setJointLimitsEnabled((prev) => !prev);
-        }}
-        selectedBoneName={selectedBoneName}
-        selectedBoneAngles={selectedBoneAngles}
-        selectedIKHandle={selectedIKHandle}
-        onChangeAxisAngle={handleChangeAxisAngle}
-        onResetSelectedJoint={handleResetSelectedJoint}
-        onResetPose={handleResetPose}
-        groundEnabled={groundEnabled}
-        onToggleGround={handleToggleGround}
-        groundSnapEnabled={activeMannequin.groundSnapEnabled}
-        onToggleGroundSnap={handleToggleGroundSnap}
-        elevationY={activeMannequin.elevationY}
-        onChangeElevation={handleChangeElevation}
-        onDropToFloor={handleDropToFloor}
-        moveBodyEnabled={moveBodyEnabled}
-        onSetMoveBody={handleSetMoveBody}
         activePosePresetId={activeMannequin.activePosePresetId}
         onSelectPosePreset={handleSelectPosePreset}
         onOpenPoseLibrary={() => {
+          setActiveRightRailTab(null);
+          setIsJointsPopoverOpen(false);
           setIsSnapshotOpen(false);
           setIsShortcutsOpen(false);
           setIsPoseLibraryOpen(true);
         }}
-        gravityEnabled={gravityEnabled}
-        onToggleGravity={handleToggleGravity}
-        dampingPreset={dampingPreset}
-        onChangeDampingPreset={setDampingPreset}
-        pinnedBones={activeMannequin.pinnedBones}
-        onTogglePinSelectedJoint={handleTogglePinSelectedJoint}
-        onClearAllPins={handleClearAllPins}
-        onCommitSliderHistory={handleCommitSliderHistory}
         onMirrorPose={handleMirrorPose}
         onExportPoseJson={handleExportPoseJson}
         onImportSceneOrPoseJson={handleImportSceneOrPoseJson}
@@ -1569,18 +1689,11 @@ export default function HomePage() {
         onNewBlankScene={handleNewBlankScene}
         studioProps={studioProps}
         selectedPropId={selectedPropId}
-        propTransformMode={propTransformMode}
         onSelectProp={handleSelectProp}
         onAddProp={handleAddProp}
         onToggleLockProp={handleToggleLockProp}
         onToggleVisibleProp={handleToggleVisibleProp}
         onDeleteProp={handleDeleteProp}
-        onChangePropTransformMode={setPropTransformMode}
-        onDropPropToFloor={handleDropPropToFloor}
-        onResetPropScale={handleResetPropScale}
-        keyLight={keyLight}
-        onChangeKeyLight={handleChangeKeyLight}
-        onResetKeyLight={handleResetKeyLight}
         pwa={pwa}
         onInstallApp={handleInstallApp}
       />
@@ -1602,17 +1715,45 @@ export default function HomePage() {
         onClose={() => setIsShortcutsOpen(false)}
         studioTheme={studioTheme}
       />
+      <StudioRightRail
+        studioTheme={studioTheme}
+        activeTab={activeRightRailTab}
+        viewport={viewport}
+        isLocked={activeLocked}
+        gravityEnabled={gravityEnabled}
+        dampingPreset={dampingPreset}
+        pinnedBonesCount={activeMannequin.pinnedBones.length}
+        groundEnabled={groundEnabled}
+        groundSnapEnabled={activeMannequin.groundSnapEnabled}
+        elevationY={activeMannequin.elevationY}
+        keyLight={keyLight}
+        onToggleTab={handleToggleRightRailTab}
+        onCloseTab={() => setActiveRightRailTab(null)}
+        onSelectStudioTheme={handleChangeStudioTheme}
+        onToggleGravity={handleToggleGravity}
+        onChangeDampingPreset={setDampingPreset}
+        onClearAllPins={handleClearAllPins}
+        onToggleGround={handleToggleGround}
+        onToggleGroundSnap={handleToggleGroundSnap}
+        onChangeElevation={handleChangeElevation}
+        onCommitSliderHistory={handleCommitSliderHistory}
+        onDropToFloor={handleDropToFloor}
+        onChangeKeyLight={handleChangeKeyLight}
+        onResetKeyLight={handleResetKeyLight}
+      />
       <StudioDock
         studioTheme={studioTheme}
-        onChangeStudioTheme={handleChangeStudioTheme}
         jointsDisplay={jointsDisplay}
         onChangeJointsDisplay={setJointsDisplay}
+        jointLimitsEnabled={jointLimitsEnabled}
+        onToggleJointLimits={() => {
+          if (!activeLocked) setJointLimitsEnabled((prev) => !prev);
+        }}
+        isJointsPopoverOpen={isJointsPopoverOpen}
+        onToggleJointsPopover={handleToggleJointsPopover}
+        onCloseJointsPopover={() => setIsJointsPopoverOpen(false)}
         controlMode={controlMode}
         onChangeControlMode={handleChangeControlMode}
-        gravityEnabled={gravityEnabled}
-        onToggleGravity={handleToggleGravity}
-        groundEnabled={groundEnabled}
-        onToggleGround={handleToggleGround}
         moveBodyEnabled={moveBodyEnabled}
         onSetMoveBody={handleSetMoveBody}
         activeMannequinLocked={activeLocked}
@@ -1629,14 +1770,35 @@ export default function HomePage() {
         onToggleShortcuts={handleToggleShortcuts}
         viewport={viewport}
       />
-      <HandGesturePopover
-        anchor={handAnchor}
-        activeGestureId={activeHandGestureId}
+      <JointControlPopover
+        anchor={contextualAnchor}
         studioTheme={studioTheme}
         viewport={viewport}
-        onApplyGesture={handleApplyHandGesture}
-        onMirrorHand={handleMirrorHandGesture}
-        onClose={handleCloseHandPopover}
+        isSidebarOpen={isSidebarOpen}
+        jointsDisplay={jointsDisplay}
+        jointLimitsEnabled={jointLimitsEnabled}
+        selectedBoneName={selectedBoneName}
+        selectedBoneAngles={selectedBoneAngles}
+        selectedIKHandle={selectedIKHandle}
+        moveBodyEnabled={moveBodyEnabled}
+        pinnedBones={activeMannequin.pinnedBones}
+        activeHandGestureId={activeHandGestureId}
+        selectedProp={selectedProp}
+        propTransformMode={propTransformMode}
+        onChangeAxisAngle={handleChangeAxisAngle}
+        onCommitSliderHistory={handleCommitSliderHistory}
+        onTogglePinSelectedJoint={handleTogglePinSelectedJoint}
+        onResetSelectedJoint={handleResetSelectedJoint}
+        onSetMoveBody={handleSetMoveBody}
+        onDropToFloor={handleDropToFloor}
+        onApplyHandGesture={handleApplyHandGesture}
+        onMirrorHandGesture={handleMirrorHandGesture}
+        onChangePropTransformMode={setPropTransformMode}
+        onDropPropToFloor={handleDropPropToFloor}
+        onResetPropScale={handleResetPropScale}
+        onToggleLockProp={handleToggleLockProp}
+        onDeleteProp={handleDeleteProp}
+        onClose={handleCloseContextualPopover}
       />
       <StudioCanvas
         mannequins={mannequins}
@@ -1672,6 +1834,7 @@ export default function HomePage() {
         dropPropToFloorCommand={dropPropToFloorCommand}
         bookmarks={bookmarks}
         viewport={viewport}
+        cameraRestSeq={cameraRestSeq}
         onSelectMannequin={handleSelectMannequin}
         onSelectBoneChange={handleSelectBoneChange}
         onSelectIKHandleChange={handleSelectIKHandleChange}
@@ -1686,7 +1849,9 @@ export default function HomePage() {
         onMannequinBridgeChange={handleMannequinBridgeChange}
         onInitialPoseSnapshot={handleInitialPoseSnapshot}
         onCommitPoseSnapshot={handleCommitPoseSnapshot}
-        onHandAnchorChange={handleHandAnchorChange}
+        onMannequinAnchorChange={handleMannequinAnchorChange}
+        onPropAnchorChange={handlePropAnchorChange}
+        onCameraRest={handleCameraRest}
         onSnapshotBridgeReady={handleSnapshotBridgeReady}
         onCameraBridgeReady={handleCameraBridgeReady}
       />

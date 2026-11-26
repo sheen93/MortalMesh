@@ -1,7 +1,7 @@
 # Mortal Mesh — Project Progress & Handoff Guide
 
-**Last Updated:** 2026-11-24  
-**Status:** Phase 8 Complete — Milestones 17–20 Built, Validated & Production-Offline Verified  
+**Last Updated:** 2026-11-25  
+**Status:** Phase 10 Complete — Milestones 24–26 Built, Multi-Viewport & Offline Verified  
 **Local Server:** Stopped cleanly (start preview via `rm -rf .next && npm run build && npm run start`, or dev via `npm run dev`)
 
 ---
@@ -233,3 +233,36 @@ All **50 poses** (`Foundation: 5`, `Classical & Fine Art: 10`, `Action & Comic H
   - `node scripts/validatePoses.mjs`: Exited `0` — `VALIDATED 50 POSES (categories={"foundation":5,"classical":10,"action":10,"combat":8,"dance":8,"gesture":9}) + 12x2 HAND GESTURES (0 ROM/bone violations)`.
   - `rm -rf .next && npm run build`: Exited `0` (`/` `310 kB`, First Load JS `397 kB`, `Generated public/sw-precache.json (version=1af0de89e4c8, 27 URLs)`).
   - Headless Chrome Close-Up Visual & Regression QA (`verify_thumbs_cdp.mjs` & `verify_phase9_cdp.mjs`): Both exited `0` (`"status":"PASS"`, `consoleErrorCount: 0`, `pageExceptionCount: 0`). Visually inspected close-up 3D renders across all 12 mirrored hand gestures plus `Orthodox Boxing Guard`, `Kneeling Supplicant`, `Contrapposto (David)`, and `Two-Handed Sword Guard`. Production server stopped cleanly afterward.
+
+---
+
+## 8. Phase 10 — Exaggerated Fisheye Dome Lens, Floating Safe-Distance Popovers & Zero-Duplication 5-Zone Studio HUD (Milestones 24–26)
+
+### 8.1 Implemented Architecture & Features
+
+- **Milestone 24 — Exaggerated `Fisheye` Dome Perspective (`src/types/anatomy.ts`, `src/utils/lensWarp.ts`, `src/components/CurvilinearLens.tsx`, `src/components/PerspectiveGuides.tsx`, `src/components/ViewportGizmo.tsx`, `src/components/StudioCanvas.tsx`, `src/utils/sceneSerialization.ts`):**
+  - Replaced separate `4-PT` & `5-PT` camera presets with a unified `'fisheye'` (`Fisheye`) mode (`Home | 1-PT | 2-PT | 3-PT | Fisheye | Bookmarks`) while transparently migrating legacy scene JSON values (`'4-point'`, `'5-point'`, `'4pt'`, `'5pt'`) to `'fisheye'` in `parseCameraPreset`.
+  - Added `getFisheyeOptics(k)` (`k ∈ [0.1, 1.0]`, ramping FOV from `56°` to `122°` and hemispherical dome angle `phi` from `0.30` to `1.35 rad`) alongside `getFisheyeReferenceDistance(k)` framing distance compensation in `CameraRig` (`minDistance = 1.0` in Fisheye mode, ViewCube clamp `Math.max(1.15, controls.distance)`).
+  - Updated `CurvilinearLens.tsx` GLSL shader (`#include <tonemapping_fragment>` + `#include <colorspace_fragment>` + straight-alpha Transparent PNG export) and `PerspectiveGuides.tsx` SVG overlay (3 concentric dome ellipses + curved cardinal arcs + ticks), keeping inverse pointer raycasting and `TransformControls` pointer picking accurate across the warped lens.
+
+- **Milestone 25 — Safe-Distance Unified Contextual Pop-Up (`src/components/JointControlPopover.tsx`, `src/components/AnatomyModel.tsx`, `src/components/StudioProps.tsx`, deleted `src/components/HandGesturePopover.tsx`):**
+  - Replaced `HandGesturePopover.tsx` with `JointControlPopover.tsx` anchored beside the active bone, Core-mode hand (`Gestures | Wrist` tabs), IK handle, or Studio Prop at guaranteed safe clearance (`136px` desktop/tablet, `104px` mobile) while avoiding sidebar, ViewCube, right rail, and bottom dock bounds.
+  - Replaced per-frame `useFrame` screen projection with a `cameraRestSeq` + selection/mode/viewport `useEffect` in `AnatomyModel.tsx` and `StudioProps.tsx` (`CameraControls` `'rest'` event listener in `StudioCanvas.tsx`), preventing mid-drag slider or gizmo popover jitter.
+
+- **Milestone 26 — Zero-Duplication 5-Zone Studio HUD (`src/components/StudioRightRail.tsx`, `src/components/FloatingSidebar.tsx`, `src/components/StudioDock.tsx`, `src/app/page.tsx`):**
+  - **Zone 1 (`FloatingSidebar.tsx`):** Controlled open/collapse (`isOpen` / `onToggleOpen`, mobile collapsed pill label **`Stage`**); stripped Active Joint Inspector, Joint & Rig, Physics & Floor, Studio Lighting, and Prop Gizmo; renders inline Lock ONLY on `!isSelected` Scene Figure rows; retains **Scene Figures**, **Pose Presets** (search, categories, `Expand Gallery`, 50 poses, `Mirror L↔R`), **Studio Props**, **Scene & Files** (`Save Scene`, `Load Scene`, `Save Pose`, `Load Pose`, `New Blank Scene`), **Anatomy Layers** (`Soon`), and **PwaStatusFooter**.
+  - **Zone 2 (`ViewportGizmo.tsx`):** 26-zone ViewCube + `Home | 1-PT | 2-PT | 3-PT | Fisheye | Bookmarks` + contextual `Fisheye Dome` & `Perspective Guides` card.
+  - **Zone 3 (`StudioRightRail.tsx` *(new)*):** Compact right-edge vertical icon rail opening one frosted popover at a time for **Physics & Floor** (`Gravity Physics`, `Joint Damping`, `Clear All Pins`, `Ground Floor`, `Ground Snap`, `Elevation (Y)`, `Drop`), **Studio Lighting** (`Key Azimuth`, `Key Elevation`, `Key Intensity`, `Reset Light`), and **Studio Theme** (`White | Gray | Dark`).
+  - **Zone 4 (`StudioDock.tsx`):** Streamlined high-frequency dock containing ONLY `FK | IK`, split `Joints` (`Core ↔ Off` toggle + `Joint Display Options` chevron popover with `Core | All | Off` & `Joint Limits`), `Move`, active `Lock`, `Undo`, `Redo`, `Reset`, `Snapshot`, and `?`.
+  - **Zone 5 (`JointControlPopover.tsx`):** Floating contextual controls with non-racy `onMannequinAnchorChange` / `onPropAnchorChange` arbitration and single-active-popover `Escape` / background pointer dismissal in `src/app/page.tsx`.
+
+### 8.2 Phase 10 Final Verification Outputs
+
+- **Pose & Hand Gesture Validation (`node scripts/validatePoses.mjs`):** Exited `0` — `VALIDATED 50 POSES (categories={"foundation":5,"classical":10,"action":10,"combat":8,"dance":8,"gesture":9}) + 12x2 HAND GESTURES (0 ROM/bone violations)`.
+- **Log Audit (`grep -rn "console\.log" src/`):** Zero matches (`NO_CONSOLE_LOG`).
+- **Production Build (`rm -rf .next && npm run build`):** Exited `0` (`/` `312 kB`, First Load JS `399 kB`, `0` TypeScript/ESLint errors), generated `public/sw-precache.json` (`version=26f4acb1eb4a`, `27 URLs`).
+- **Headless Chrome Multi-Viewport & Offline CDP QA (`npm run start` + `verify_phase10_cdp.mjs`):** Exited `0` (`"status": "PASS"`, `consoleErrorCount: 0`, `pageExceptionCount: 0`):
+  - **Fisheye Dome & Picking:** Verified `'4-PT'`/`'5-PT'` removed and `'Fisheye'` active; confirmed dynamic dome ellipses (`3`) + paths (`10`) in `PerspectiveGuides`, distinct visual frames across `1-PT`, `Fisheye 20%`, and `Fisheye 100%`, guides toggle, inverse pointer raycasting selecting `thigh_r` under `100%` Fisheye, and **Fisheye Transparent PNG** export (`2880×1800`, `cornerAlpha: 0`, `centerAlpha: 255`).
+  - **Safe-Distance Contextual Popover & Unified Hand Card:** Picked `upperarm_l` at `134px` safe clearance (`overlapsSidebar: false`, `overlapsDock: false`, `overlapsRail: false`) with zero `left`/`top` drift during continuous axis slider dragging; verified `hand_l` in `Core` mode exposes `Gestures | Wrist` tabs (`Peace`, wrist sliders, `Mirror L → R`, `Ctrl+Z` Undo back to Peace, `Escape` dismissal).
+  - **5-Zone Zero-Duplication & Inline Lock Audit:** Confirmed Left Panel excludes Joint & Rig / Active Joint Inspector / Physics & Floor / Studio Lighting while containing **Scene & Files**; confirmed Bottom Dock excludes Theme / Gravity / Ground while opening `Joint Display Options` popover; confirmed `inlineLockAudit` (`fig1HasInlineLock: true`, `fig2ActiveHasInlineLock: false`); confirmed Right Rail single-popover exclusivity across Physics, Lighting, and Theme (`White | Gray | Dark`).
+  - **Responsive & Offline PWA:** Passed horizontal overflow and HUD non-overlap checks across all 5 target viewports (`desktop_1440x900`, `phone_412x915` with `STAGE` pill, `phone_land_915x412` including open Physics & Floor compact-landscape popover, `tablet_1280x800`, and `tablet_port_800x1280`), visually verified captured PNG screenshots, and confirmed offline reload (`Offline Mode`) cleanly boots with an active WebGL mannequin canvas. Production server stopped cleanly afterward (`no background tasks running`).

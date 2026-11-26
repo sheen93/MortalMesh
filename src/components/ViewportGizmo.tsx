@@ -15,7 +15,7 @@ import type { ViewportProfile } from '@/hooks/useViewportProfile';
 import {
   CAMERA_PRESET_ORDER,
   CAMERA_PRESETS,
-  isCurvilinearPreset,
+  isFisheyePreset,
   type CameraPreset,
   type StudioThemeId,
 } from '@/types/anatomy';
@@ -184,7 +184,7 @@ export function ViewportGizmo({
   const cubeSize = compact ? 52 : 64;
   const halfDepth = cubeSize / 2;
   const atBookmarkLimit = bookmarks.length >= MAX_CAMERA_BOOKMARKS;
-  const isCurvilinear = isCurvilinearPreset(activePreset);
+  const isFisheye = isFisheyePreset(activePreset);
   const curvaturePct = Math.round(lensCurvature * 100);
 
   const dragStateRef = useRef<{
@@ -490,17 +490,17 @@ export function ViewportGizmo({
         </button>
       </div>
 
-      {/* Curvilinear Lens Options Card (Visible when 4-PT or 5-PT is active) */}
-      {isCurvilinear && (
+      {/* Fisheye Lens Options Card (Visible when Fisheye is active) */}
+      {isFisheye && (
         <div
           role="region"
-          aria-label="Curvilinear lens controls"
+          aria-label="Fisheye lens controls"
           onPointerDown={(event) => event.stopPropagation()}
           className={`pointer-events-auto w-[216px] max-w-[calc(100vw-1.5rem)] rounded-2xl px-3 py-2.5 space-y-2 ${ui.panel}`}
         >
           <PrecisionSlider
             id="lens-curvature-slider"
-            label={activePreset === '4-point' ? '4-PT Curve' : '5-PT Dome'}
+            label="Fisheye Dome"
             value={lensCurvature}
             min={MIN_LENS_CURVATURE}
             max={MAX_LENS_CURVATURE}
