@@ -1,3 +1,4 @@
+import type { MannequinModelId } from '@/data/modelCatalog';
 import type {
   CameraPreset,
   DampingPreset,
@@ -33,6 +34,7 @@ export interface CameraBridge {
 export interface SerializedMannequin {
   id: string;
   name: string;
+  modelId?: MannequinModelId;
   finish: MannequinFinish;
   locked: boolean;
   visible: boolean;

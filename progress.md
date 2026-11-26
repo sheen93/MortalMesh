@@ -276,3 +276,42 @@ All **50 poses** (`Foundation: 5`, `Classical & Fine Art: 10`, `Action & Comic H
   - `node scripts/validatePoses.mjs` + `grep -rn "console\.log" src/` + `rm -rf .next && npm run build`: Exited `0` (`/` `314 kB`, First Load JS `401 kB`, `Generated public/sw-precache.json (version=f552bca7f115, 27 URLs)`).
   - `verify_fisheye_hq.mjs`: Exited `0` (`"status": "PASS"`, `fisheyeRenderMs: 345`, `idleGlDrawCallsIn1500ms: 0`, `consoleErrorCount: 0`, `webglWarningCount: 0`, `pageExceptionCount: 0`); visually verified crisp `100%` Fisheye renders across `White`, `Gray`, and `Dark` themes (`fisheye_hq_white_100.png`, `fisheye_hq_gray_100.png`, `fisheye_hq_dark_100.png`).
   - `verify_phase10_cdp.mjs`: Exited `0` (`"status": "PASS"`, `transparentPngFisheye` `2880×1800` `cornerAlpha: 0, centerAlpha: 255`, `consoleErrorCount: 0`, `pageExceptionCount: 0`). Production server stopped cleanly afterward.
+
+## 9. Phase 11: Multi-Model Pipeline, Universal Rig Adapter, Skeleton Mode & Multi-Model Offline PWA (Milestones 27–29)
+
+### 9.1 Staged & Optimized Rigged Models (`public/models/`)
+
+All four new GLB assets from `/home/sheen/Documents/Mortal Mesh/models/` were cleaned in Blender 4.0.2, reparented where skeletons had disconnected chains, compressed with `KHR_draco_mesh_compression` via `@gltf-transform/cli`, and staged alongside `anatomy.glb` (`4.2 MB` total across all 5 models):
+
+| Model ID | Label | File | Size | Triangles | Skeleton / Mapping | Blender Reparenting & Cleanup |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `classic` | Classic | `public/models/anatomy.glb` | `604K` | `13,743` | `65` joints (`52` canonical mapped) | Preserved untouched as canonical rig reference |
+| `mannequin-2` | Mannequin 2 | `public/models/mannequin-2.glb` | `172K` | `41,004` | `55` `Bip001` joints (`51/52` mapped; `spine_02` folded 50/50 into `spine_01` + `spine_03`) | Stripped `Take 001`; fixed `Bip001 L/R Thigh -> Bip001 Pelvis_04` and `Bip001 L/R Clavicle -> Bip001 Spine1_06`; Draco compressed (from `2.51 MB`) |
+| `mannequin-3` | Mannequin 3 | `public/models/mannequin-3.glb` | `1.7M` | `28,880` | `66` `mixamorig1:*` joints (`52/52` mapped) | Stripped `mixamo.com` clip; converted `KHR_materials_pbrSpecularGlossiness` to standard PBR; Draco compressed (from `3.35 MB`) |
+| `female` | Female | `public/models/mannequin-female.glb` | `190K` | `30,350` | `53` Mixamo joints (`52/52` mapped) | Stripped animations; Draco compressed (from `1.49 MB`) |
+| `skeleton` | Skeleton | `public/models/skeleton-rig.glb` | `1.6M` | `93,575` | `238` joints (`52/52` canonical mapped via `71` vertebral + limb segments) | Decimated `0.35` keeping all `6` bone textures; fixed `HEAD_29 -> VERTEBRAE_C1(atlas)_36`, `RADIUS.R_88`/`ULNA.R_89 -> MCH_forearm.R_124`, and `10` `MCH_toe*Pivot.L/R -> MCH_toes.L/R`; Draco compressed (from `14.56 MB`) |
+
+### 9.2 Implemented Architecture & Features
+
+- **Milestone 27 — Canonical Reference & GLB Optimization (`src/rig/canonicalReference.ts` *(new)*):** Extracted `CANONICAL_REST_LOCAL_QUATS` and `CANONICAL_REST_WORLD_QUATS` across all `52` canonical poseable joints from `public/models/anatomy.glb`.
+- **Milestone 28 — Universal `RigAdapter`, Multi-Model Cached Loader & Serialization (`src/data/modelCatalog.ts` *(new)*, `src/rig/rigAdapter.ts` *(new)*, `src/components/AnatomyModel.tsx`, `src/physics/runtimeIK.ts`, `src/physics/gravitySolver.ts`, `src/types/scene.ts`, `src/types/sceneIO.ts`, `src/utils/sceneSerialization.ts`):**
+  - Added `MODEL_CATALOG`, `MODEL_ORDER`, and `isMannequinModelId`; extended `MannequinRecord` & `SerializedMannequin` with backward-compatible `modelId` (defaulting legacy scenes to `'classic'`) and optional `previousModelId`.
+  - Built `RigAdapter` (`src/rig/rigAdapter.ts`) with `THREE.PropertyBinding.sanitizeNodeName` bone resolution (resolving spaces, Mixamo `:`, and Blender `.` suffixes without collisions), automated A-Pose -> T-Pose arm/forearm/pronation calibration (`calibrateArmSideToTPose`), world-basis quaternion conjugation (`alignQuat = W_m^-1 * W_c`), multi-vertebra chain distribution on `skeleton` (`spine_01..03`, `neck_01`), and `spine_02` folding on 2-spine `mannequin-2`.
+  - Upgraded `AnatomyModel.tsx` to cache GLTF+DRACO templates per `modelId`, calibrate T-Pose `Box3` normalization (`fitScale = 2.0 / size.y`), render non-blocking per-figure loading badges while existing figures remain live, route FK gizmos through canonical `boneGizmoProxyRef`, preserve natural/textured materials under `'classic'` while tinting `'slate'`/`'ivory'`/`'clay'`, and pass `rigAdapter` through `solveLimbIK`, `JointSpaceGravitySolver`, pose presets, hand gestures, mirror, and snapshot capture/restore.
+- **Milestone 29 — Model Selector UI, Skeleton Mode & Multi-Model Offline PWA (`src/components/FloatingSidebar.tsx`, `src/components/JointControlPopover.tsx`, `src/app/page.tsx`, `scripts/generatePrecache.mjs`, `public/sw.js`, `src/components/PwaManager.tsx`, `vercel.json`, `next.config.mjs`):**
+  - Added compact wrapping per-figure **Model** selector buttons (`Classic | M2 | M3 | Female | Skeleton`), unselected figure short badges, `Finish: Bone` labeling on `skeleton`, functional **Skeleton Mode** toggle (`#anatomy-skeleton-mode-toggle`) under **Anatomy Layers** (replacing `Soon`, restoring `previousModelId` on toggle-off), and a `hasFingerBones` guard in `JointControlPopover.tsx`.
+  - Updated `scripts/generatePrecache.mjs` + `public/sw.js` + `src/components/PwaManager.tsx` to precache `/` + `anatomy.glb` immediately while background-warming the 4 additional `.glb` models (`optionalModelUrls`, `WARM_ALL_MODELS`, `SW_MODELS_CACHE_STATUS`) and displaying `Offline Ready (5/5 Models)`; configured `Content-Type: model/gltf-binary` + immutable cache headers for `/models/*` in `vercel.json` and `next.config.mjs`.
+
+### 9.3 Phase 11 Final Verification Outputs
+
+- **TypeScript (`npx tsc --noEmit`):** Exited `0` (`0` errors).
+- **Pose & Hand Gesture Validation (`node scripts/validatePoses.mjs`):** Exited `0` — `VALIDATED 50 POSES (categories={"foundation":5,"classical":10,"action":10,"combat":8,"dance":8,"gesture":9}) + 12x2 HAND GESTURES (0 ROM/bone violations)`.
+- **Log Audit (`grep -rn "console\.log" src/`):** Zero matches (`NO_CONSOLE_LOG`).
+- **Production Build (`rm -rf .next && npm run build`):** Exited `0` (`/` `321 kB`, First Load JS `408 kB`, `0` TypeScript/ESLint errors), generated `public/sw-precache.json` (`version=17c5c6062f0a`, `27` core URLs + `4` optional models).
+- **Headless Chrome Multi-Model, Visual & Offline QA (`npm run start` + `verify_phase11_cdp.mjs`):** Exited `0` (`"status": "PASS"`, `consoleErrorCount: 0`, `pageExceptionCount: 0`, `networkFailureCount: 0`):
+  - **GLB MIME & Precache:** Verified HTTP `200` + `Content-Type: model/gltf-binary` across all 5 `.glb` assets and `Offline Ready (5/5 Models)` in Sidebar footer.
+  - **5 Models × Poses Visual Matrix:** Switched live across `classic`, `mannequin-2`, `mannequin-3`, `female`, and `skeleton` through `T-Pose`, `Contrapposto (David)`, `Action Lunge`, and `The Thinker (Rodin)` and visually verified all captured PNG renders (accurate alignment, zero detached bones, `Finish: Bone` on Skeleton, zero pill text truncation).
+  - **Skeleton Mode, FK/IK, Gestures & Fisheye 100%:** Confirmed `Skeleton Mode` toggles `Female ↔ Skeleton` while preserving `Contrapposto`; verified FK axis slider adjustment (`lowerarm_l`), Hand Gestures (`Peace`), live `hand_l` IK handle dragging, and `Fisheye 100%` Transparent PNG export (`cornerAlpha: 0`, `centerAlpha: 255`) on `Skeleton`.
+  - **Mixed Multi-Figure Gravity, Scene JSON & Responsive Layouts:** Verified `Female` (Locked) + `Skeleton` (`Action Lunge`, Gravity ON), `Save Scene` JSON exporting `["female", "skeleton"]`, `localStorage` autosave reload preservation, and zero overflow/overlap across `1440×900`, `412×915`, `915×412`, `1280×800`, and `800×1280`.
+  - **Full Offline Multi-Model Switching:** Reloaded under CDP offline emulation (`Offline Mode`) and switched Figure 2 across `["female", "mannequin-2", "skeleton"]` completely offline with `0` console errors, `0` page exceptions, and `0` app/model network failures.
+- **Phase 10 Regression Suite (`verify_phase10_cdp.mjs`):** Exited `0` (`"status": "PASS"`, `transparentPngFisheye` `2880×1800` `cornerAlpha: 0, centerAlpha: 255`, `consoleErrorCount: 0`, `pageExceptionCount: 0`). Production server stopped cleanly afterward.

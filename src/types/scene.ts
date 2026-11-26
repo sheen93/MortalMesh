@@ -1,3 +1,4 @@
+import type { MannequinModelId } from '@/data/modelCatalog';
 import type { PoseSnapshot } from '@/types/poseIO';
 
 export const MAX_MANNEQUINS = 6;
@@ -67,6 +68,8 @@ export const MANNEQUIN_SPAWN_OFFSETS: readonly [number, number, number][] = [
 export interface MannequinRecord {
   id: string;
   name: string;
+  modelId: MannequinModelId;
+  previousModelId?: MannequinModelId;
   locked: boolean;
   visible: boolean;
   finish: MannequinFinish;
@@ -100,10 +103,13 @@ export function pickNextFinish(count: number): MannequinFinish {
   return MANNEQUIN_FINISH_ORDER[count % MANNEQUIN_FINISH_ORDER.length];
 }
 
-export function createInitialMannequin(): MannequinRecord {
+export function createInitialMannequin(
+  modelId: MannequinModelId = 'classic'
+): MannequinRecord {
   return {
     id: 'figure-1',
     name: 'Figure 1',
+    modelId,
     locked: false,
     visible: true,
     finish: 'classic',

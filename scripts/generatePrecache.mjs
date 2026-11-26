@@ -16,6 +16,13 @@ const CORE_URLS = [
   '/draco/draco_wasm_wrapper.js',
 ];
 
+const OPTIONAL_MODEL_URLS = [
+  '/models/mannequin-2.glb',
+  '/models/mannequin-3.glb',
+  '/models/mannequin-female.glb',
+  '/models/skeleton-rig.glb',
+];
+
 function walkFiles(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -57,9 +64,24 @@ for (const absPath of nextStaticFiles) {
 }
 
 const urls = Array.from(urlSet).sort();
+const optionalModelUrls = OPTIONAL_MODEL_URLS.filter((url) =>
+  fs.existsSync(path.join(ROOT_DIR, 'public', url.replace(/^\//, '')))
+);
+
 for (const url of urls) {
   hash.update(url);
   hash.update('\n');
+}
+
+const allModelUrls = ['/models/anatomy.glb', ...optionalModelUrls];
+for (const modelUrl of allModelUrls) {
+  const modelFile = path.join(ROOT_DIR, 'public', modelUrl.replace(/^\//, ''));
+  if (fs.existsSync(modelFile)) {
+    const stat = fs.statSync(modelFile);
+    hash.update(`${modelUrl}:${stat.size}:`);
+    hash.update(fs.readFileSync(modelFile));
+    hash.update('\n');
+  }
 }
 
 const buildIdPath = path.join(ROOT_DIR, '.next', 'BUILD_ID');
@@ -72,9 +94,10 @@ const manifest = {
   version,
   generatedAt: new Date().toISOString(),
   urls,
+  optionalModelUrls,
 };
 
 fs.writeFileSync(OUTPUT_FILE, JSON.stringify(manifest, null, 2) + '\n');
 console.log(
-  `Generated public/sw-precache.json (version=${version}, ${urls.length} URLs)`
+  `Generated public/sw-precache.json (version=${version}, ${urls.length} core URLs, ${optionalModelUrls.length} optional models)`
 );

@@ -3,11 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PwaStatusFooter, type PwaState } from '@/components/PwaManager';
 import type { ViewportProfile } from '@/hooks/useViewportProfile';
-import {
-  ANATOMY_LAYERS_AVAILABLE,
-  type LayerVisibility,
-  type StudioThemeId,
-} from '@/types/anatomy';
+import type { LayerVisibility, StudioThemeId } from '@/types/anatomy';
 import {
   MAX_STUDIO_PROPS,
   STUDIO_PROP_CATALOG,
@@ -22,6 +18,11 @@ import {
   type MannequinFinish,
   type MannequinRecord,
 } from '@/types/scene';
+import {
+  MODEL_CATALOG,
+  MODEL_ORDER,
+  type MannequinModelId,
+} from '@/data/modelCatalog';
 import {
   filterPosePresets,
   POSE_CATEGORIES,
@@ -69,6 +70,8 @@ interface FloatingSidebarProps {
   onToggleLockMannequin: (id: string) => void;
   onToggleVisibleMannequin: (id: string) => void;
   onChangeMannequinFinish: (id: string, finish: MannequinFinish) => void;
+  onChangeMannequinModel: (id: string, modelId: MannequinModelId) => void;
+  onToggleSkeletonMode: () => void;
   onDeleteMannequin: (id: string) => void;
   layers: LayerVisibility;
   onToggleLayer: (layer: keyof LayerVisibility) => void;
@@ -104,6 +107,8 @@ export function FloatingSidebar({
   onToggleLockMannequin,
   onToggleVisibleMannequin,
   onChangeMannequinFinish,
+  onChangeMannequinModel,
+  onToggleSkeletonMode,
   onDeleteMannequin,
   layers,
   onToggleLayer,
@@ -161,7 +166,6 @@ export function FloatingSidebar({
   const canDeleteFigure = mannequins.length > 1;
   const propsAtCapacity = studioProps.length >= MAX_STUDIO_PROPS;
 
-  const layersDisabled = !ANATOMY_LAYERS_AVAILABLE;
   const theme = STUDIO_THEMES[studioTheme];
   const { ui } = theme;
 
@@ -328,6 +332,13 @@ export function FloatingSidebar({
                           aria-hidden="true"
                         />
                         <span className="truncate text-[11.5px]">{fig.name}</span>
+                        {!isSelected && fig.modelId !== 'classic' && (
+                          <span
+                            className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-mono uppercase ${ui.monoPill}`}
+                          >
+                            {MODEL_CATALOG[fig.modelId].shortLabel}
+                          </span>
+                        )}
                         {!fig.visible && (
                           <span
                             className={`text-[9.5px] font-mono uppercase ${ui.textMuted}`}
@@ -404,36 +415,88 @@ export function FloatingSidebar({
                     </div>
 
                     {isSelected && (
-                      <div className="flex items-center justify-between gap-2 px-2 pb-0.5">
-                        <span className={`text-[10px] font-medium ${ui.textMuted}`}>
-                          Finish: {finishSpec.label}
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          {MANNEQUIN_FINISH_ORDER.map((finishId) => {
-                            const opt = MANNEQUIN_FINISHES[finishId];
-                            const selectedFinish = fig.finish === finishId;
-                            return (
-                              <button
-                                key={finishId}
-                                type="button"
-                                aria-label={`${opt.label} finish`}
-                                aria-pressed={selectedFinish}
-                                title={opt.label}
-                                onClick={() =>
-                                  onChangeMannequinFinish(fig.id, finishId)
-                                }
-                                className={`h-3.5 w-3.5 rounded-full border transition-transform ${
-                                  selectedFinish
-                                    ? 'scale-115 ring-1 ring-offset-1 ring-current'
-                                    : 'opacity-75 hover:opacity-100'
-                                }`}
-                                style={{
-                                  backgroundColor: opt.swatchHex,
-                                  borderColor: 'rgba(0,0,0,0.28)',
-                                }}
-                              />
-                            );
-                          })}
+                      <div className="space-y-1.5 px-2 pb-0.5">
+                        <div className="space-y-1">
+                          <span
+                            className={`block text-[10px] font-medium ${ui.textMuted}`}
+                          >
+                            Model: {MODEL_CATALOG[fig.modelId].label}
+                          </span>
+                          <div className="flex flex-wrap gap-1">
+                            {MODEL_ORDER.map((modelId) => {
+                              const spec = MODEL_CATALOG[modelId];
+                              const selectedModel = fig.modelId === modelId;
+                              return (
+                                <button
+                                  key={modelId}
+                                  type="button"
+                                  data-model-id={modelId}
+                                  disabled={fig.locked}
+                                  aria-pressed={selectedModel}
+                                  title={
+                                    fig.locked
+                                      ? `Unlock ${fig.name} to switch model`
+                                      : `${spec.label} — ${spec.description}`
+                                  }
+                                  onClick={() =>
+                                    onChangeMannequinModel(fig.id, modelId)
+                                  }
+                                  className={`rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                                    fig.locked
+                                      ? ui.pillButtonDisabled
+                                      : selectedModel
+                                        ? ui.pillButtonActive
+                                        : ui.pillButton
+                                  }`}
+                                >
+                                  {spec.shortLabel}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2">
+                          <span
+                            className={`text-[10px] font-medium ${ui.textMuted}`}
+                          >
+                            Finish:{' '}
+                            {fig.finish === 'classic'
+                              ? MODEL_CATALOG[fig.modelId].defaultFinishLabel
+                              : finishSpec.label}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {MANNEQUIN_FINISH_ORDER.map((finishId) => {
+                              const opt = MANNEQUIN_FINISHES[finishId];
+                              const selectedFinish = fig.finish === finishId;
+                              const optLabel =
+                                finishId === 'classic'
+                                  ? MODEL_CATALOG[fig.modelId]
+                                      .defaultFinishLabel
+                                  : opt.label;
+                              return (
+                                <button
+                                  key={finishId}
+                                  type="button"
+                                  aria-label={`${optLabel} finish`}
+                                  aria-pressed={selectedFinish}
+                                  title={optLabel}
+                                  onClick={() =>
+                                    onChangeMannequinFinish(fig.id, finishId)
+                                  }
+                                  className={`h-3.5 w-3.5 rounded-full border transition-transform ${
+                                    selectedFinish
+                                      ? 'scale-115 ring-1 ring-offset-1 ring-current'
+                                      : 'opacity-75 hover:opacity-100'
+                                  }`}
+                                  style={{
+                                    backgroundColor: opt.swatchHex,
+                                    borderColor: 'rgba(0,0,0,0.28)',
+                                  }}
+                                />
+                              );
+                            })}
+                          </div>
                         </div>
                       </div>
                     )}
@@ -855,30 +918,29 @@ export function FloatingSidebar({
             id="anatomy-layers"
             title="Anatomy Layers"
             icon={<LayersIcon className="h-3.5 w-3.5" />}
-            badge={layersDisabled ? 'Soon' : undefined}
+            badge={
+              activeMannequin?.modelId === 'skeleton' ? 'Active' : undefined
+            }
             isOpen={openSections.layers}
             onToggle={() => toggleSection('layers')}
             theme={theme}
           >
             <div className="space-y-1">
               <ToggleSwitch
-                label="Skeleton Layer"
-                description="Skeletal reference overlay"
-                checked={!layersDisabled && layers.skeleton}
-                disabled={layersDisabled}
-                onChange={() => {
-                  if (!layersDisabled) onToggleLayer('skeleton');
-                }}
+                id="anatomy-skeleton-mode-toggle"
+                label="Skeleton Mode"
+                description="Switch active figure to skeletal landmark rig"
+                checked={activeMannequin?.modelId === 'skeleton'}
+                disabled={isLocked}
+                onChange={onToggleSkeletonMode}
                 theme={theme}
               />
               <ToggleSwitch
-                label="Muscle Layer"
-                description="Ecorche surface groups"
-                checked={!layersDisabled && layers.muscle}
-                disabled={layersDisabled}
-                onChange={() => {
-                  if (!layersDisabled) onToggleLayer('muscle');
-                }}
+                label="Muscle Layer (Ecorché)"
+                description="Coming Soon"
+                checked={layers.muscle}
+                disabled={true}
+                onChange={() => onToggleLayer('muscle')}
                 theme={theme}
               />
             </div>

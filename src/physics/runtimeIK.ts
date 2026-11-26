@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { clampJointAngles, getJointSpec } from '@/data/jointLimits';
+import type { RigAdapter } from '@/rig/rigAdapter';
 import type { IKHandleId, JointAngles } from '@/types/anatomy';
 
 export interface IKChainSpec {
@@ -65,7 +66,8 @@ export interface SolveLimbIKParams {
   targetWorldPos: THREE.Vector3;
   rootGroup: THREE.Group;
   bonesByName: Map<string, THREE.Bone>;
-  restQuaternions: Map<string, THREE.Quaternion>;
+  restQuaternions: ReadonlyMap<string, THREE.Quaternion>;
+  rigAdapter?: RigAdapter;
   jointLimitsEnabled: boolean;
 }
 
@@ -342,6 +344,7 @@ export function solveLimbIK({
   rootGroup,
   bonesByName,
   restQuaternions,
+  rigAdapter,
   jointLimitsEnabled,
 }: SolveLimbIKParams): SolveLimbIKResult | null {
   const chain = IK_CHAINS[handleId];
@@ -382,8 +385,24 @@ export function solveLimbIK({
 
   const specUpper = getJointSpec(chain.upperBone);
   const specLower = getJointSpec(chain.lowerBone);
-  const prevLowerAngles = readBoneDelta(lowerBone, restLower, specLower.order);
+  const prevLowerAngles = rigAdapter
+    ? rigAdapter.readCanonicalAngles(chain.lowerBone, specLower, false)
+    : readBoneDelta(lowerBone, restLower, specLower.order);
   const preservedTwistY = specLower.showY ? prevLowerAngles.y : 0;
+
+  const applyJoint = (
+    name: string,
+    bone: THREE.Bone,
+    restQ: THREE.Quaternion,
+    angles: JointAngles,
+    order: THREE.EulerOrder
+  ) => {
+    if (rigAdapter) {
+      rigAdapter.applyCanonicalAngles(name, angles, order);
+    } else {
+      applyBoneDeltaAngles(bone, restQ, angles, order);
+    }
+  };
 
   const T = targetWorldPos.clone();
   const D = T.clone().sub(upperPos);
@@ -428,11 +447,15 @@ export function solveLimbIK({
     specLower,
     jointLimitsEnabled
   );
-  applyBoneDeltaAngles(lowerBone, restLower, baseLowerAngles, specLower.order);
+  applyJoint(chain.lowerBone, lowerBone, restLower, baseLowerAngles, specLower.order);
   rootGroup.updateMatrixWorld(true);
 
-  upperBone.parent.getWorldQuaternion(_wq);
-  const zeroUpperWQ = _wq.clone().multiply(restUpper);
+  const zeroUpperWQ = rigAdapter
+    ? rigAdapter.getCanonicalRestWorldQuat(chain.upperBone, new THREE.Quaternion())
+    : (() => {
+        upperBone.parent!.getWorldQuaternion(_wq);
+        return _wq.clone().multiply(restUpper);
+      })();
   const upperDeltaQuat = zeroUpperWQ.clone().invert().multiply(desiredWQ).normalize();
   const upperAngles = quatToIKAngles(
     chain.upperBone,
@@ -440,7 +463,7 @@ export function solveLimbIK({
     jointLimitsEnabled
   );
 
-  applyBoneDeltaAngles(upperBone, restUpper, upperAngles, specUpper.order);
+  applyJoint(chain.upperBone, upperBone, restUpper, upperAngles, specUpper.order);
 
   // Analytical law-of-cosines flexion angle for lower segment
   const cosB = THREE.MathUtils.clamp(
@@ -459,7 +482,7 @@ export function solveLimbIK({
       specLower,
       jointLimitsEnabled
     );
-    applyBoneDeltaAngles(lowerBone, restLower, candidate, specLower.order);
+    applyJoint(chain.lowerBone, lowerBone, restLower, candidate, specLower.order);
     rootGroup.updateMatrixWorld(true);
     return getBoneWorldPos(endBone).distanceToSquared(T);
   };
@@ -493,7 +516,7 @@ export function solveLimbIK({
     specLower,
     jointLimitsEnabled
   );
-  applyBoneDeltaAngles(lowerBone, restLower, finalLowerAngles, specLower.order);
+  applyJoint(chain.lowerBone, lowerBone, restLower, finalLowerAngles, specLower.order);
   rootGroup.updateMatrixWorld(true);
 
   return {

@@ -20,6 +20,7 @@ import {
 } from '@/components/StudioRightRail';
 import { StudioToast, type StudioToastData } from '@/components/StudioToast';
 import { HAND_GESTURE_BY_ID } from '@/data/handGestures';
+import { MODEL_CATALOG, type MannequinModelId } from '@/data/modelCatalog';
 import { getPosePreset } from '@/data/poses';
 import {
   isStudioThemeId,
@@ -270,6 +271,7 @@ export default function HomePage() {
           return {
             id: m.id,
             name: m.name,
+            modelId: m.modelId ?? 'classic',
             locked: m.locked,
             visible: m.visible,
             finish: m.finish,
@@ -493,7 +495,7 @@ export default function HomePage() {
       poseByIdRef.current.set(id, clonePoseSnapshot(snapshot));
       setHistoryById((prev) => ({
         ...prev,
-        [id]: initPoseHistory(snapshot),
+        [id]: prev[id] ?? initPoseHistory(snapshot),
       }));
     },
     []
@@ -580,6 +582,7 @@ export default function HomePage() {
     const newRecord: MannequinRecord = {
       id: newId,
       name: `Figure ${num}`,
+      modelId: 'classic',
       locked: false,
       visible: true,
       finish: pickNextFinish(mannequins.length),
@@ -619,6 +622,8 @@ export default function HomePage() {
     const duplicateRecord: MannequinRecord = {
       id: newId,
       name: `Figure ${num}`,
+      modelId: source.modelId,
+      previousModelId: source.previousModelId,
       locked: false,
       visible: true,
       finish: pickNextFinish(mannequins.length),
@@ -701,6 +706,80 @@ export default function HomePage() {
     },
     []
   );
+
+  const handleChangeMannequinModel = useCallback(
+    (id: string, nextModelId: MannequinModelId) => {
+      const target = mannequins.find((m) => m.id === id);
+      if (!target) return;
+      if (target.locked) {
+        showToast(`Unlock ${target.name} before switching models`, 'error');
+        return;
+      }
+      if (target.modelId === nextModelId) return;
+
+      const captured = bridgesRef.current.get(id)?.captureSnapshot();
+      const cached = poseByIdRef.current.get(id);
+      const snap = captured ?? cached ?? target.initialSnapshot;
+      const clonedSnap = snap ? clonePoseSnapshot(snap) : undefined;
+
+      setMannequins((prev) =>
+        prev.map((m) => {
+          if (m.id !== id) return m;
+          const nextPrevModel: MannequinModelId | undefined =
+            nextModelId === 'skeleton'
+              ? m.modelId !== 'skeleton'
+                ? m.modelId
+                : m.previousModelId
+              : nextModelId;
+          return {
+            ...m,
+            modelId: nextModelId,
+            previousModelId: nextPrevModel,
+            spawnOffset: clonedSnap
+              ? [clonedSnap.rootPosition[0], 0, clonedSnap.rootPosition[2]]
+              : m.spawnOffset,
+            elevationY: clonedSnap ? clonedSnap.elevationY : m.elevationY,
+            pinnedBones: clonedSnap
+              ? [...clonedSnap.pinnedBones]
+              : m.pinnedBones,
+            initialSnapshot: clonedSnap,
+            preserveExactRootPosition: !m.groundSnapEnabled,
+          };
+        })
+      );
+
+      if (clonedSnap) {
+        poseByIdRef.current.set(id, clonePoseSnapshot(clonedSnap));
+      }
+
+      if (id === activeMannequin.id) {
+        setSelectedBoneName(null);
+        setSelectedBoneAngles(ZERO_JOINT_ANGLES);
+        setSelectedIKHandle(null);
+        setContextualAnchor(null);
+        setActiveHandGestureId(null);
+        setMoveBodyEnabled(false);
+      }
+
+      showToast(
+        `Switched ${target.name} to ${MODEL_CATALOG[nextModelId].label}`,
+        'success'
+      );
+    },
+    [mannequins, activeMannequin.id, showToast]
+  );
+
+  const handleToggleSkeletonMode = useCallback(() => {
+    if (!activeMannequin) return;
+    const nextModel: MannequinModelId =
+      activeMannequin.modelId === 'skeleton'
+        ? activeMannequin.previousModelId &&
+          activeMannequin.previousModelId !== 'skeleton'
+          ? activeMannequin.previousModelId
+          : 'classic'
+        : 'skeleton';
+    handleChangeMannequinModel(activeMannequin.id, nextModel);
+  }, [activeMannequin, handleChangeMannequinModel]);
 
   const handleDeleteMannequin = useCallback(
     (id: string) => {
@@ -1670,6 +1749,8 @@ export default function HomePage() {
         onToggleLockMannequin={handleToggleLockMannequin}
         onToggleVisibleMannequin={handleToggleVisibleMannequin}
         onChangeMannequinFinish={handleChangeMannequinFinish}
+        onChangeMannequinModel={handleChangeMannequinModel}
+        onToggleSkeletonMode={handleToggleSkeletonMode}
         onDeleteMannequin={handleDeleteMannequin}
         layers={layers}
         onToggleLayer={handleToggleLayer}
@@ -1783,6 +1864,7 @@ export default function HomePage() {
         moveBodyEnabled={moveBodyEnabled}
         pinnedBones={activeMannequin.pinnedBones}
         activeHandGestureId={activeHandGestureId}
+        hasFingerBones={MODEL_CATALOG[activeMannequin.modelId].hasFingerBones}
         selectedProp={selectedProp}
         propTransformMode={propTransformMode}
         onChangeAxisAngle={handleChangeAxisAngle}

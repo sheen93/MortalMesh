@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { getJointSpec } from '@/data/jointLimits';
+import type { RigAdapter } from '@/rig/rigAdapter';
 import { isCoreBoneName, type DampingPreset } from '@/types/anatomy';
 
 export const BODY_MASS_KG = 75;
@@ -270,7 +271,8 @@ interface AngularVelocity {
 export interface GravityStepParams {
   rootGroup: THREE.Group;
   bonesByName: Map<string, THREE.Bone>;
-  restQuaternions: Map<string, THREE.Quaternion>;
+  restQuaternions: ReadonlyMap<string, THREE.Quaternion>;
+  rigAdapter?: RigAdapter;
   selectedBoneName: string | null;
   pinnedBones: ReadonlySet<string>;
   jointLimitsEnabled: boolean;
@@ -307,6 +309,7 @@ export class JointSpaceGravitySolver {
   private readonly qWork = new THREE.Quaternion();
   private readonly qAxis = new THREE.Quaternion();
   private readonly prevBoneQuat = new THREE.Quaternion();
+  private readonly prevDeltaQuat = new THREE.Quaternion();
   private readonly deltaEuler = new THREE.Euler(0, 0, 0, 'XYZ');
 
   private readonly unitX = new THREE.Vector3(1, 0, 0);
@@ -369,7 +372,8 @@ export class JointSpaceGravitySolver {
 
   private computeSubtreeMinY(
     subtree: readonly string[],
-    bonesByName: Map<string, THREE.Bone>
+    bonesByName: Map<string, THREE.Bone>,
+    rigAdapter?: RigAdapter
   ): number {
     let minY = Infinity;
     for (const segName of subtree) {
@@ -380,7 +384,11 @@ export class JointSpaceGravitySolver {
       segBone.getWorldPosition(this.segPos);
       if (this.segPos.y < minY) minY = this.segPos.y;
 
-      segBone.getWorldQuaternion(this.segQuat);
+      if (rigAdapter) {
+        rigAdapter.getCanonicalCurrentWorldQuat(segName, this.segQuat);
+      } else {
+        segBone.getWorldQuaternion(this.segQuat);
+      }
       this.segDir.copy(this.unitY).applyQuaternion(this.segQuat);
       const tipY = this.segPos.y + this.segDir.y * segSpec.length;
       if (tipY < minY) minY = tipY;
@@ -402,6 +410,7 @@ export class JointSpaceGravitySolver {
       rootGroup,
       bonesByName,
       restQuaternions,
+      rigAdapter,
       selectedBoneName,
       pinnedBones,
       jointLimitsEnabled,
@@ -448,7 +457,11 @@ export class JointSpaceGravitySolver {
           const L = segSpec.length;
 
           segBone.getWorldPosition(this.segPos);
-          segBone.getWorldQuaternion(this.segQuat);
+          if (rigAdapter) {
+            rigAdapter.getCanonicalCurrentWorldQuat(segName, this.segQuat);
+          } else {
+            segBone.getWorldQuaternion(this.segQuat);
+          }
           this.segDir.copy(this.unitY).applyQuaternion(this.segQuat);
           this.segPos.addScaledVector(this.segDir, L * segSpec.comRatio);
 
@@ -466,12 +479,16 @@ export class JointSpaceGravitySolver {
         this.torqueW.crossVectors(this.lever, this.gravForce);
 
         const jointSpec = getJointSpec(boneName);
-        this.invRestQuat.copy(restQuat).invert();
-        this.deltaQuat.multiplyQuaternions(this.invRestQuat, bone.quaternion);
+        if (rigAdapter) {
+          rigAdapter.readCanonicalDeltaQuat(boneName, this.deltaQuat);
+          rigAdapter.getCanonicalRestWorldQuat(boneName, this.qRestW);
+        } else {
+          this.invRestQuat.copy(restQuat).invert();
+          this.deltaQuat.multiplyQuaternions(this.invRestQuat, bone.quaternion);
+          bone.parent.getWorldQuaternion(this.parentWQ);
+          this.qRestW.multiplyQuaternions(this.parentWQ, restQuat);
+        }
         this.deltaEuler.setFromQuaternion(this.deltaQuat, jointSpec.order);
-
-        bone.parent.getWorldQuaternion(this.parentWQ);
-        this.qRestW.multiplyQuaternions(this.parentWQ, restQuat);
 
         if (jointSpec.order === 'YZX') {
           this.axisY.copy(this.unitY).applyQuaternion(this.qRestW);
@@ -561,19 +578,32 @@ export class JointSpaceGravitySolver {
 
         if (dMax > 1e-6) {
           this.prevBoneQuat.copy(bone.quaternion);
+          this.prevDeltaQuat.copy(this.deltaQuat);
           const beforeMinY = groundEnabled
-            ? this.computeSubtreeMinY(subtree, bonesByName)
+            ? this.computeSubtreeMinY(subtree, bonesByName, rigAdapter)
             : 0;
 
           this.deltaEuler.set(nextX, nextY, nextZ, jointSpec.order);
           this.deltaQuat.setFromEuler(this.deltaEuler);
-          bone.quaternion.copy(restQuat).multiply(this.deltaQuat).normalize();
+          if (rigAdapter) {
+            rigAdapter.applyCanonicalDeltaQuat(boneName, this.deltaQuat);
+          } else {
+            bone.quaternion.copy(restQuat).multiply(this.deltaQuat).normalize();
+          }
           bone.updateMatrixWorld(true);
 
           if (groundEnabled) {
-            const afterMinY = this.computeSubtreeMinY(subtree, bonesByName);
+            const afterMinY = this.computeSubtreeMinY(
+              subtree,
+              bonesByName,
+              rigAdapter
+            );
             if (afterMinY < 0.005 && afterMinY < beforeMinY) {
-              bone.quaternion.copy(this.prevBoneQuat);
+              if (rigAdapter) {
+                rigAdapter.applyCanonicalDeltaQuat(boneName, this.prevDeltaQuat);
+              } else {
+                bone.quaternion.copy(this.prevBoneQuat);
+              }
               bone.updateMatrixWorld(true);
               this.zeroBoneVelocity(boneName);
               continue;

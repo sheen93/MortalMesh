@@ -6,6 +6,7 @@ import {
   WifiIcon,
   WifiOffIcon,
 } from '@/components/StudioPrimitives';
+import { MODEL_CATALOG, MODEL_ORDER } from '@/data/modelCatalog';
 import type { StudioThemeSpec } from '@/data/studioThemes';
 
 interface BeforeInstallPromptEvent extends Event {
@@ -13,12 +14,18 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 }
 
+const MODEL_URLS = MODEL_ORDER.map((id) => MODEL_CATALOG[id].url);
+
 export interface PwaState {
   isOnline: boolean;
   offlineReady: boolean;
   canInstall: boolean;
   isStandalone: boolean;
   isSwSupported: boolean;
+  cachedModelsCount: number;
+  totalModelsCount: number;
+  isWarmingModels: boolean;
+  warmAllModels: () => void;
   promptInstall: () => Promise<'accepted' | 'dismissed' | 'unavailable'>;
 }
 
@@ -36,13 +43,52 @@ async function verifyCriticalCachesReady(): Promise<boolean> {
   }
 }
 
+async function countCachedModels(): Promise<number> {
+  if (typeof window === 'undefined' || !('caches' in window)) return 0;
+  try {
+    const matches = await Promise.all(
+      MODEL_URLS.map((url) => caches.match(url))
+    );
+    return matches.filter(Boolean).length;
+  } catch {
+    return 0;
+  }
+}
+
 export function usePwaState(): PwaState {
   const [isOnline, setIsOnline] = useState(true);
   const [offlineReady, setOfflineReady] = useState(false);
   const [canInstall, setCanInstall] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
   const [isSwSupported, setIsSwSupported] = useState(false);
+  const [cachedModelsCount, setCachedModelsCount] = useState(0);
+  const [isWarmingModels, setIsWarmingModels] = useState(false);
   const deferredPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
+
+  const warmAllModels = useCallback(() => {
+    if (
+      typeof window === 'undefined' ||
+      !('serviceWorker' in navigator) ||
+      !navigator.onLine
+    ) {
+      return;
+    }
+
+    setIsWarmingModels(true);
+    void navigator.serviceWorker
+      .getRegistration('/')
+      .then((reg) => {
+        const target = navigator.serviceWorker.controller || reg?.active;
+        if (target) {
+          target.postMessage({ type: 'WARM_ALL_MODELS' });
+        } else {
+          setIsWarmingModels(false);
+        }
+      })
+      .catch(() => {
+        setIsWarmingModels(false);
+      });
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -59,7 +105,17 @@ export function usePwaState(): PwaState {
     };
     checkStandalone();
 
-    const handleOnline = () => setIsOnline(true);
+    const handleOnline = () => {
+      setIsOnline(true);
+      if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
+        void countCachedModels().then((count) => {
+          setCachedModelsCount(count);
+          if (count < MODEL_URLS.length) {
+            warmAllModels();
+          }
+        });
+      }
+    };
     const handleOffline = () => setIsOnline(false);
 
     const handleBeforeInstallPrompt = (event: Event) => {
@@ -90,22 +146,48 @@ export function usePwaState(): PwaState {
           navigator.serviceWorker.controller || reg?.active
         );
         if (hasControllerOrActive) {
-          const cached = await verifyCriticalCachesReady();
+          const [cached, modelCount] = await Promise.all([
+            verifyCriticalCachesReady(),
+            countCachedModels(),
+          ]);
+          setCachedModelsCount(modelCount);
           if (cached) {
             setOfflineReady(true);
+            if (modelCount < MODEL_URLS.length && navigator.onLine) {
+              warmAllModels();
+            }
           }
         }
       };
 
       const handleSwMessage = (event: MessageEvent) => {
-        if (
-          event.data &&
-          typeof event.data === 'object' &&
-          (event.data as { type?: string }).type === 'SW_OFFLINE_READY'
-        ) {
-          void verifyCriticalCachesReady().then((ready) => {
+        if (!event.data || typeof event.data !== 'object') return;
+        const msg = event.data as {
+          type?: string;
+          cachedCount?: number;
+          totalCount?: number;
+        };
+
+        if (msg.type === 'SW_OFFLINE_READY') {
+          void Promise.all([
+            verifyCriticalCachesReady(),
+            countCachedModels(),
+          ]).then(([ready, modelCount]) => {
             setOfflineReady(ready);
+            setCachedModelsCount(modelCount);
+            if (ready && modelCount < MODEL_URLS.length && navigator.onLine) {
+              warmAllModels();
+            }
           });
+        } else if (msg.type === 'SW_MODELS_CACHE_STATUS') {
+          const count =
+            typeof msg.cachedCount === 'number' ? msg.cachedCount : 0;
+          const total =
+            typeof msg.totalCount === 'number'
+              ? msg.totalCount
+              : MODEL_URLS.length;
+          setCachedModelsCount(count);
+          setIsWarmingModels(count < total);
         }
       };
 
@@ -143,11 +225,14 @@ export function usePwaState(): PwaState {
         );
       };
     } else if (swSupported) {
-      void verifyCriticalCachesReady().then((cached) => {
-        if (cached && navigator.serviceWorker.controller) {
-          setOfflineReady(true);
+      void Promise.all([verifyCriticalCachesReady(), countCachedModels()]).then(
+        ([cached, modelCount]) => {
+          setCachedModelsCount(modelCount);
+          if (cached && navigator.serviceWorker.controller) {
+            setOfflineReady(true);
+          }
         }
-      });
+      );
     }
 
     return () => {
@@ -160,7 +245,7 @@ export function usePwaState(): PwaState {
       window.removeEventListener('appinstalled', handleAppInstalled);
       cleanupSw();
     };
-  }, []);
+  }, [warmAllModels]);
 
   const promptInstall = useCallback(async () => {
     const promptEvent = deferredPromptRef.current;
@@ -182,6 +267,10 @@ export function usePwaState(): PwaState {
     canInstall,
     isStandalone,
     isSwSupported,
+    cachedModelsCount,
+    totalModelsCount: MODEL_URLS.length,
+    isWarmingModels,
+    warmAllModels,
     promptInstall,
   };
 }
@@ -201,14 +290,14 @@ export function PwaStatusFooter({
   const statusLabel = !pwa.isOnline
     ? 'Offline Mode'
     : pwa.offlineReady
-      ? 'Offline Ready'
+      ? `Offline Ready (${pwa.cachedModelsCount}/${pwa.totalModelsCount} Models)`
       : process.env.NODE_ENV === 'production' && pwa.isSwSupported
         ? 'Caching Offline...'
         : 'Studio Live';
 
   return (
     <div
-      className={`shrink-0 flex items-center justify-between gap-2 border-t px-3.5 py-2 ${ui.hairline}`}
+      className={`shrink-0 flex flex-wrap items-center justify-between gap-2 border-t px-3.5 py-2 ${ui.hairline}`}
     >
       <span
         role="status"
@@ -223,16 +312,33 @@ export function PwaStatusFooter({
         <span>{statusLabel}</span>
       </span>
 
-      {pwa.canInstall && !pwa.isStandalone && (
-        <button
-          type="button"
-          onClick={onInstallApp}
-          className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[10.5px] font-medium transition-colors ${ui.pillButtonActive}`}
-        >
-          <DownloadCloudIcon className="h-3 w-3 shrink-0" />
-          <span>Install App</span>
-        </button>
-      )}
+      <div className="flex items-center gap-1.5">
+        {pwa.isOnline &&
+          pwa.offlineReady &&
+          pwa.cachedModelsCount < pwa.totalModelsCount && (
+            <button
+              type="button"
+              onClick={pwa.warmAllModels}
+              disabled={pwa.isWarmingModels}
+              className={`rounded-lg px-2 py-1 text-[10px] font-medium transition-colors ${
+                pwa.isWarmingModels ? ui.pillButtonDisabled : ui.pillButton
+              }`}
+            >
+              {pwa.isWarmingModels ? 'Caching...' : 'Cache All'}
+            </button>
+          )}
+
+        {pwa.canInstall && !pwa.isStandalone && (
+          <button
+            type="button"
+            onClick={onInstallApp}
+            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[10.5px] font-medium transition-colors ${ui.pillButtonActive}`}
+          >
+            <DownloadCloudIcon className="h-3 w-3 shrink-0" />
+            <span>Install App</span>
+          </button>
+        )}
+      </div>
     </div>
   );
 }

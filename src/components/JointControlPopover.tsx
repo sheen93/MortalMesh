@@ -45,6 +45,7 @@ interface JointControlPopoverProps {
   moveBodyEnabled: boolean;
   pinnedBones: readonly string[];
   activeHandGestureId: HandGestureId | null;
+  hasFingerBones?: boolean;
   selectedProp: StudioProp | null;
   propTransformMode: PropTransformMode;
   onChangeAxisAngle: (axis: AxisKey, value: number) => void;
@@ -111,6 +112,7 @@ export function JointControlPopover({
   moveBodyEnabled,
   pinnedBones,
   activeHandGestureId,
+  hasFingerBones = true,
   selectedProp,
   propTransformMode,
   onChangeAxisAngle,
@@ -398,40 +400,48 @@ export function JointControlPopover({
           )}
 
           {isIKMode || handTab === 'gestures' ? (
-            <div className="space-y-1.5">
-              <button
-                type="button"
-                title={mirrorTitle}
-                aria-label={mirrorTitle}
-                data-testid="hand-gesture-mirror"
-                onClick={() => onMirrorHandGesture(handSide)}
-                className={`w-full inline-flex h-6 items-center justify-center gap-1 rounded-lg px-2 font-mono text-[10px] font-semibold transition-colors ${ui.pillButton}`}
-              >
-                <FlipHorizontalIcon className="h-3 w-3" />
-                <span>Mirror {mirrorLabel}</span>
-              </button>
+            hasFingerBones ? (
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  title={mirrorTitle}
+                  aria-label={mirrorTitle}
+                  data-testid="hand-gesture-mirror"
+                  onClick={() => onMirrorHandGesture(handSide)}
+                  className={`w-full inline-flex h-6 items-center justify-center gap-1 rounded-lg px-2 font-mono text-[10px] font-semibold transition-colors ${ui.pillButton}`}
+                >
+                  <FlipHorizontalIcon className="h-3 w-3" />
+                  <span>Mirror {mirrorLabel}</span>
+                </button>
 
-              <div className="grid grid-cols-3 gap-1">
-                {HAND_GESTURES.map((gesture) => {
-                  const isSelected = activeHandGestureId === gesture.id;
-                  return (
-                    <button
-                      key={gesture.id}
-                      type="button"
-                      data-hand-gesture={gesture.id}
-                      aria-pressed={isSelected}
-                      title={gesture.description}
-                      onClick={() => onApplyHandGesture(handSide, gesture.id)}
-                      className={`truncate rounded-lg px-1 py-1 text-[10px] font-medium transition-colors ${
-                        isSelected ? ui.pillButtonActive : ui.pillButton
-                      }`}
-                    >
-                      {gesture.shortLabel}
-                    </button>
-                  );
-                })}
+                <div className="grid grid-cols-3 gap-1">
+                  {HAND_GESTURES.map((gesture) => {
+                    const isSelected = activeHandGestureId === gesture.id;
+                    return (
+                      <button
+                        key={gesture.id}
+                        type="button"
+                        data-hand-gesture={gesture.id}
+                        aria-pressed={isSelected}
+                        title={gesture.description}
+                        onClick={() => onApplyHandGesture(handSide, gesture.id)}
+                        className={`truncate rounded-lg px-1 py-1 text-[10px] font-medium transition-colors ${
+                          isSelected ? ui.pillButtonActive : ui.pillButton
+                        }`}
+                      >
+                        {gesture.shortLabel}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div
+                className={`rounded-lg px-2 py-2 text-center text-[10.5px] font-medium ${ui.card} ${ui.textMuted}`}
+              >
+                No finger rig on this model
+              </div>
+            )
           ) : (
             <div className="space-y-2">
               {visibleAxes.map((axis) => {

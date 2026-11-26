@@ -20,7 +20,6 @@ import {
   getJointHitboxRadius,
   IK_HANDLE_ORDER,
   isCoreBoneName,
-  isPoseableBoneName,
   ZERO_JOINT_ANGLES,
   type CameraPreset,
   type ContextualAnchor,
@@ -43,11 +42,8 @@ import {
   detectMatchingHandGesture,
   getHandFingerBoneNames,
 } from '@/data/handGestures';
-import {
-  clampJointAngles,
-  getJointSpec,
-  type JointSpec,
-} from '@/data/jointLimits';
+import { clampJointAngles, getJointSpec } from '@/data/jointLimits';
+import { MODEL_CATALOG, type MannequinModelId } from '@/data/modelCatalog';
 import { getPosePreset } from '@/data/poses';
 import { STUDIO_THEMES } from '@/data/studioThemes';
 import {
@@ -55,6 +51,7 @@ import {
   JointSpaceGravitySolver,
 } from '@/physics/gravitySolver';
 import { solveLimbIK } from '@/physics/runtimeIK';
+import { createRigAdapter, type RigAdapter } from '@/rig/rigAdapter';
 import {
   attachCurvilinearPointerWarp,
   projectWorldPointToScreen,
@@ -65,24 +62,33 @@ import {
 } from '@/utils/mirrorPose';
 
 interface MannequinTemplate {
+  modelId: MannequinModelId;
   scene: THREE.Group;
   fitScale: number;
   sceneOffset: THREE.Vector3;
-  classicMainColor: THREE.Color | null;
-  classicMainRoughness: number;
-  classicJointsColor: THREE.Color | null;
-  classicJointsRoughness: number;
+}
+
+interface MaterialBinding {
+  material: THREE.MeshStandardMaterial;
+  role: 'main' | 'joint';
+  originalColor: THREE.Color;
+  originalRoughness: number;
+}
+
+interface CanonicalBoneEntry {
+  canonicalName: string;
+  bone: THREE.Bone;
 }
 
 interface ClonedInstanceData {
   rootGroup: THREE.Group;
   scene: THREE.Group;
+  rigAdapter: RigAdapter;
   skinnedMeshes: THREE.SkinnedMesh[];
-  bones: THREE.Bone[];
+  canonicalBones: CanonicalBoneEntry[];
   bonesByName: Map<string, THREE.Bone>;
-  restQuaternions: Map<string, THREE.Quaternion>;
-  mainMaterials: THREE.MeshStandardMaterial[];
-  jointMaterials: THREE.MeshStandardMaterial[];
+  restQuaternions: ReadonlyMap<string, THREE.Quaternion>;
+  materialBindings: MaterialBinding[];
   clonedMaterials: THREE.Material[];
 }
 
@@ -182,46 +188,31 @@ function round2(value: number): number {
   return Object.is(rounded, -0) || Math.abs(rounded) < 0.005 ? 0 : rounded;
 }
 
-function readBoneDeltaDegrees(
-  bone: THREE.Bone,
-  restQuat: THREE.Quaternion,
-  spec: JointSpec,
-  roundToInt = true
-): JointAngles {
-  const deltaQuat = restQuat.clone().invert().multiply(bone.quaternion);
-  const euler = new THREE.Euler(0, 0, 0, spec.order).setFromQuaternion(
-    deltaQuat,
-    spec.order
-  );
-  const x = THREE.MathUtils.radToDeg(euler.x);
-  const y = THREE.MathUtils.radToDeg(euler.y);
-  const z = THREE.MathUtils.radToDeg(euler.z);
-
-  if (!roundToInt) {
-    return { x, y, z };
+function classifyMaterialRole(materialName: string): 'main' | 'joint' {
+  if (
+    materialName === 'M_Joints' ||
+    materialName === '01_-_Default' ||
+    materialName.toLowerCase().includes('joint')
+  ) {
+    return 'joint';
   }
-
-  return {
-    x: Math.round(x),
-    y: Math.round(y),
-    z: Math.round(z),
-  };
+  return 'main';
 }
 
 function cloneMaterialSafely(
   mat: THREE.Material,
   clonedMaterials: THREE.Material[],
-  mainMaterials: THREE.MeshStandardMaterial[],
-  jointMaterials: THREE.MeshStandardMaterial[]
+  materialBindings: MaterialBinding[]
 ): THREE.Material {
   const cloned = mat.clone();
   clonedMaterials.push(cloned);
   if (cloned instanceof THREE.MeshStandardMaterial) {
-    if (cloned.name === 'M_Main') {
-      mainMaterials.push(cloned);
-    } else if (cloned.name === 'M_Joints') {
-      jointMaterials.push(cloned);
-    }
+    materialBindings.push({
+      material: cloned,
+      role: classifyMaterialRole(cloned.name),
+      originalColor: cloned.color.clone(),
+      originalRoughness: cloned.roughness,
+    });
   }
   return cloned;
 }
@@ -263,7 +254,7 @@ function MannequinInstance({
   onCommitPoseSnapshot,
   onContextualAnchorChange,
 }: MannequinInstanceProps) {
-  const [selectedBone, setSelectedBone] = useState<THREE.Bone | null>(null);
+  const [selectedBoneName, setSelectedBoneName] = useState<string | null>(null);
   const [hoveredBoneName, setHoveredBoneName] = useState<string | null>(null);
   const [selectedIKHandle, setSelectedIKHandle] = useState<IKHandleId | null>(
     null
@@ -281,11 +272,15 @@ function MannequinInstance({
   const hitboxRefs = useRef<Map<string, THREE.Object3D>>(new Map());
   const ikHandleRefs = useRef<Map<IKHandleId, THREE.Group>>(new Map());
   const ikProxyRef = useRef<THREE.Object3D>(new THREE.Object3D());
+  const boneGizmoProxyRef = useRef<THREE.Object3D>(new THREE.Object3D());
   const transformRef = useRef<ComponentRef<typeof TransformControls>>(null);
   const localDraggingRef = useRef(false);
   const ikDraggingRef = useRef(false);
+  const fkDraggingRef = useRef(false);
   const ikDragStartProxyRef = useRef<THREE.Vector3 | null>(null);
   const ikDragStartRootRef = useRef<THREE.Vector3 | null>(null);
+  const fkDragStartProxyQuatRef = useRef(new THREE.Quaternion());
+  const fkDragStartCanonDeltaRef = useRef(new THREE.Quaternion());
 
   const lastHandledSeqRef = useRef(jointAngleCommand?.seq ?? 0);
   const lastElevationSeqRef = useRef(elevationCommand?.seq ?? 0);
@@ -308,7 +303,7 @@ function MannequinInstance({
   const lockedRef = useRef(record.locked);
   const jointLimitsEnabledRef = useRef(jointLimitsEnabled);
   const isActiveRef = useRef(isActive);
-  const selectedBoneRef = useRef<THREE.Bone | null>(selectedBone);
+  const selectedBoneNameRef = useRef<string | null>(selectedBoneName);
   const selectedIKHandleRef = useRef<IKHandleId | null>(selectedIKHandle);
   const activePresetRef = useRef<CameraPreset>(activePreset);
   const lensCurvatureRef = useRef<number>(lensCurvature);
@@ -335,7 +330,7 @@ function MannequinInstance({
   lockedRef.current = record.locked;
   jointLimitsEnabledRef.current = jointLimitsEnabled;
   isActiveRef.current = isActive;
-  selectedBoneRef.current = selectedBone;
+  selectedBoneNameRef.current = selectedBoneName;
   selectedIKHandleRef.current = selectedIKHandle;
   activePresetRef.current = activePreset;
   lensCurvatureRef.current = lensCurvature;
@@ -350,11 +345,15 @@ function MannequinInstance({
 
   const instance = useMemo<ClonedInstanceData>(() => {
     const clonedScene = SkeletonUtils.clone(template.scene) as THREE.Group;
+    const modelSpec = MODEL_CATALOG[template.modelId];
+    if (modelSpec.facingYawOffset !== 0) {
+      clonedScene.rotation.y = modelSpec.facingYawOffset;
+    }
     clonedScene.scale.setScalar(template.fitScale);
     clonedScene.position.copy(template.sceneOffset);
 
     const rootGroup = new THREE.Group();
-    rootGroup.name = `MannequinRoot_${initialIdRef.current}`;
+    rootGroup.name = `MannequinRoot_${initialIdRef.current}_${template.modelId}`;
     rootGroup.position.set(
       initialSpawnOffsetRef.current[0],
       1,
@@ -364,11 +363,7 @@ function MannequinInstance({
     rootGroup.updateMatrixWorld(true);
 
     const skinnedMeshes: THREE.SkinnedMesh[] = [];
-    const bones: THREE.Bone[] = [];
-    const bonesByName = new Map<string, THREE.Bone>();
-    const restQuaternions = new Map<string, THREE.Quaternion>();
-    const mainMaterials: THREE.MeshStandardMaterial[] = [];
-    const jointMaterials: THREE.MeshStandardMaterial[] = [];
+    const materialBindings: MaterialBinding[] = [];
     const clonedMaterials: THREE.Material[] = [];
 
     clonedScene.traverse((child) => {
@@ -376,26 +371,19 @@ function MannequinInstance({
       const skinnedMesh = child as THREE.SkinnedMesh;
       const isMesh = Boolean(mesh.isMesh);
       const isSkinnedMesh = Boolean(skinnedMesh.isSkinnedMesh);
-      const isBone = Boolean((child as THREE.Bone).isBone);
 
       if (isMesh || isSkinnedMesh) {
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         if (Array.isArray(mesh.material)) {
           mesh.material = mesh.material.map((m) =>
-            cloneMaterialSafely(
-              m,
-              clonedMaterials,
-              mainMaterials,
-              jointMaterials
-            )
+            cloneMaterialSafely(m, clonedMaterials, materialBindings)
           );
         } else if (mesh.material) {
           mesh.material = cloneMaterialSafely(
             mesh.material,
             clonedMaterials,
-            mainMaterials,
-            jointMaterials
+            materialBindings
           );
         }
       }
@@ -405,24 +393,22 @@ function MannequinInstance({
         skinnedMesh.frustumCulled = false;
         skinnedMeshes.push(skinnedMesh);
       }
-
-      if (isBone && isPoseableBoneName(child.name)) {
-        const bone = child as THREE.Bone;
-        bones.push(bone);
-        bonesByName.set(bone.name, bone);
-        restQuaternions.set(bone.name, bone.quaternion.clone());
-      }
     });
+
+    const rigAdapter = createRigAdapter(template.modelId, clonedScene);
+    const canonicalBones: CanonicalBoneEntry[] = Array.from(
+      rigAdapter.bonesByCanonicalName.entries()
+    ).map(([canonicalName, bone]) => ({ canonicalName, bone }));
 
     return {
       rootGroup,
       scene: clonedScene,
+      rigAdapter,
       skinnedMeshes,
-      bones,
-      bonesByName,
-      restQuaternions,
-      mainMaterials,
-      jointMaterials,
+      canonicalBones,
+      bonesByName: rigAdapter.bonesByCanonicalName,
+      restQuaternions: rigAdapter.canonicalRestLocalQuats,
+      materialBindings,
       clonedMaterials,
     };
   }, [template]);
@@ -437,28 +423,24 @@ function MannequinInstance({
 
   useEffect(() => {
     const spec = MANNEQUIN_FINISHES[record.finish];
-    for (const mat of instance.mainMaterials) {
-      if (spec.mainColor) {
-        mat.color.set(spec.mainColor);
-      } else if (template.classicMainColor) {
-        mat.color.copy(template.classicMainColor);
+    for (const binding of instance.materialBindings) {
+      if (record.finish === 'classic') {
+        binding.material.color.copy(binding.originalColor);
+        binding.material.roughness = binding.originalRoughness;
+      } else if (binding.role === 'joint') {
+        if (spec.jointsColor) {
+          binding.material.color.set(spec.jointsColor);
+        }
+        binding.material.roughness = spec.roughness;
+      } else {
+        if (spec.mainColor) {
+          binding.material.color.set(spec.mainColor);
+        }
+        binding.material.roughness = spec.roughness;
       }
-      mat.roughness = spec.mainColor
-        ? spec.roughness
-        : template.classicMainRoughness;
-    }
-    for (const mat of instance.jointMaterials) {
-      if (spec.jointsColor) {
-        mat.color.set(spec.jointsColor);
-      } else if (template.classicJointsColor) {
-        mat.color.copy(template.classicJointsColor);
-      }
-      mat.roughness = spec.jointsColor
-        ? spec.roughness
-        : template.classicJointsRoughness;
     }
     invalidate();
-  }, [record.finish, instance, template, invalidate]);
+  }, [record.finish, instance, invalidate]);
 
   useEffect(() => {
     instance.rootGroup.visible = record.visible;
@@ -481,9 +463,11 @@ function MannequinInstance({
       return [];
     }
     if (jointsDisplay === 'core') {
-      return instance.bones.filter((bone) => isCoreBoneName(bone.name));
+      return instance.canonicalBones.filter((entry) =>
+        isCoreBoneName(entry.canonicalName)
+      );
     }
-    return instance.bones;
+    return instance.canonicalBones;
   }, [
     instance,
     isActive,
@@ -494,18 +478,18 @@ function MannequinInstance({
   ]);
 
   const selectedSpec = useMemo(
-    () => (selectedBone ? getJointSpec(selectedBone.name) : null),
-    [selectedBone]
+    () => (selectedBoneName ? getJointSpec(selectedBoneName) : null),
+    [selectedBoneName]
   );
 
   const syncHitboxPositions = useCallback(() => {
     instance.rootGroup.updateMatrixWorld(true);
     const tempVec = tempWorldPosRef.current;
 
-    for (const bone of instance.bones) {
-      const hitboxObj = hitboxRefs.current.get(bone.name);
+    for (const entry of instance.canonicalBones) {
+      const hitboxObj = hitboxRefs.current.get(entry.canonicalName);
       if (hitboxObj) {
-        bone.getWorldPosition(tempVec);
+        entry.bone.getWorldPosition(tempVec);
         hitboxObj.position.copy(tempVec);
       }
     }
@@ -525,6 +509,19 @@ function MannequinInstance({
       if (bone) {
         bone.getWorldPosition(ikProxyRef.current.position);
         ikProxyRef.current.updateMatrixWorld(true);
+      }
+    }
+
+    const activeBoneName = selectedBoneNameRef.current;
+    if (activeBoneName && !fkDraggingRef.current) {
+      const bone = instance.bonesByName.get(activeBoneName);
+      if (bone) {
+        bone.getWorldPosition(boneGizmoProxyRef.current.position);
+        instance.rigAdapter.getCanonicalCurrentWorldQuat(
+          activeBoneName,
+          boneGizmoProxyRef.current.quaternion
+        );
+        boneGizmoProxyRef.current.updateMatrixWorld(true);
       }
     }
 
@@ -566,15 +563,7 @@ function MannequinInstance({
 
   const captureSnapshot = useCallback((): PoseSnapshot => {
     instance.rootGroup.updateMatrixWorld(true);
-    const bones: Record<string, QuaternionTuple> = {};
-    for (const bone of instance.bones) {
-      bones[bone.name] = [
-        bone.quaternion.x,
-        bone.quaternion.y,
-        bone.quaternion.z,
-        bone.quaternion.w,
-      ];
-    }
+    const bones = instance.rigAdapter.captureCanonicalSnapshotBones();
 
     return {
       bones,
@@ -608,19 +597,7 @@ function MannequinInstance({
       solverAwakeRef.current = false;
       gravityMovedSinceWakeRef.current = false;
 
-      for (const bone of instance.bones) {
-        const tuple = snapshot.bones[bone.name];
-        if (tuple) {
-          bone.quaternion
-            .set(tuple[0], tuple[1], tuple[2], tuple[3])
-            .normalize();
-        } else {
-          const restQuat = instance.restQuaternions.get(bone.name);
-          if (restQuat) {
-            bone.quaternion.copy(restQuat);
-          }
-        }
-      }
+      instance.rigAdapter.applyCanonicalSnapshotBones(snapshot.bones);
 
       instance.rootGroup.position.set(
         snapshot.rootPosition[0],
@@ -640,14 +617,18 @@ function MannequinInstance({
         onElevationSyncRef.current(record.id, round2(computeSkinnedMinY()));
       }
 
-      const activeBone = selectedBoneRef.current;
-      if (activeBone && isActiveRef.current) {
-        const restQuat = instance.restQuaternions.get(activeBone.name);
-        const spec = getJointSpec(activeBone.name);
-        const currentAngles = restQuat
-          ? readBoneDeltaDegrees(activeBone, restQuat, spec)
-          : ZERO_JOINT_ANGLES;
-        onSelectBoneChangeRef.current(activeBone.name, currentAngles);
+      const activeBoneName = selectedBoneNameRef.current;
+      if (
+        activeBoneName &&
+        isActiveRef.current &&
+        instance.rigAdapter.hasJoint(activeBoneName)
+      ) {
+        const spec = getJointSpec(activeBoneName);
+        const currentAngles = instance.rigAdapter.readCanonicalAngles(
+          activeBoneName,
+          spec
+        );
+        onSelectBoneChangeRef.current(activeBoneName, currentAngles);
       }
 
       invalidate();
@@ -676,26 +657,16 @@ function MannequinInstance({
 
   const applyHandGesture = useCallback(
     (side: HandSide, gestureId: HandGestureId): PoseSnapshot | null => {
-      if (lockedRef.current) return null;
+      if (lockedRef.current || !instance.rigAdapter.hasFingerBones) return null;
 
       const targets = buildHandGestureBones(side, gestureId);
       const limitsOn = jointLimitsEnabledRef.current;
 
       for (const [boneName, rawAngles] of Object.entries(targets)) {
-        const bone = instance.bonesByName.get(boneName);
-        const restQuat = instance.restQuaternions.get(boneName);
-        if (!bone || !restQuat) continue;
-
+        if (!instance.rigAdapter.hasJoint(boneName)) continue;
         const spec = getJointSpec(boneName);
         const clamped = clampJointAngles(rawAngles, spec, limitsOn);
-        const euler = new THREE.Euler(
-          THREE.MathUtils.degToRad(clamped.x),
-          THREE.MathUtils.degToRad(clamped.y),
-          THREE.MathUtils.degToRad(clamped.z),
-          spec.order
-        );
-        const deltaQuat = new THREE.Quaternion().setFromEuler(euler);
-        bone.quaternion.copy(restQuat).multiply(deltaQuat).normalize();
+        instance.rigAdapter.applyCanonicalAngles(boneName, clamped, spec.order);
       }
 
       instance.rootGroup.updateMatrixWorld(true);
@@ -708,36 +679,34 @@ function MannequinInstance({
 
   const mirrorHandGesture = useCallback(
     (fromSide: HandSide): PoseSnapshot | null => {
-      if (lockedRef.current) return null;
+      if (lockedRef.current || !instance.rigAdapter.hasFingerBones) return null;
 
       const limitsOn = jointLimitsEnabledRef.current;
       const srcBoneNames = getHandFingerBoneNames(fromSide);
 
       for (const srcName of srcBoneNames) {
         const dstName = getMirroredBoneName(srcName);
-        const srcBone = instance.bonesByName.get(srcName);
-        const srcRest = instance.restQuaternions.get(srcName);
-        const dstBone = instance.bonesByName.get(dstName);
-        const dstRest = instance.restQuaternions.get(dstName);
-        if (!srcBone || !srcRest || !dstBone || !dstRest) continue;
+        if (
+          !instance.rigAdapter.hasJoint(srcName) ||
+          !instance.rigAdapter.hasJoint(dstName)
+        ) {
+          continue;
+        }
 
         const srcSpec = getJointSpec(srcName);
         const dstSpec = getJointSpec(dstName);
-        const srcDeg = readBoneDeltaDegrees(srcBone, srcRest, srcSpec, false);
+        const srcDeg = instance.rigAdapter.readCanonicalAngles(
+          srcName,
+          srcSpec,
+          false
+        );
         const mirroredRaw: JointAngles = {
           x: srcDeg.x,
           y: -srcDeg.y,
           z: -srcDeg.z,
         };
         const clamped = clampJointAngles(mirroredRaw, dstSpec, limitsOn);
-        const euler = new THREE.Euler(
-          THREE.MathUtils.degToRad(clamped.x),
-          THREE.MathUtils.degToRad(clamped.y),
-          THREE.MathUtils.degToRad(clamped.z),
-          dstSpec.order
-        );
-        const deltaQuat = new THREE.Quaternion().setFromEuler(euler);
-        dstBone.quaternion.copy(dstRest).multiply(deltaQuat).normalize();
+        instance.rigAdapter.applyCanonicalAngles(dstName, clamped, dstSpec.order);
       }
 
       instance.rootGroup.updateMatrixWorld(true);
@@ -749,18 +718,17 @@ function MannequinInstance({
   );
 
   const getHandGestureId = useCallback(
-    (side: HandSide): HandGestureId | null =>
-      detectMatchingHandGesture(side, (boneName) => {
-        const bone = instance.bonesByName.get(boneName);
-        const restQuat = instance.restQuaternions.get(boneName);
-        if (!bone || !restQuat) return null;
-        return readBoneDeltaDegrees(
-          bone,
-          restQuat,
+    (side: HandSide): HandGestureId | null => {
+      if (!instance.rigAdapter.hasFingerBones) return null;
+      return detectMatchingHandGesture(side, (boneName) => {
+        if (!instance.rigAdapter.hasJoint(boneName)) return null;
+        return instance.rigAdapter.readCanonicalAngles(
+          boneName,
           getJointSpec(boneName),
           false
         );
-      }),
+      });
+    },
     [instance]
   );
 
@@ -790,14 +758,7 @@ function MannequinInstance({
       hasInitializedGroundRef.current = true;
       const initSnap = initialSnapshotRef.current;
       if (initSnap) {
-        for (const bone of instance.bones) {
-          const tuple = initSnap.bones[bone.name];
-          if (tuple) {
-            bone.quaternion
-              .set(tuple[0], tuple[1], tuple[2], tuple[3])
-              .normalize();
-          }
-        }
+        instance.rigAdapter.applyCanonicalSnapshotBones(initSnap.bones);
         const startX = initialPreserveExactPosRef.current
           ? initSnap.rootPosition[0]
           : initialSpawnOffsetRef.current[0];
@@ -843,7 +804,7 @@ function MannequinInstance({
 
   useEffect(() => {
     if (!isActive) {
-      setSelectedBone(null);
+      setSelectedBoneName(null);
       setHoveredBoneName(null);
       setSelectedIKHandle(null);
       setHoveredIKHandle(null);
@@ -853,7 +814,7 @@ function MannequinInstance({
   useEffect(() => {
     if (!isActive) return;
     if (controlMode === 'ik') {
-      setSelectedBone(null);
+      setSelectedBoneName(null);
       setHoveredBoneName(null);
       onSelectBoneChangeRef.current(null, ZERO_JOINT_ANGLES);
     } else {
@@ -866,7 +827,7 @@ function MannequinInstance({
 
   useEffect(() => {
     if (!isActive || !selectedPropId) return;
-    setSelectedBone(null);
+    setSelectedBoneName(null);
     setHoveredBoneName(null);
     setSelectedIKHandle(null);
     setHoveredIKHandle(null);
@@ -884,7 +845,7 @@ function MannequinInstance({
       solverRef.current.sleepAll();
       solverAwakeRef.current = false;
       gravityMovedSinceWakeRef.current = false;
-      setSelectedBone(null);
+      setSelectedBoneName(null);
       setHoveredBoneName(null);
       setSelectedIKHandle(null);
       setHoveredIKHandle(null);
@@ -909,8 +870,8 @@ function MannequinInstance({
   useEffect(() => {
     if (!isActive) return;
     if (jointsDisplay === 'hidden') {
-      if (selectedBone) {
-        setSelectedBone(null);
+      if (selectedBoneName) {
+        setSelectedBoneName(null);
         setHoveredBoneName(null);
         onSelectBoneChangeRef.current(null, ZERO_JOINT_ANGLES);
       }
@@ -923,13 +884,13 @@ function MannequinInstance({
       return;
     }
 
-    if (selectedBone) {
+    if (selectedBoneName) {
       const stillVisible =
         controlMode === 'fk' &&
         (jointsDisplay === 'all' ||
-          (jointsDisplay === 'core' && isCoreBoneName(selectedBone.name)));
+          (jointsDisplay === 'core' && isCoreBoneName(selectedBoneName)));
       if (!stillVisible) {
-        setSelectedBone(null);
+        setSelectedBoneName(null);
         setHoveredBoneName(null);
         onSelectBoneChangeRef.current(null, ZERO_JOINT_ANGLES);
         invalidate();
@@ -939,7 +900,7 @@ function MannequinInstance({
     isActive,
     controlMode,
     jointsDisplay,
-    selectedBone,
+    selectedBoneName,
     selectedIKHandle,
     invalidate,
   ]);
@@ -950,7 +911,7 @@ function MannequinInstance({
     const hasIKGizmo =
       controlMode === 'ik' && selectedIKHandle !== null && !moveBodyEnabled;
     const hasFKGizmo =
-      controlMode === 'fk' && selectedBone !== null && !moveBodyEnabled;
+      controlMode === 'fk' && selectedBoneName !== null && !moveBodyEnabled;
     if (
       !controls ||
       !isActive ||
@@ -967,10 +928,31 @@ function MannequinInstance({
       localDraggingRef.current = dragging;
       dragGuardRef.current.isDragging = dragging;
       ikDraggingRef.current = dragging && hasIKGizmo;
+      fkDraggingRef.current = dragging && hasFKGizmo;
 
       if (dragging && hasIKGizmo) {
         ikDragStartProxyRef.current = ikProxyRef.current.position.clone();
         ikDragStartRootRef.current = instance.rootGroup.position.clone();
+      }
+
+      if (dragging && hasFKGizmo && selectedBoneName) {
+        const bone = instance.bonesByName.get(selectedBoneName);
+        if (bone) {
+          instance.rootGroup.updateMatrixWorld(true);
+          bone.getWorldPosition(boneGizmoProxyRef.current.position);
+          instance.rigAdapter.getCanonicalCurrentWorldQuat(
+            selectedBoneName,
+            boneGizmoProxyRef.current.quaternion
+          );
+          boneGizmoProxyRef.current.updateMatrixWorld(true);
+          fkDragStartProxyQuatRef.current.copy(
+            boneGizmoProxyRef.current.quaternion
+          );
+          instance.rigAdapter.readCanonicalDeltaQuat(
+            selectedBoneName,
+            fkDragStartCanonDeltaRef.current
+          );
+        }
       }
 
       if (!dragging) {
@@ -983,6 +965,18 @@ function MannequinInstance({
             instance.rootGroup.updateMatrixWorld(true);
             bone.getWorldPosition(ikProxyRef.current.position);
             ikProxyRef.current.updateMatrixWorld(true);
+          }
+        }
+        if (hasFKGizmo && selectedBoneName) {
+          const bone = instance.bonesByName.get(selectedBoneName);
+          if (bone) {
+            instance.rootGroup.updateMatrixWorld(true);
+            bone.getWorldPosition(boneGizmoProxyRef.current.position);
+            instance.rigAdapter.getCanonicalCurrentWorldQuat(
+              selectedBoneName,
+              boneGizmoProxyRef.current.quaternion
+            );
+            boneGizmoProxyRef.current.updateMatrixWorld(true);
           }
         }
         if (wasDragging) {
@@ -1006,6 +1000,7 @@ function MannequinInstance({
       controls.removeEventListener('dragging-changed', handleDraggingChanged);
       localDraggingRef.current = false;
       ikDraggingRef.current = false;
+      fkDraggingRef.current = false;
       ikDragStartProxyRef.current = null;
       ikDragStartRootRef.current = null;
       dragGuardRef.current.isDragging = false;
@@ -1018,7 +1013,7 @@ function MannequinInstance({
     record.locked,
     record.visible,
     controlMode,
-    selectedBone,
+    selectedBoneName,
     selectedIKHandle,
     moveBodyEnabled,
     activePreset,
@@ -1057,11 +1052,14 @@ function MannequinInstance({
         pelvis.getWorldPosition(anchorWorldVecRef.current);
         worldTarget = anchorWorldVecRef.current;
       }
-    } else if (controlMode === 'fk' && selectedBone) {
-      kind = 'bone';
-      id = selectedBone.name;
-      selectedBone.getWorldPosition(anchorWorldVecRef.current);
-      worldTarget = anchorWorldVecRef.current;
+    } else if (controlMode === 'fk' && selectedBoneName) {
+      const activeBone = instance.bonesByName.get(selectedBoneName);
+      if (activeBone) {
+        kind = 'bone';
+        id = selectedBoneName;
+        activeBone.getWorldPosition(anchorWorldVecRef.current);
+        worldTarget = anchorWorldVecRef.current;
+      }
     } else if (controlMode === 'ik' && selectedIKHandle) {
       kind = 'ik';
       id = selectedIKHandle;
@@ -1120,7 +1118,7 @@ function MannequinInstance({
     jointsDisplay,
     controlMode,
     moveBodyEnabled,
-    selectedBone,
+    selectedBoneName,
     selectedIKHandle,
     activePreset,
     lensCurvature,
@@ -1151,7 +1149,7 @@ function MannequinInstance({
       return;
     }
 
-    setSelectedBone(null);
+    setSelectedBoneName(null);
     setSelectedIKHandle(null);
     onSelectBoneChangeRef.current(null, ZERO_JOINT_ANGLES);
     onSelectIKHandleChangeRef.current(null);
@@ -1170,12 +1168,7 @@ function MannequinInstance({
     lastResetTriggerRef.current = resetTrigger;
     if (!isActive || lockedRef.current) return;
 
-    for (const bone of instance.bones) {
-      const restQuat = instance.restQuaternions.get(bone.name);
-      if (restQuat) {
-        bone.quaternion.copy(restQuat);
-      }
-    }
+    instance.rigAdapter.resetToTPose();
 
     instance.rootGroup.position.set(
       record.spawnOffset[0],
@@ -1185,7 +1178,7 @@ function MannequinInstance({
     solverRef.current.sleepAll();
     solverAwakeRef.current = false;
     gravityMovedSinceWakeRef.current = false;
-    setSelectedBone(null);
+    setSelectedBoneName(null);
     setHoveredBoneName(null);
     setSelectedIKHandle(null);
     setHoveredIKHandle(null);
@@ -1213,25 +1206,17 @@ function MannequinInstance({
     lastHandledSeqRef.current = jointAngleCommand.seq;
     if (!isActive || lockedRef.current) return;
 
-    const bone = instance.bonesByName.get(jointAngleCommand.boneName);
-    const restQuat = instance.restQuaternions.get(jointAngleCommand.boneName);
-    if (!bone || !restQuat) return;
+    const boneName = jointAngleCommand.boneName;
+    if (!instance.rigAdapter.hasJoint(boneName)) return;
 
-    const spec = getJointSpec(bone.name);
+    const spec = getJointSpec(boneName);
     const clamped = clampJointAngles(
       jointAngleCommand.angles,
       spec,
       jointLimitsEnabled
     );
-    const euler = new THREE.Euler(
-      THREE.MathUtils.degToRad(clamped.x),
-      THREE.MathUtils.degToRad(clamped.y),
-      THREE.MathUtils.degToRad(clamped.z),
-      spec.order
-    );
-    const deltaQuat = new THREE.Quaternion().setFromEuler(euler);
-    bone.quaternion.copy(restQuat).multiply(deltaQuat).normalize();
-    solverRef.current.zeroBoneVelocity(bone.name);
+    instance.rigAdapter.applyCanonicalAngles(boneName, clamped, spec.order);
+    solverRef.current.zeroBoneVelocity(boneName);
 
     if (record.groundSnapEnabled) {
       recomputeGroundOffset(0);
@@ -1246,7 +1231,7 @@ function MannequinInstance({
 
     if (gravityEnabled) {
       solverRef.current.wakeDownstream(
-        bone.name,
+        boneName,
         !groundEnabled || computeSkinnedMinY() > 0.03
       );
       solverAwakeRef.current = true;
@@ -1274,38 +1259,36 @@ function MannequinInstance({
 
     if (!isActive || lockedRef.current) return;
 
-    if (justEnabled && selectedBone && selectedSpec) {
-      const restQuat = instance.restQuaternions.get(selectedBone.name);
-      if (restQuat) {
-        const raw = readBoneDeltaDegrees(
-          selectedBone,
-          restQuat,
-          selectedSpec,
-          false
-        );
-        const clamped = clampJointAngles(raw, selectedSpec, true);
-        const euler = new THREE.Euler(
-          THREE.MathUtils.degToRad(clamped.x),
-          THREE.MathUtils.degToRad(clamped.y),
-          THREE.MathUtils.degToRad(clamped.z),
-          selectedSpec.order
-        );
-        const deltaQuat = new THREE.Quaternion().setFromEuler(euler);
-        selectedBone.quaternion.copy(restQuat).multiply(deltaQuat).normalize();
-        onBoneAnglesChange({
-          x: Math.round(clamped.x),
-          y: Math.round(clamped.y),
-          z: Math.round(clamped.z),
-        });
+    if (
+      justEnabled &&
+      selectedBoneName &&
+      selectedSpec &&
+      instance.rigAdapter.hasJoint(selectedBoneName)
+    ) {
+      const raw = instance.rigAdapter.readCanonicalAngles(
+        selectedBoneName,
+        selectedSpec,
+        false
+      );
+      const clamped = clampJointAngles(raw, selectedSpec, true);
+      instance.rigAdapter.applyCanonicalAngles(
+        selectedBoneName,
+        clamped,
+        selectedSpec.order
+      );
+      onBoneAnglesChange({
+        x: Math.round(clamped.x),
+        y: Math.round(clamped.y),
+        z: Math.round(clamped.z),
+      });
 
-        if (record.groundSnapEnabled) {
-          recomputeGroundOffset(0);
-        } else {
-          syncHitboxPositions();
-          onElevationSyncRef.current(record.id, round2(computeSkinnedMinY()));
-        }
-        return;
+      if (record.groundSnapEnabled) {
+        recomputeGroundOffset(0);
+      } else {
+        syncHitboxPositions();
+        onElevationSyncRef.current(record.id, round2(computeSkinnedMinY()));
       }
+      return;
     }
 
     invalidate();
@@ -1315,7 +1298,7 @@ function MannequinInstance({
     instance,
     record.id,
     record.groundSnapEnabled,
-    selectedBone,
+    selectedBoneName,
     selectedSpec,
     onBoneAnglesChange,
     recomputeGroundOffset,
@@ -1414,32 +1397,21 @@ function MannequinInstance({
     solverAwakeRef.current = false;
     gravityMovedSinceWakeRef.current = false;
 
-    for (const bone of instance.bones) {
-      const restQuat = instance.restQuaternions.get(bone.name);
-      if (restQuat) {
-        bone.quaternion.copy(restQuat);
-      }
-    }
+    instance.rigAdapter.resetToTPose();
 
-    for (const [boneName, rawAngles] of Object.entries(preset.bones)) {
-      const bone = instance.bonesByName.get(boneName);
-      const restQuat = instance.restQuaternions.get(boneName);
-      if (!bone || !restQuat) continue;
+    const resolvedBones = instance.rigAdapter.resolvePresetBoneAngles(
+      preset.bones
+    );
+    for (const [boneName, rawAngles] of Object.entries(resolvedBones)) {
+      if (!instance.rigAdapter.hasJoint(boneName)) continue;
 
       const spec = getJointSpec(boneName);
       const clamped = clampJointAngles(rawAngles, spec, true);
-      const euler = new THREE.Euler(
-        THREE.MathUtils.degToRad(clamped.x),
-        THREE.MathUtils.degToRad(clamped.y),
-        THREE.MathUtils.degToRad(clamped.z),
-        spec.order
-      );
-      const deltaQuat = new THREE.Quaternion().setFromEuler(euler);
-      bone.quaternion.copy(restQuat).multiply(deltaQuat).normalize();
+      instance.rigAdapter.applyCanonicalAngles(boneName, clamped, spec.order);
     }
 
     // Preserve current staged X/Z position so multi-figure posing never overlaps Figure 1.
-    setSelectedBone(null);
+    setSelectedBoneName(null);
     setHoveredBoneName(null);
     setSelectedIKHandle(null);
     setHoveredIKHandle(null);
@@ -1518,7 +1490,8 @@ function MannequinInstance({
       rootGroup: instance.rootGroup,
       bonesByName: instance.bonesByName,
       restQuaternions: instance.restQuaternions,
-      selectedBoneName: isActive ? selectedBone?.name ?? null : null,
+      rigAdapter: instance.rigAdapter,
+      selectedBoneName: isActive ? selectedBoneName : null,
       pinnedBones: pinnedSet,
       jointLimitsEnabled,
       groundEnabled,
@@ -1549,37 +1522,48 @@ function MannequinInstance({
   });
 
   const handleTransformObjectChange = useCallback(() => {
-    if (lockedRef.current || !selectedBone || !selectedSpec) {
+    const activeBoneName = selectedBoneName;
+    if (
+      lockedRef.current ||
+      !activeBoneName ||
+      !selectedSpec ||
+      !instance.rigAdapter.hasJoint(activeBoneName)
+    ) {
       syncHitboxPositions();
       return;
     }
 
-    const restQuat = instance.restQuaternions.get(selectedBone.name);
-    if (!restQuat) {
-      syncHitboxPositions();
-      return;
-    }
+    const totalDeltaLocal = fkDragStartProxyQuatRef.current
+      .clone()
+      .invert()
+      .multiply(boneGizmoProxyRef.current.quaternion);
+    const targetCanonDelta = fkDragStartCanonDeltaRef.current
+      .clone()
+      .multiply(totalDeltaLocal)
+      .normalize();
 
-    const rawDeg = readBoneDeltaDegrees(
-      selectedBone,
-      restQuat,
-      selectedSpec,
-      false
+    const euler = new THREE.Euler(0, 0, 0, selectedSpec.order).setFromQuaternion(
+      targetCanonDelta,
+      selectedSpec.order
     );
+    const rawDeg: JointAngles = {
+      x: THREE.MathUtils.radToDeg(euler.x),
+      y: THREE.MathUtils.radToDeg(euler.y),
+      z: THREE.MathUtils.radToDeg(euler.z),
+    };
     const clamped = clampJointAngles(rawDeg, selectedSpec, jointLimitsEnabled);
 
     if (jointLimitsEnabled) {
-      const euler = new THREE.Euler(
-        THREE.MathUtils.degToRad(clamped.x),
-        THREE.MathUtils.degToRad(clamped.y),
-        THREE.MathUtils.degToRad(clamped.z),
+      instance.rigAdapter.applyCanonicalAngles(
+        activeBoneName,
+        clamped,
         selectedSpec.order
       );
-      const clampedDeltaQuat = new THREE.Quaternion().setFromEuler(euler);
-      selectedBone.quaternion
-        .copy(restQuat)
-        .multiply(clampedDeltaQuat)
-        .normalize();
+    } else {
+      instance.rigAdapter.applyCanonicalDeltaQuat(
+        activeBoneName,
+        targetCanonDelta
+      );
     }
 
     onBoneAnglesChange({
@@ -1588,7 +1572,7 @@ function MannequinInstance({
       z: Math.round(clamped.z),
     });
 
-    solverRef.current.zeroBoneVelocity(selectedBone.name);
+    solverRef.current.zeroBoneVelocity(activeBoneName);
 
     if (record.groundSnapEnabled) {
       recomputeGroundOffset(0);
@@ -1597,9 +1581,20 @@ function MannequinInstance({
       onElevationSyncRef.current(record.id, round2(computeSkinnedMinY()));
     }
 
+    const activeBone = instance.bonesByName.get(activeBoneName);
+    if (activeBone) {
+      instance.rootGroup.updateMatrixWorld(true);
+      activeBone.getWorldPosition(boneGizmoProxyRef.current.position);
+      instance.rigAdapter.getCanonicalCurrentWorldQuat(
+        activeBoneName,
+        boneGizmoProxyRef.current.quaternion
+      );
+      boneGizmoProxyRef.current.updateMatrixWorld(true);
+    }
+
     if (gravityEnabled) {
       solverRef.current.wakeDownstream(
-        selectedBone.name,
+        activeBoneName,
         !groundEnabled || computeSkinnedMinY() > 0.03
       );
       solverAwakeRef.current = true;
@@ -1609,7 +1604,7 @@ function MannequinInstance({
     instance,
     record.id,
     record.groundSnapEnabled,
-    selectedBone,
+    selectedBoneName,
     selectedSpec,
     jointLimitsEnabled,
     groundEnabled,
@@ -1695,6 +1690,7 @@ function MannequinInstance({
       rootGroup: instance.rootGroup,
       bonesByName: instance.bonesByName,
       restQuaternions: instance.restQuaternions,
+      rigAdapter: instance.rigAdapter,
       jointLimitsEnabled,
     });
 
@@ -1742,6 +1738,7 @@ function MannequinInstance({
   return (
     <group>
       <primitive object={ikProxyRef.current} />
+      <primitive object={boneGizmoProxyRef.current} />
       <primitive
         object={instance.rootGroup}
         onClick={(event: { stopPropagation: () => void }) => {
@@ -1764,12 +1761,12 @@ function MannequinInstance({
       {showInteractive && (
         <>
           <group name="mortal-mesh-hitboxes">
-            {visibleBones.map((bone) => {
+            {visibleBones.map(({ canonicalName, bone }) => {
               const isSelected =
-                !moveBodyEnabled && selectedBone?.name === bone.name;
-              const isHovered = hoveredBoneName === bone.name;
-              const isPinned = pinnedSet.has(bone.name);
-              const radius = getJointHitboxRadius(bone.name);
+                !moveBodyEnabled && selectedBoneName === canonicalName;
+              const isHovered = hoveredBoneName === canonicalName;
+              const isPinned = pinnedSet.has(canonicalName);
+              const radius = getJointHitboxRadius(canonicalName);
               const scale = isSelected
                 ? 1.25
                 : isHovered || isPinned
@@ -1792,13 +1789,13 @@ function MannequinInstance({
 
               const handleBoneOver = (event: { stopPropagation: () => void }) => {
                 event.stopPropagation();
-                setHoveredBoneName(bone.name);
+                setHoveredBoneName(canonicalName);
                 invalidate();
               };
               const handleBoneOut = (event: { stopPropagation: () => void }) => {
                 event.stopPropagation();
                 setHoveredBoneName((prev) =>
-                  prev === bone.name ? null : prev
+                  prev === canonicalName ? null : prev
                 );
                 invalidate();
               };
@@ -1808,13 +1805,27 @@ function MannequinInstance({
                 onMoveBodyChange(false);
                 setSelectedIKHandle(null);
                 onSelectIKHandleChangeRef.current(null);
-                setSelectedBone(bone);
-                const restQuat = instance.restQuaternions.get(bone.name);
-                const spec = getJointSpec(bone.name);
-                const currentAngles = restQuat
-                  ? readBoneDeltaDegrees(bone, restQuat, spec)
-                  : ZERO_JOINT_ANGLES;
-                onSelectBoneChangeRef.current(bone.name, currentAngles);
+                instance.rootGroup.updateMatrixWorld(true);
+                bone.getWorldPosition(boneGizmoProxyRef.current.position);
+                instance.rigAdapter.getCanonicalCurrentWorldQuat(
+                  canonicalName,
+                  boneGizmoProxyRef.current.quaternion
+                );
+                boneGizmoProxyRef.current.updateMatrixWorld(true);
+                fkDragStartProxyQuatRef.current.copy(
+                  boneGizmoProxyRef.current.quaternion
+                );
+                instance.rigAdapter.readCanonicalDeltaQuat(
+                  canonicalName,
+                  fkDragStartCanonDeltaRef.current
+                );
+                setSelectedBoneName(canonicalName);
+                const spec = getJointSpec(canonicalName);
+                const currentAngles = instance.rigAdapter.readCanonicalAngles(
+                  canonicalName,
+                  spec
+                );
+                onSelectBoneChangeRef.current(canonicalName, currentAngles);
                 invalidate();
               };
 
@@ -1823,12 +1834,12 @@ function MannequinInstance({
                   radius < 0.02 ? radius * 2.4 : radius * 2.1;
                 return (
                   <group
-                    key={bone.name}
+                    key={canonicalName}
                     ref={(obj) => {
                       if (obj) {
-                        hitboxRefs.current.set(bone.name, obj);
+                        hitboxRefs.current.set(canonicalName, obj);
                       } else {
-                        hitboxRefs.current.delete(bone.name);
+                        hitboxRefs.current.delete(canonicalName);
                       }
                     }}
                   >
@@ -1860,12 +1871,12 @@ function MannequinInstance({
 
               return (
                 <mesh
-                  key={bone.name}
+                  key={canonicalName}
                   ref={(mesh) => {
                     if (mesh) {
-                      hitboxRefs.current.set(bone.name, mesh);
+                      hitboxRefs.current.set(canonicalName, mesh);
                     } else {
-                      hitboxRefs.current.delete(bone.name);
+                      hitboxRefs.current.delete(canonicalName);
                     }
                   }}
                   scale={scale}
@@ -1952,7 +1963,7 @@ function MannequinInstance({
                         if (!bone) return;
                         onClearPropSelection();
                         onMoveBodyChange(false);
-                        setSelectedBone(null);
+                        setSelectedBoneName(null);
                         onSelectBoneChangeRef.current(null, ZERO_JOINT_ANGLES);
                         instance.rootGroup.updateMatrixWorld(true);
                         bone.getWorldPosition(ikProxyRef.current.position);
@@ -2000,19 +2011,19 @@ function MannequinInstance({
               />
             ) : (
               controlMode === 'fk' &&
-              selectedBone &&
+              selectedBoneName &&
               selectedSpec && (
                 <TransformControls
-                  key={`gizmo-rotate-bone-${record.id}`}
+                  key={`gizmo-rotate-bone-${record.id}-${selectedBoneName}`}
                   ref={transformRef}
-                  object={selectedBone}
+                  object={boneGizmoProxyRef.current}
                   mode="rotate"
                   space="local"
                   showX={jointLimitsEnabled ? selectedSpec.showX : true}
                   showY={jointLimitsEnabled ? selectedSpec.showY : true}
                   showZ={jointLimitsEnabled ? selectedSpec.showZ : true}
                   size={
-                    getJointHitboxRadius(selectedBone.name) < 0.02
+                    getJointHitboxRadius(selectedBoneName) < 0.02
                       ? isCoarsePointer
                         ? 0.42
                         : 0.28
@@ -2068,154 +2079,184 @@ export function AnatomyModel({
   onCommitPoseSnapshot,
   onContextualAnchorChange,
 }: AnatomyModelProps) {
-  const [template, setTemplate] = useState<MannequinTemplate | null>(null);
-  const [loadError, setLoadError] = useState(false);
+  const [templatesByModel, setTemplatesByModel] = useState<
+    Partial<Record<MannequinModelId, MannequinTemplate>>
+  >({});
+  const [loadErrors, setLoadErrors] = useState<
+    Partial<Record<MannequinModelId, boolean>>
+  >({});
   const dragGuardRef = useRef<DragGuardState>({
     isDragging: false,
     lastDragEndTime: 0,
   });
+  const loadingModelsRef = useRef<Set<MannequinModelId>>(new Set());
+  const gltfLoaderRef = useRef<{
+    loader: GLTFLoader;
+    draco: DRACOLoader;
+  } | null>(null);
+  const isMountedRef = useRef(true);
+  const invalidate = useThree((state) => state.invalidate);
 
   useEffect(() => {
-    let isMounted = true;
-
-    const dracoLoader = new DRACOLoader();
-    dracoLoader.setDecoderPath('/draco/');
-
-    const gltfLoader = new GLTFLoader();
-    gltfLoader.setDRACOLoader(dracoLoader);
-
-    gltfLoader.load(
-      '/models/anatomy.glb',
-      (gltf) => {
-        if (!isMounted) {
-          dracoLoader.dispose();
-          return;
-        }
-
-        gltf.scene.updateMatrixWorld(true);
-        const box = new THREE.Box3().setFromObject(gltf.scene);
-        const size = new THREE.Vector3();
-        const center = new THREE.Vector3();
-        box.getSize(size);
-        box.getCenter(center);
-
-        const fitScale = size.y > 0 ? 2.0 / size.y : 1;
-        const sceneOffset = new THREE.Vector3(
-          -center.x * fitScale,
-          -box.min.y * fitScale - 1.0,
-          -center.z * fitScale
-        );
-
-        let classicMainColor: THREE.Color | null = null;
-        let classicMainRoughness = 0.5;
-        let classicJointsColor: THREE.Color | null = null;
-        let classicJointsRoughness = 0.5;
-
-        gltf.scene.traverse((child) => {
-          const mesh = child as THREE.Mesh;
-          if (!(mesh.isMesh || (child as THREE.SkinnedMesh).isSkinnedMesh)) {
-            return;
-          }
-          const mats = Array.isArray(mesh.material)
-            ? mesh.material
-            : [mesh.material];
-          for (const mat of mats) {
-            if (mat instanceof THREE.MeshStandardMaterial) {
-              if (mat.name === 'M_Main' && !classicMainColor) {
-                classicMainColor = mat.color.clone();
-                classicMainRoughness = mat.roughness;
-              } else if (mat.name === 'M_Joints' && !classicJointsColor) {
-                classicJointsColor = mat.color.clone();
-                classicJointsRoughness = mat.roughness;
-              }
-            }
-          }
-        });
-
-        setTemplate({
-          scene: gltf.scene,
-          fitScale,
-          sceneOffset,
-          classicMainColor,
-          classicMainRoughness,
-          classicJointsColor,
-          classicJointsRoughness,
-        });
-        dracoLoader.dispose();
-      },
-      undefined,
-      (error) => {
-        if (isMounted) {
-          console.error('Failed to load /models/anatomy.glb:', error);
-          setLoadError(true);
-        }
-        dracoLoader.dispose();
-      }
-    );
+    isMountedRef.current = true;
+    const draco = new DRACOLoader();
+    draco.setDecoderPath('/draco/');
+    const loader = new GLTFLoader();
+    loader.setDRACOLoader(draco);
+    gltfLoaderRef.current = { loader, draco };
 
     return () => {
-      isMounted = false;
-      dracoLoader.dispose();
+      isMountedRef.current = false;
+      draco.dispose();
+      gltfLoaderRef.current = null;
+      loadingModelsRef.current.clear();
     };
   }, []);
 
-  if (!template) {
-    const themeSpec = STUDIO_THEMES[studioTheme];
-    return (
-      <Html position={[0, 1, 0]} center>
-        <div
-          role="status"
-          aria-live="polite"
-          className={`rounded-xl px-4 py-2 text-xs font-mono font-semibold uppercase tracking-[0.16em] whitespace-nowrap select-none ${themeSpec.ui.loadingBadge}`}
-        >
-          {loadError ? 'FAILED TO LOAD MANNEQUIN' : 'LOADING MANNEQUIN...'}
-        </div>
-      </Html>
-    );
-  }
+  useEffect(() => {
+    const loaderBundle = gltfLoaderRef.current;
+    if (!loaderBundle) return;
+
+    const neededModels = new Set<MannequinModelId>();
+    for (const record of mannequins) {
+      neededModels.add(record.modelId);
+    }
+
+    for (const modelId of Array.from(neededModels)) {
+      if (templatesByModel[modelId] || loadingModelsRef.current.has(modelId)) {
+        continue;
+      }
+      loadingModelsRef.current.add(modelId);
+      const modelSpec = MODEL_CATALOG[modelId];
+
+      loaderBundle.loader.load(
+        modelSpec.url,
+        (gltf) => {
+          loadingModelsRef.current.delete(modelId);
+          if (!isMountedRef.current) return;
+
+          const calScene = SkeletonUtils.clone(gltf.scene) as THREE.Group;
+          if (modelSpec.facingYawOffset !== 0) {
+            calScene.rotation.y = modelSpec.facingYawOffset;
+          }
+          createRigAdapter(modelId, calScene);
+          calScene.updateMatrixWorld(true);
+
+          const box = new THREE.Box3().setFromObject(calScene);
+          const size = new THREE.Vector3();
+          const center = new THREE.Vector3();
+          box.getSize(size);
+          box.getCenter(center);
+
+          const fitScale = size.y > 0 ? 2.0 / size.y : 1;
+          const sceneOffset = new THREE.Vector3(
+            -center.x * fitScale,
+            -box.min.y * fitScale - 1.0,
+            -center.z * fitScale
+          );
+
+          setTemplatesByModel((prev) => ({
+            ...prev,
+            [modelId]: {
+              modelId,
+              scene: gltf.scene,
+              fitScale,
+              sceneOffset,
+            },
+          }));
+          setLoadErrors((prev) => {
+            if (!prev[modelId]) return prev;
+            const next = { ...prev };
+            delete next[modelId];
+            return next;
+          });
+          invalidate();
+        },
+        undefined,
+        (error) => {
+          loadingModelsRef.current.delete(modelId);
+          if (!isMountedRef.current) return;
+          console.error(`Failed to load ${modelSpec.url}:`, error);
+          setLoadErrors((prev) => ({
+            ...prev,
+            [modelId]: true,
+          }));
+          invalidate();
+        }
+      );
+    }
+  }, [mannequins, templatesByModel, invalidate]);
+
+  const themeSpec = STUDIO_THEMES[studioTheme];
 
   return (
     <group>
-      {mannequins.map((record) => (
-        <MannequinInstance
-          key={`${sceneLoadId}-${record.id}`}
-          template={template}
-          record={record}
-          isActive={record.id === activeMannequinId}
-          dragGuardRef={dragGuardRef}
-          studioTheme={studioTheme}
-          jointsDisplay={jointsDisplay}
-          controlMode={controlMode}
-          jointLimitsEnabled={jointLimitsEnabled}
-          jointAngleCommand={jointAngleCommand}
-          groundEnabled={groundEnabled}
-          elevationCommand={elevationCommand}
-          dropToFloorTrigger={dropToFloorTrigger}
-          moveBodyEnabled={moveBodyEnabled}
-          selectedPropId={selectedPropId}
-          posePresetCommand={posePresetCommand}
-          gravityEnabled={gravityEnabled}
-          dampingPreset={dampingPreset}
-          resetTrigger={resetTrigger}
-          deselectTrigger={deselectTrigger}
-          isCoarsePointer={isCoarsePointer}
-          activePreset={activePreset}
-          lensCurvature={lensCurvature}
-          cameraRestSeq={cameraRestSeq}
-          onSelectMannequin={onSelectMannequin}
-          onDraggingChange={onDraggingChange}
-          onSelectBoneChange={onSelectBoneChange}
-          onSelectIKHandleChange={onSelectIKHandleChange}
-          onBoneAnglesChange={onBoneAnglesChange}
-          onElevationSync={onElevationSync}
-          onMoveBodyChange={onMoveBodyChange}
-          onClearPropSelection={onClearPropSelection}
-          onMannequinBridgeChange={onMannequinBridgeChange}
-          onInitialPoseSnapshot={onInitialPoseSnapshot}
-          onCommitPoseSnapshot={onCommitPoseSnapshot}
-          onContextualAnchorChange={onContextualAnchorChange}
-        />
-      ))}
+      {mannequins.map((record) => {
+        const template = templatesByModel[record.modelId];
+        if (!template) {
+          if (!record.visible) return null;
+          const modelLabel = MODEL_CATALOG[record.modelId].label.toUpperCase();
+          const hasError = Boolean(loadErrors[record.modelId]);
+          return (
+            <Html
+              key={`loading-${record.id}-${record.modelId}`}
+              position={[record.spawnOffset[0], 1, record.spawnOffset[2]]}
+              center
+            >
+              <div
+                role="status"
+                aria-live="polite"
+                className={`rounded-xl px-4 py-2 text-xs font-mono font-semibold uppercase tracking-[0.16em] whitespace-nowrap select-none ${themeSpec.ui.loadingBadge}`}
+              >
+                {hasError
+                  ? `FAILED TO LOAD ${modelLabel}`
+                  : `LOADING ${modelLabel}...`}
+              </div>
+            </Html>
+          );
+        }
+
+        return (
+          <MannequinInstance
+            key={`${sceneLoadId}-${record.id}-${record.modelId}`}
+            template={template}
+            record={record}
+            isActive={record.id === activeMannequinId}
+            dragGuardRef={dragGuardRef}
+            studioTheme={studioTheme}
+            jointsDisplay={jointsDisplay}
+            controlMode={controlMode}
+            jointLimitsEnabled={jointLimitsEnabled}
+            jointAngleCommand={jointAngleCommand}
+            groundEnabled={groundEnabled}
+            elevationCommand={elevationCommand}
+            dropToFloorTrigger={dropToFloorTrigger}
+            moveBodyEnabled={moveBodyEnabled}
+            selectedPropId={selectedPropId}
+            posePresetCommand={posePresetCommand}
+            gravityEnabled={gravityEnabled}
+            dampingPreset={dampingPreset}
+            resetTrigger={resetTrigger}
+            deselectTrigger={deselectTrigger}
+            isCoarsePointer={isCoarsePointer}
+            activePreset={activePreset}
+            lensCurvature={lensCurvature}
+            cameraRestSeq={cameraRestSeq}
+            onSelectMannequin={onSelectMannequin}
+            onDraggingChange={onDraggingChange}
+            onSelectBoneChange={onSelectBoneChange}
+            onSelectIKHandleChange={onSelectIKHandleChange}
+            onBoneAnglesChange={onBoneAnglesChange}
+            onElevationSync={onElevationSync}
+            onMoveBodyChange={onMoveBodyChange}
+            onClearPropSelection={onClearPropSelection}
+            onMannequinBridgeChange={onMannequinBridgeChange}
+            onInitialPoseSnapshot={onInitialPoseSnapshot}
+            onCommitPoseSnapshot={onCommitPoseSnapshot}
+            onContextualAnchorChange={onContextualAnchorChange}
+          />
+        );
+      })}
     </group>
   );
 }

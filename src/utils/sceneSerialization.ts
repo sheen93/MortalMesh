@@ -1,3 +1,4 @@
+import { isMannequinModelId, type MannequinModelId } from '@/data/modelCatalog';
 import { isStudioThemeId } from '@/data/studioThemes';
 import {
   isCameraPreset,
@@ -93,6 +94,7 @@ export function serializeSceneFile({
       return {
         id: m.id,
         name: m.name,
+        modelId: m.modelId,
         finish: m.finish,
         locked: m.locked,
         visible: m.visible,
@@ -293,10 +295,16 @@ export function parseSceneFile(raw: unknown): ParseSceneResult {
       return { ok: false, error: parsedPose.error };
     }
 
+    const modelId: MannequinModelId =
+      typeof item.modelId === 'string' && isMannequinModelId(item.modelId)
+        ? item.modelId
+        : 'classic';
+
     mannequinIds.add(item.id);
     parsedMannequins.push({
       id: item.id,
       name: item.name.trim(),
+      modelId,
       finish: item.finish as MannequinFinish,
       locked: item.locked,
       visible: item.visible,

@@ -1,13 +1,15 @@
 {
-  "version": "f552bca7f115",
-  "generatedAt": "2026-11-26T00:27:14.720Z",
+  "version": "17c5c6062f0a",
+  "generatedAt": "2026-11-26T03:59:06.825Z",
   "urls": [
     "/",
+    "/_next/static/YtjNIiKiZZW9TkmQQUzLz/_buildManifest.js",
+    "/_next/static/YtjNIiKiZZW9TkmQQUzLz/_ssgManifest.js",
     "/_next/static/chunks/117-8e4c59e923d6a5e8.js",
     "/_next/static/chunks/12-2b0851868f8eebad.js",
     "/_next/static/chunks/app/_not-found/page-12d4e6e8548a2d4a.js",
     "/_next/static/chunks/app/layout-4828418c2726d79b.js",
-    "/_next/static/chunks/app/page-4be18a9865ade4dd.js",
+    "/_next/static/chunks/app/page-b7b9e44c6ccf0edd.js",
     "/_next/static/chunks/b536a0f1-631dc24d1d7c2b76.js",
     "/_next/static/chunks/fd9d1056-898d1c4f9326004a.js",
     "/_next/static/chunks/framework-d1703057b07599d4.js",
@@ -17,9 +19,7 @@
     "/_next/static/chunks/pages/_error-7ba65e1336b92748.js",
     "/_next/static/chunks/polyfills-42372ed130431b0a.js",
     "/_next/static/chunks/webpack-a3c37fcbf859f6f9.js",
-    "/_next/static/css/52e19591a6eea559.css",
-    "/_next/static/zBNbeZGNFxTnNlYORBMiL/_buildManifest.js",
-    "/_next/static/zBNbeZGNFxTnNlYORBMiL/_ssgManifest.js",
+    "/_next/static/css/91b99db409a74473.css",
     "/draco/draco_decoder.js",
     "/draco/draco_decoder.wasm",
     "/draco/draco_wasm_wrapper.js",
@@ -29,5 +29,11 @@
     "/icons/icon-maskable-512.png",
     "/manifest.webmanifest",
     "/models/anatomy.glb"
+  ],
+  "optionalModelUrls": [
+    "/models/mannequin-2.glb",
+    "/models/mannequin-3.glb",
+    "/models/mannequin-female.glb",
+    "/models/skeleton-rig.glb"
   ]
 }
