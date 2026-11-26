@@ -72,7 +72,14 @@ import {
   type SnapshotBridge,
   type SnapshotOptions,
   type StudioThemeId,
+  type SvgExportOptions,
 } from '@/types/anatomy';
+import {
+  clampStudioDrawing,
+  DEFAULT_STUDIO_DRAWING,
+  isDrawingActive,
+  type StudioDrawingConfig,
+} from '@/types/drawing';
 import type { PoseBridge, PoseSnapshot } from '@/types/poseIO';
 import {
   createStudioProp,
@@ -202,6 +209,9 @@ export default function HomePage() {
   const [keyLight, setKeyLight] = useState<KeyLightSettings>(
     DEFAULT_STUDIO_LIGHTING
   );
+  const [drawing, setDrawing] = useState<StudioDrawingConfig>(
+    DEFAULT_STUDIO_DRAWING
+  );
   const [showHeadRuler, setShowHeadRuler] = useState(false);
   const [headRulerMetrics, setHeadRulerMetrics] =
     useState<HeadRulerMetrics | null>(null);
@@ -219,6 +229,7 @@ export default function HomePage() {
     useState<RightRailTab | null>(null);
   const [isJointsPopoverOpen, setIsJointsPopoverOpen] = useState(false);
   const [isSnapshotOpen, setIsSnapshotOpen] = useState(false);
+  const [snapshotFormat, setSnapshotFormat] = useState<'png' | 'svg'>('png');
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isPoseLibraryOpen, setIsPoseLibraryOpen] = useState(false);
 
@@ -388,6 +399,7 @@ export default function HomePage() {
       setCompositionCrop(sceneFile.studio.compositionCrop ?? 'off');
       setCompositionGrid(sceneFile.studio.compositionGrid ?? 'off');
       setGoldenSpiralFlip(sceneFile.studio.goldenSpiralFlip ?? false);
+      setDrawing(clampStudioDrawing(sceneFile.studio.drawing));
 
       setMannequins(restoredMannequins);
       setActiveMannequinId(sceneFile.activeMannequinId);
@@ -483,6 +495,7 @@ export default function HomePage() {
         compositionCrop,
         compositionGrid,
         goldenSpiralFlip,
+        drawing,
       },
       camera: liveCamera,
       bookmarks,
@@ -497,6 +510,7 @@ export default function HomePage() {
     compositionCrop,
     compositionGrid,
     goldenSpiralFlip,
+    drawing,
     studioProps,
     studioTheme,
     groundEnabled,
@@ -1085,6 +1099,8 @@ export default function HomePage() {
     setJointLimitsEnabled(true);
     setMoveBodyEnabled(false);
     setKeyLight(DEFAULT_STUDIO_LIGHTING);
+    setDrawing(DEFAULT_STUDIO_DRAWING);
+    setSnapshotFormat('png');
     setActivePreset('1-point');
     setLensCurvature(DEFAULT_LENS_CURVATURE);
     setShowPerspectiveGuides(true);
@@ -1288,6 +1304,26 @@ export default function HomePage() {
     setKeyLight(DEFAULT_STUDIO_LIGHTING);
   }, []);
 
+  const handleChangeDrawing = useCallback(
+    (patch: Partial<StudioDrawingConfig>) => {
+      setDrawing((prev) => {
+        const merged = { ...prev, ...patch };
+        if (
+          patch.drawingStyle === 'skeleton-sheet' &&
+          prev.drawingStyle !== 'skeleton-sheet'
+        ) {
+          merged.showLandmarks = true;
+        }
+        return clampStudioDrawing(merged);
+      });
+    },
+    []
+  );
+
+  const handleResetDrawing = useCallback(() => {
+    setDrawing(DEFAULT_STUDIO_DRAWING);
+  }, []);
+
   const handleChangeMannequinProportions = useCallback(
     (id: string, patch: Partial<FigureProportions>) => {
       const target = mannequins.find((m) => m.id === id);
@@ -1423,6 +1459,14 @@ export default function HomePage() {
     setIsSnapshotOpen(!isSnapshotOpen);
   }, [isSnapshotOpen]);
 
+  const handleOpenSnapshotSvg = useCallback(() => {
+    setActiveRightRailTab(null);
+    setIsJointsPopoverOpen(false);
+    setIsShortcutsOpen(false);
+    setSnapshotFormat('svg');
+    setIsSnapshotOpen(true);
+  }, []);
+
   const handleToggleShortcuts = useCallback(() => {
     if (!isShortcutsOpen) {
       setActiveRightRailTab(null);
@@ -1445,6 +1489,19 @@ export default function HomePage() {
         );
       } else {
         showToast('Failed to export PNG snapshot', 'error');
+      }
+    },
+    [showToast]
+  );
+
+  const handleExportBlueprintSvg = useCallback(
+    (options: SvgExportOptions) => {
+      const result = snapshotBridgeRef.current?.exportBlueprintSvg(options);
+      setIsSnapshotOpen(false);
+      if (result) {
+        showToast('Layered SVG blueprint exported', 'success');
+      } else {
+        showToast('Failed to export layered SVG', 'error');
       }
     },
     [showToast]
@@ -2136,6 +2193,7 @@ export default function HomePage() {
         groundSnapEnabled={activeMannequin.groundSnapEnabled}
         elevationY={activeMannequin.elevationY}
         keyLight={keyLight}
+        drawing={drawing}
         showHeadRuler={showHeadRuler}
         compositionCrop={compositionCrop}
         compositionGrid={compositionGrid}
@@ -2155,6 +2213,9 @@ export default function HomePage() {
         onChangeKeyLight={handleChangeKeyLight}
         onSelectLightingPreset={handleSelectLightingPreset}
         onResetKeyLight={handleResetKeyLight}
+        onChangeDrawing={handleChangeDrawing}
+        onResetDrawing={handleResetDrawing}
+        onOpenSnapshotSvg={handleOpenSnapshotSvg}
         onToggleHeadRuler={() => setShowHeadRuler((prev) => !prev)}
         onChangeCompositionCrop={setCompositionCrop}
         onChangeCompositionGrid={setCompositionGrid}
@@ -2188,8 +2249,12 @@ export default function HomePage() {
         onUndo={handleUndo}
         onRedo={handleRedo}
         isSnapshotOpen={isSnapshotOpen}
+        snapshotFormat={snapshotFormat}
+        onChangeSnapshotFormat={setSnapshotFormat}
+        drawingActive={keyLight.notanEnabled || isDrawingActive(drawing)}
         onToggleSnapshot={handleToggleSnapshot}
         onCaptureSnapshot={handleCaptureSnapshot}
+        onExportBlueprintSvg={handleExportBlueprintSvg}
         isShortcutsOpen={isShortcutsOpen}
         onToggleShortcuts={handleToggleShortcuts}
         viewport={viewport}
@@ -2277,6 +2342,7 @@ export default function HomePage() {
         cameraRestSeq={cameraRestSeq}
         ikPinFeet={ikPinFeet}
         ikSwivelByHandle={ikSwivelByHandle}
+        drawing={drawing}
         showHeadRuler={showHeadRuler}
         onSelectMannequin={handleSelectMannequin}
         onSelectBoneChange={handleSelectBoneChange}

@@ -425,6 +425,7 @@ export function StudioProps({
               key={prop.id}
               ref={(group) => {
                 if (group) {
+                  group.userData.mortalMeshProp = prop;
                   propGroupRefs.current.set(prop.id, group);
                 } else {
                   propGroupRefs.current.delete(prop.id);

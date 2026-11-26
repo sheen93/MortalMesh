@@ -44,13 +44,20 @@ import {
   type SnapshotOptions,
   type SnapshotResult,
   type StudioThemeId,
+  type SvgExportOptions,
+  type SvgExportResult,
 } from '@/types/anatomy';
+import {
+  effectiveShowLandmarks,
+  type StudioDrawingConfig,
+} from '@/types/drawing';
 import type { PoseBridge, PoseSnapshot } from '@/types/poseIO';
 import {
   getFisheyeOptics,
   getFisheyeReferenceDistance,
 } from '@/utils/lensWarp';
 import { getNotanThemePalette } from '@/utils/notanGradient';
+import { exportLayeredBlueprintSVG } from '@/utils/svgBlueprintExporter';
 import type {
   PropDropCommand,
   PropTransformMode,
@@ -121,6 +128,7 @@ interface StudioCanvasProps {
   cameraRestSeq: number;
   ikPinFeet: boolean;
   ikSwivelByHandle: Record<Exclude<IKHandleId, 'pelvis'>, number>;
+  drawing: StudioDrawingConfig;
   showHeadRuler: boolean;
   onMannequinBridgeChange: (id: string, bridge: PoseBridge | null) => void;
   onInitialPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
@@ -142,12 +150,15 @@ function formatMatrixNum(value: number): string {
 const StudioLighting = memo(function StudioLighting({
   theme,
   keyLight,
+  planarOverride = false,
 }: {
   theme: StudioThemeSpec;
   keyLight: KeyLightSettings;
+  planarOverride?: boolean;
 }) {
   const { invalidate } = useThree();
   const notanPalette = getNotanThemePalette(theme.id);
+  const planarShade = keyLight.notanEnabled || planarOverride;
 
   const keyLightTarget = useMemo(() => {
     const targetObj = new THREE.Object3D();
@@ -184,7 +195,7 @@ const StudioLighting = memo(function StudioLighting({
     return [horiz * Math.sin(azRad), 1 + r * Math.sin(elRad), horiz * Math.cos(azRad)];
   }, [keyLight.azimuth]);
 
-  const hemiIntensity = keyLight.notanEnabled ? 0 : keyLight.fillIntensity * 0.85;
+  const hemiIntensity = planarShade ? 0 : keyLight.fillIntensity * 0.85;
   const hemisphereArgs = useMemo<[string, string, number]>(
     () => [
       theme.lighting.hemisphereSky,
@@ -210,19 +221,20 @@ const StudioLighting = memo(function StudioLighting({
     keyLight.fillIntensity,
     keyLight.notanEnabled,
     keyLight.notanSplit,
+    planarOverride,
     theme,
     keyLightTarget,
     invalidate,
   ]);
 
-  const effectiveKeyIntensity = keyLight.notanEnabled
+  const effectiveKeyIntensity = planarShade
     ? Math.max(notanPalette.keyIntensity, Math.min(2.8, keyLight.intensity * 1.25))
     : keyLight.intensity;
-  const effectiveRimIntensity = keyLight.notanEnabled ? 0 : keyLight.rimIntensity;
-  const effectiveFillIntensity = keyLight.notanEnabled
+  const effectiveRimIntensity = planarShade ? 0 : keyLight.rimIntensity;
+  const effectiveFillIntensity = planarShade
     ? 0
     : keyLight.fillIntensity * 0.9;
-  const effectiveAmbient = keyLight.notanEnabled
+  const effectiveAmbient = planarShade
     ? notanPalette.ambient
     : keyLight.fillIntensity * 0.65;
 
@@ -241,7 +253,7 @@ const StudioLighting = memo(function StudioLighting({
         shadow-mapSize-height={2048}
         shadow-bias={-0.0005}
         shadow-normalBias={0.025}
-        shadow-radius={keyLight.notanEnabled ? 1.5 : 4}
+        shadow-radius={planarShade ? 1.5 : 4}
         shadow-camera-left={-3.5}
         shadow-camera-right={3.5}
         shadow-camera-top={3.5}
@@ -268,15 +280,23 @@ const StudioLighting = memo(function StudioLighting({
 interface SnapshotExporterProps {
   floorGroupRef: RefObject<THREE.Group>;
   curvilinearRenderRef: MutableRefObject<CurvilinearRenderHook | null>;
+  studioTheme: StudioThemeId;
+  activePreset: CameraPreset;
+  lensCurvature: number;
+  drawing: StudioDrawingConfig;
   onSnapshotBridgeReady: (bridge: SnapshotBridge | null) => void;
 }
 
 function SnapshotExporter({
   floorGroupRef,
   curvilinearRenderRef,
+  studioTheme,
+  activePreset,
+  lensCurvature,
+  drawing,
   onSnapshotBridgeReady,
 }: SnapshotExporterProps) {
-  const { gl, scene, camera, invalidate } = useThree();
+  const { gl, scene, camera, size, invalidate } = useThree();
 
   const captureSnapshot = useCallback(
     (options: SnapshotOptions): SnapshotResult | null => {
@@ -384,10 +404,40 @@ function SnapshotExporter({
     [gl, scene, camera, invalidate, floorGroupRef, curvilinearRenderRef]
   );
 
+  const exportBlueprintSvg = useCallback(
+    (options: SvgExportOptions): SvgExportResult | null => {
+      return exportLayeredBlueprintSVG(
+        {
+          scene,
+          camera,
+          viewportWidth: size.width,
+          viewportHeight: size.height,
+          perspectiveMode: activePreset,
+          lensCurvature,
+          drawingStyle: drawing.drawingStyle,
+          studioTheme,
+          showLandmarks: effectiveShowLandmarks(drawing),
+          transparent: options.transparent,
+        },
+        options
+      );
+    },
+    [
+      scene,
+      camera,
+      size.width,
+      size.height,
+      activePreset,
+      lensCurvature,
+      drawing,
+      studioTheme,
+    ]
+  );
+
   useEffect(() => {
-    onSnapshotBridgeReady({ captureSnapshot });
+    onSnapshotBridgeReady({ captureSnapshot, exportBlueprintSvg });
     return () => onSnapshotBridgeReady(null);
-  }, [captureSnapshot, onSnapshotBridgeReady]);
+  }, [captureSnapshot, exportBlueprintSvg, onSnapshotBridgeReady]);
 
   return null;
 }
@@ -691,6 +741,7 @@ const InfiniteStudioFloor = memo(function InfiniteStudioFloor({
             side={THREE.DoubleSide}
           />
           <mesh
+            name="mortal-mesh-floor-shadow"
             position={FLOOR_SHADOW_POS}
             rotation={FLOOR_SHADOW_ROT}
             receiveShadow
@@ -763,6 +814,7 @@ interface StageReferenceProps {
   ikSwivelByHandle: Record<Exclude<IKHandleId, 'pelvis'>, number>;
   notanEnabled: boolean;
   notanSplit: number;
+  drawing: StudioDrawingConfig;
   showHeadRuler: boolean;
   onSelectMannequin: (id: string) => void;
   onDraggingChange: (isDragging: boolean) => void;
@@ -821,6 +873,7 @@ const StageReference = memo(function StageReference({
   ikSwivelByHandle,
   notanEnabled,
   notanSplit,
+  drawing,
   showHeadRuler,
   onSelectMannequin,
   onDraggingChange,
@@ -876,6 +929,7 @@ const StageReference = memo(function StageReference({
         ikSwivelByHandle={ikSwivelByHandle}
         notanEnabled={notanEnabled}
         notanSplit={notanSplit}
+        drawing={drawing}
         showHeadRuler={showHeadRuler}
         onSelectMannequin={onSelectMannequin}
         onDraggingChange={onDraggingChange}
@@ -898,7 +952,7 @@ const StageReference = memo(function StageReference({
         propTransformMode={propTransformMode}
         studioTheme={studioTheme}
         groundEnabled={groundEnabled}
-        notanEnabled={notanEnabled}
+        notanEnabled={notanEnabled || drawing.drawingStyle === 'planar'}
         notanSplit={notanSplit}
         dropPropToFloorCommand={dropPropToFloorCommand}
         dragGuardRef={propDragGuardRef}
@@ -970,6 +1024,7 @@ export function StudioCanvas({
   cameraRestSeq,
   ikPinFeet,
   ikSwivelByHandle,
+  drawing,
   showHeadRuler,
   onMannequinBridgeChange,
   onInitialPoseSnapshot,
@@ -1121,7 +1176,11 @@ export function StudioCanvas({
       >
         <color attach="background" args={canvasBgArgs} />
         <fog attach="fog" args={canvasFogArgs} />
-        <StudioLighting theme={theme} keyLight={keyLight} />
+        <StudioLighting
+          theme={theme}
+          keyLight={keyLight}
+          planarOverride={drawing.drawingStyle === 'planar'}
+        />
         <CameraRig
           controlsRef={controlsRef}
           viewCubeRef={viewCubeRef}
@@ -1166,6 +1225,7 @@ export function StudioCanvas({
           ikSwivelByHandle={ikSwivelByHandle}
           notanEnabled={keyLight.notanEnabled}
           notanSplit={keyLight.notanSplit}
+          drawing={drawing}
           showHeadRuler={showHeadRuler}
           onSelectMannequin={onSelectMannequin}
           onDraggingChange={onDraggingChange}
@@ -1183,16 +1243,22 @@ export function StudioCanvas({
           onPropAnchorChange={onPropAnchorChange}
           onHeadRulerMetricsChange={onHeadRulerMetricsChange}
         />
-        {isFisheyePreset(activePreset) && (
+        {(isFisheyePreset(activePreset) || drawing.drawingStyle !== 'off') && (
           <CurvilinearLens
             preset={activePreset}
             curvature={lensCurvature}
+            drawing={drawing}
+            studioTheme={studioTheme}
             renderHookRef={curvilinearRenderRef}
           />
         )}
         <SnapshotExporter
           floorGroupRef={floorGroupRef}
           curvilinearRenderRef={curvilinearRenderRef}
+          studioTheme={studioTheme}
+          activePreset={activePreset}
+          lensCurvature={lensCurvature}
+          drawing={drawing}
           onSnapshotBridgeReady={onSnapshotBridgeReady}
         />
       </Canvas>

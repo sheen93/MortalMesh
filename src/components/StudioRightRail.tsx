@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import {
   ArrowDownToLineIcon,
   ContrastIcon,
@@ -8,9 +8,11 @@ import {
   FrameGuidesIcon,
   GridFloorIcon,
   ImageIcon,
+  LayersIcon,
   LightbulbIcon,
   LockIcon,
   MoonIcon,
+  PenToolIcon,
   PinIcon,
   PrecisionSlider,
   RotateCcwIcon,
@@ -38,6 +40,15 @@ import type {
   ReferenceOverlayState,
   StudioThemeId,
 } from '@/types/anatomy';
+import {
+  CONSTRUCTIVE_MODE_OPTIONS,
+  DRAWING_STYLE_META,
+  DRAWING_STYLE_ORDER,
+  isDrawingActive,
+  type ConstructiveMode,
+  type DrawingStyleId,
+  type StudioDrawingConfig,
+} from '@/types/drawing';
 
 export type RightRailTab = 'physics' | 'lighting' | 'guides' | 'theme';
 
@@ -54,6 +65,7 @@ interface StudioRightRailProps {
   groundSnapEnabled: boolean;
   elevationY: number;
   keyLight: KeyLightSettings;
+  drawing: StudioDrawingConfig;
   showHeadRuler: boolean;
   compositionCrop: CompositionCropRatio;
   compositionGrid: CompositionGridType;
@@ -73,6 +85,9 @@ interface StudioRightRailProps {
   onChangeKeyLight: (patch: Partial<KeyLightSettings>) => void;
   onSelectLightingPreset: (presetId: LightingPresetId) => void;
   onResetKeyLight: () => void;
+  onChangeDrawing: (patch: Partial<StudioDrawingConfig>) => void;
+  onResetDrawing: () => void;
+  onOpenSnapshotSvg: () => void;
   onToggleHeadRuler: () => void;
   onChangeCompositionCrop: (crop: CompositionCropRatio) => void;
   onChangeCompositionGrid: (grid: CompositionGridType) => void;
@@ -136,6 +151,7 @@ export function StudioRightRail({
   groundSnapEnabled,
   elevationY,
   keyLight,
+  drawing,
   showHeadRuler,
   compositionCrop,
   compositionGrid,
@@ -155,6 +171,9 @@ export function StudioRightRail({
   onChangeKeyLight,
   onSelectLightingPreset,
   onResetKeyLight,
+  onChangeDrawing,
+  onResetDrawing,
+  onOpenSnapshotSvg,
   onToggleHeadRuler,
   onChangeCompositionCrop,
   onChangeCompositionGrid,
@@ -164,11 +183,15 @@ export function StudioRightRail({
   onRemoveReferenceImage,
 }: StudioRightRailProps) {
   const refFileInputRef = useRef<HTMLInputElement>(null);
+  const [lightingSubTab, setLightingSubTab] = useState<'lighting' | 'drawing'>(
+    'lighting'
+  );
   const theme = STUDIO_THEMES[studioTheme];
   const { ui } = theme;
   const minElevation = groundEnabled ? 0 : -2;
   const hasActivePhysicsOrFloor = gravityEnabled || !groundEnabled;
-  const hasActiveNotan = keyLight.notanEnabled;
+  const hasActiveLightOrDrawing =
+    keyLight.notanEnabled || isDrawingActive(drawing);
   const hasActiveGuidesOrRef =
     showHeadRuler ||
     compositionCrop !== 'off' ||
@@ -187,7 +210,9 @@ export function StudioRightRail({
     activeTab === 'physics'
       ? 'Physics & Floor'
       : activeTab === 'lighting'
-        ? 'Lighting & Value'
+        ? lightingSubTab === 'drawing'
+          ? 'Drawing & Blueprint'
+          : 'Lighting & Value'
         : activeTab === 'guides'
           ? 'Guides & Ref'
           : 'Studio Theme';
@@ -323,149 +348,349 @@ export function StudioRightRail({
 
             {activeTab === 'lighting' && (
               <div className="space-y-2.5">
-                <div className="space-y-1">
-                  <span className={`block text-[10.5px] font-medium ${ui.textSecondary}`}>
-                    Lighting Presets
-                  </span>
-                  <div className="grid grid-cols-2 gap-1">
-                    {LIGHTING_PRESET_ORDER.map((presetId) => {
-                      const preset = LIGHTING_PRESETS[presetId];
-                      const isActive = keyLight.presetId === presetId;
-                      return (
-                        <button
-                          key={presetId}
-                          type="button"
-                          data-lighting-preset={presetId}
-                          aria-pressed={isActive}
-                          title={preset.description}
-                          onClick={() => onSelectLightingPreset(presetId)}
-                          className={`rounded-lg px-2 py-1 text-[10.5px] font-medium transition-colors ${
-                            isActive ? ui.pillButtonActive : ui.pillButton
-                          }`}
-                        >
-                          {preset.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className={`border-t pt-2 space-y-2 ${ui.hairline}`}>
-                  <ToggleSwitch
-                    id="rail-notan-toggle"
-                    label="2-Value Shadow (Notan)"
-                    checked={keyLight.notanEnabled}
-                    onChange={() =>
-                      onChangeKeyLight({ notanEnabled: !keyLight.notanEnabled })
-                    }
-                    theme={theme}
-                  />
-
-                  {keyLight.notanEnabled && (
-                    <PrecisionSlider
-                      id="rail-notan-split"
-                      label="Shadow Split"
-                      value={keyLight.notanSplit}
-                      min={0.2}
-                      max={0.8}
-                      step={0.02}
-                      displayValue={`${Math.round(keyLight.notanSplit * 100)}%`}
-                      onChange={(notanSplit) =>
-                        onChangeKeyLight({ notanSplit })
-                      }
-                      theme={theme}
-                    />
-                  )}
-                </div>
-
-                <div className={`border-t pt-2 space-y-2 ${ui.hairline}`}>
-                  <PrecisionSlider
-                    id="rail-key-light-azimuth"
-                    label="Key Azimuth"
-                    value={keyLight.azimuth}
-                    min={0}
-                    max={360}
-                    step={1}
-                    displayValue={`${keyLight.azimuth}°`}
-                    onChange={(azimuth) => onChangeKeyLight({ azimuth })}
-                    theme={theme}
-                  />
-
-                  <PrecisionSlider
-                    id="rail-key-light-elevation"
-                    label="Key Elevation"
-                    value={keyLight.elevation}
-                    min={15}
-                    max={85}
-                    step={1}
-                    displayValue={`${keyLight.elevation}°`}
-                    onChange={(elevation) => onChangeKeyLight({ elevation })}
-                    theme={theme}
-                  />
-
-                  <PrecisionSlider
-                    id="rail-key-light-intensity"
-                    label="Key Intensity"
-                    value={keyLight.intensity}
-                    min={0.4}
-                    max={2.8}
-                    step={0.05}
-                    displayValue={keyLight.intensity.toFixed(2)}
-                    onChange={(intensity) => onChangeKeyLight({ intensity })}
-                    theme={theme}
-                  />
-
-                  <PrecisionSlider
-                    id="rail-rim-light-intensity"
-                    label="Rim Intensity"
-                    value={keyLight.rimIntensity}
-                    min={0}
-                    max={2.4}
-                    step={0.05}
-                    displayValue={keyLight.rimIntensity.toFixed(2)}
-                    onChange={(rimIntensity) =>
-                      onChangeKeyLight({ rimIntensity })
-                    }
-                    theme={theme}
-                  />
-
-                  <PrecisionSlider
-                    id="rail-rim-light-angle"
-                    label="Rim Angle"
-                    value={keyLight.rimAzimuthOffset}
-                    min={90}
-                    max={270}
-                    step={1}
-                    displayValue={`${keyLight.rimAzimuthOffset}°`}
-                    onChange={(rimAzimuthOffset) =>
-                      onChangeKeyLight({ rimAzimuthOffset })
-                    }
-                    theme={theme}
-                  />
-
-                  <PrecisionSlider
-                    id="rail-fill-light-intensity"
-                    label="Fill / Bounce"
-                    value={keyLight.fillIntensity}
-                    min={0.05}
-                    max={1.2}
-                    step={0.02}
-                    displayValue={keyLight.fillIntensity.toFixed(2)}
-                    onChange={(fillIntensity) =>
-                      onChangeKeyLight({ fillIntensity })
-                    }
-                    theme={theme}
-                  />
-
+                <div
+                  role="group"
+                  aria-label="Lighting or Drawing Mode"
+                  className={`grid grid-cols-2 gap-1 rounded-xl p-1 ${ui.segmentedTrack}`}
+                >
                   <button
                     type="button"
-                    onClick={onResetKeyLight}
-                    className={`w-full flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors ${ui.pillButton}`}
+                    data-lighting-subtab="lighting"
+                    aria-pressed={lightingSubTab === 'lighting'}
+                    onClick={() => setLightingSubTab('lighting')}
+                    className={`flex items-center justify-center gap-1 rounded-[7px] px-2 py-1 text-[10.5px] font-medium transition-all ${
+                      lightingSubTab === 'lighting'
+                        ? ui.segmentedItemActive
+                        : ui.segmentedItem
+                    }`}
                   >
-                    <RotateCcwIcon className="h-3.5 w-3.5 shrink-0" />
-                    <span>Reset Light</span>
+                    <LightbulbIcon className="h-3 w-3 shrink-0" />
+                    <span>Lighting</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-lighting-subtab="drawing"
+                    aria-pressed={lightingSubTab === 'drawing'}
+                    onClick={() => setLightingSubTab('drawing')}
+                    className={`flex items-center justify-center gap-1 rounded-[7px] px-2 py-1 text-[10.5px] font-medium transition-all ${
+                      lightingSubTab === 'drawing'
+                        ? ui.segmentedItemActive
+                        : ui.segmentedItem
+                    }`}
+                  >
+                    <PenToolIcon className="h-3 w-3 shrink-0" />
+                    <span>Drawing</span>
                   </button>
                 </div>
+
+                {lightingSubTab === 'lighting' ? (
+                  <>
+                    <div className="space-y-1">
+                      <span className={`block text-[10.5px] font-medium ${ui.textSecondary}`}>
+                        Lighting Presets
+                      </span>
+                      <div className="grid grid-cols-2 gap-1">
+                        {LIGHTING_PRESET_ORDER.map((presetId) => {
+                          const preset = LIGHTING_PRESETS[presetId];
+                          const isActive = keyLight.presetId === presetId;
+                          return (
+                            <button
+                              key={presetId}
+                              type="button"
+                              data-lighting-preset={presetId}
+                              aria-pressed={isActive}
+                              title={preset.description}
+                              onClick={() => onSelectLightingPreset(presetId)}
+                              className={`rounded-lg px-2 py-1 text-[10.5px] font-medium transition-colors ${
+                                isActive ? ui.pillButtonActive : ui.pillButton
+                              }`}
+                            >
+                              {preset.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className={`border-t pt-2 space-y-2 ${ui.hairline}`}>
+                      <ToggleSwitch
+                        id="rail-notan-toggle"
+                        label="2-Value Shadow (Notan)"
+                        checked={keyLight.notanEnabled}
+                        onChange={() =>
+                          onChangeKeyLight({ notanEnabled: !keyLight.notanEnabled })
+                        }
+                        theme={theme}
+                      />
+
+                      {keyLight.notanEnabled && (
+                        <PrecisionSlider
+                          id="rail-notan-split"
+                          label="Shadow Split"
+                          value={keyLight.notanSplit}
+                          min={0.2}
+                          max={0.8}
+                          step={0.02}
+                          displayValue={`${Math.round(keyLight.notanSplit * 100)}%`}
+                          onChange={(notanSplit) =>
+                            onChangeKeyLight({ notanSplit })
+                          }
+                          theme={theme}
+                        />
+                      )}
+                    </div>
+
+                    <div className={`border-t pt-2 space-y-2 ${ui.hairline}`}>
+                      <PrecisionSlider
+                        id="rail-key-light-azimuth"
+                        label="Key Azimuth"
+                        value={keyLight.azimuth}
+                        min={0}
+                        max={360}
+                        step={1}
+                        displayValue={`${keyLight.azimuth}°`}
+                        onChange={(azimuth) => onChangeKeyLight({ azimuth })}
+                        theme={theme}
+                      />
+
+                      <PrecisionSlider
+                        id="rail-key-light-elevation"
+                        label="Key Elevation"
+                        value={keyLight.elevation}
+                        min={15}
+                        max={85}
+                        step={1}
+                        displayValue={`${keyLight.elevation}°`}
+                        onChange={(elevation) => onChangeKeyLight({ elevation })}
+                        theme={theme}
+                      />
+
+                      <PrecisionSlider
+                        id="rail-key-light-intensity"
+                        label="Key Intensity"
+                        value={keyLight.intensity}
+                        min={0.4}
+                        max={2.8}
+                        step={0.05}
+                        displayValue={keyLight.intensity.toFixed(2)}
+                        onChange={(intensity) => onChangeKeyLight({ intensity })}
+                        theme={theme}
+                      />
+
+                      <PrecisionSlider
+                        id="rail-rim-light-intensity"
+                        label="Rim Intensity"
+                        value={keyLight.rimIntensity}
+                        min={0}
+                        max={2.4}
+                        step={0.05}
+                        displayValue={keyLight.rimIntensity.toFixed(2)}
+                        onChange={(rimIntensity) =>
+                          onChangeKeyLight({ rimIntensity })
+                        }
+                        theme={theme}
+                      />
+
+                      <PrecisionSlider
+                        id="rail-rim-light-angle"
+                        label="Rim Angle"
+                        value={keyLight.rimAzimuthOffset}
+                        min={90}
+                        max={270}
+                        step={1}
+                        displayValue={`${keyLight.rimAzimuthOffset}°`}
+                        onChange={(rimAzimuthOffset) =>
+                          onChangeKeyLight({ rimAzimuthOffset })
+                        }
+                        theme={theme}
+                      />
+
+                      <PrecisionSlider
+                        id="rail-fill-light-intensity"
+                        label="Fill / Bounce"
+                        value={keyLight.fillIntensity}
+                        min={0.05}
+                        max={1.2}
+                        step={0.02}
+                        displayValue={keyLight.fillIntensity.toFixed(2)}
+                        onChange={(fillIntensity) =>
+                          onChangeKeyLight({ fillIntensity })
+                        }
+                        theme={theme}
+                      />
+
+                      <button
+                        type="button"
+                        onClick={onResetKeyLight}
+                        className={`w-full flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors ${ui.pillButton}`}
+                      >
+                        <RotateCcwIcon className="h-3.5 w-3.5 shrink-0" />
+                        <span>Reset Light</span>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-2.5">
+                    <div className="space-y-1">
+                      <span className={`block text-[10.5px] font-medium ${ui.textSecondary}`}>
+                        Drawing Style
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {DRAWING_STYLE_ORDER.map((styleId: DrawingStyleId) => {
+                          const meta = DRAWING_STYLE_META[styleId];
+                          const active = drawing.drawingStyle === styleId;
+                          return (
+                            <button
+                              key={styleId}
+                              type="button"
+                              data-drawing-style={styleId}
+                              aria-pressed={active}
+                              title={meta.description}
+                              onClick={() =>
+                                onChangeDrawing({ drawingStyle: styleId })
+                              }
+                              className={`flex-1 min-w-[68px] rounded-lg px-1.5 py-1 text-[10.5px] font-medium transition-colors ${
+                                active ? ui.pillButtonActive : ui.pillButton
+                              }`}
+                            >
+                              {meta.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className={`border-t pt-2 space-y-1 ${ui.hairline}`}>
+                      <span className={`block text-[10.5px] font-medium ${ui.textSecondary}`}>
+                        Constructive Rig
+                      </span>
+                      <div className="grid grid-cols-3 gap-1">
+                        {CONSTRUCTIVE_MODE_OPTIONS.map((opt) => {
+                          const active = drawing.constructiveMode === opt.id;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              data-constructive-mode={opt.id}
+                              aria-pressed={active}
+                              title={opt.title}
+                              onClick={() =>
+                                onChangeDrawing({
+                                  constructiveMode: opt.id as ConstructiveMode,
+                                })
+                              }
+                              className={`rounded-lg px-1.5 py-1 text-[10.5px] font-medium transition-colors ${
+                                active ? ui.pillButtonActive : ui.pillButton
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className={`border-t pt-2 space-y-1.5 ${ui.hairline}`}>
+                      <ToggleSwitch
+                        id="rail-drawing-loa"
+                        label="Line of Action"
+                        checked={drawing.showLineOfAction}
+                        onChange={() =>
+                          onChangeDrawing({
+                            showLineOfAction: !drawing.showLineOfAction,
+                          })
+                        }
+                        theme={theme}
+                      />
+                      <ToggleSwitch
+                        id="rail-drawing-plumb"
+                        label="Plumb Line"
+                        checked={drawing.showPlumbLine}
+                        onChange={() =>
+                          onChangeDrawing({
+                            showPlumbLine: !drawing.showPlumbLine,
+                          })
+                        }
+                        theme={theme}
+                      />
+                      <ToggleSwitch
+                        id="rail-drawing-contours"
+                        label="Cross-Contours"
+                        checked={drawing.showCrossContours}
+                        onChange={() =>
+                          onChangeDrawing({
+                            showCrossContours: !drawing.showCrossContours,
+                          })
+                        }
+                        theme={theme}
+                      />
+                      <ToggleSwitch
+                        id="rail-drawing-landmarks"
+                        label="Bony Landmarks"
+                        checked={
+                          drawing.showLandmarks ||
+                          drawing.drawingStyle === 'skeleton-sheet'
+                        }
+                        disabled={drawing.drawingStyle === 'skeleton-sheet'}
+                        onChange={() =>
+                          onChangeDrawing({
+                            showLandmarks: !drawing.showLandmarks,
+                          })
+                        }
+                        theme={theme}
+                      />
+                      <ToggleSwitch
+                        id="rail-drawing-hatch"
+                        label="Shadow Hatch"
+                        checked={drawing.drawingHatching}
+                        disabled={drawing.drawingStyle === 'off'}
+                        onChange={() =>
+                          onChangeDrawing({
+                            drawingHatching: !drawing.drawingHatching,
+                          })
+                        }
+                        theme={theme}
+                      />
+                    </div>
+
+                    <div className={`border-t pt-2 space-y-2 ${ui.hairline}`}>
+                      <PrecisionSlider
+                        id="rail-drawing-ink-weight"
+                        label="Ink Weight"
+                        value={drawing.inkWeight}
+                        min={0.6}
+                        max={2.0}
+                        step={0.05}
+                        disabled={drawing.drawingStyle === 'off'}
+                        displayValue={`${drawing.inkWeight.toFixed(1)}x`}
+                        onChange={(inkWeight) =>
+                          onChangeDrawing({ inkWeight })
+                        }
+                        theme={theme}
+                      />
+
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={onResetDrawing}
+                          className={`flex items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[10.5px] font-medium transition-colors ${ui.pillButton}`}
+                        >
+                          <RotateCcwIcon className="h-3 w-3 shrink-0" />
+                          <span>Reset</span>
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="rail-open-svg-snapshot-btn"
+                          onClick={onOpenSnapshotSvg}
+                          className={`flex items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[10.5px] font-medium transition-colors ${ui.pillButtonActive}`}
+                        >
+                          <LayersIcon className="h-3 w-3 shrink-0" />
+                          <span>SVG Export</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -739,7 +964,7 @@ export function StudioRightRail({
           } ${activeTab === 'lighting' ? ui.dockButtonActive : ui.dockButton}`}
         >
           <LightbulbIcon className="w-4 h-4" />
-          {hasActiveNotan && (
+          {hasActiveLightOrDrawing && (
             <span
               aria-hidden="true"
               className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-400"

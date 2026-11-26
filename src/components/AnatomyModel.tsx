@@ -17,6 +17,10 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import {
+  ConstructiveOverlay,
+  type ConstructiveOverlayHandle,
+} from '@/components/ConstructiveOverlay';
+import {
   IKHandleMarkers,
   type IKDragMode,
 } from '@/components/IKHandleMarkers';
@@ -48,6 +52,7 @@ import {
   type StudioThemeId,
 } from '@/types/anatomy';
 import type { PoseBridge, PoseSnapshot, QuaternionTuple } from '@/types/poseIO';
+import type { StudioDrawingConfig } from '@/types/drawing';
 import { MANNEQUIN_FINISHES, type MannequinRecord } from '@/types/scene';
 import {
   buildHandGestureBones,
@@ -105,6 +110,7 @@ interface NotanMeshEntry {
   mesh: THREE.Mesh;
   standardMaterial: THREE.Material | THREE.Material[];
   toonMaterial: THREE.MeshToonMaterial;
+  ghostMaterial: THREE.MeshStandardMaterial;
 }
 
 interface CanonicalBoneEntry {
@@ -124,6 +130,7 @@ interface ClonedInstanceData {
   clonedMaterials: THREE.Material[];
   meshEntries: NotanMeshEntry[];
   toonMaterials: THREE.MeshToonMaterial[];
+  ghostMaterials: THREE.MeshStandardMaterial[];
   baseHeadHeight: number;
 }
 
@@ -159,6 +166,7 @@ interface AnatomyModelProps {
   ikSwivelByHandle: Record<Exclude<IKHandleId, 'pelvis'>, number>;
   notanEnabled: boolean;
   notanSplit: number;
+  drawing: StudioDrawingConfig;
   showHeadRuler: boolean;
   onSelectMannequin: (id: string) => void;
   onDraggingChange: (isDragging: boolean) => void;
@@ -203,6 +211,7 @@ interface MannequinInstanceProps {
   ikSwivelByHandle: Record<Exclude<IKHandleId, 'pelvis'>, number>;
   notanEnabled: boolean;
   notanSplit: number;
+  drawing: StudioDrawingConfig;
   showHeadRuler: boolean;
   onSelectMannequin: (id: string) => void;
   onDraggingChange: (isDragging: boolean) => void;
@@ -292,6 +301,7 @@ function MannequinInstance({
   ikSwivelByHandle,
   notanEnabled,
   notanSplit,
+  drawing,
   showHeadRuler,
   onSelectMannequin,
   onDraggingChange,
@@ -330,6 +340,7 @@ function MannequinInstance({
     clampFigureProportions(record.proportions)
   );
   const lastRulerEmitKeyRef = useRef<string>('');
+  const constructiveOverlayRef = useRef<ConstructiveOverlayHandle>(null);
   const hitboxRefs = useRef<Map<string, THREE.Object3D>>(new Map());
   const ikHandleRefs = useRef<Map<IKHandleId, THREE.Group>>(new Map());
   const ikProxyRef = useRef<THREE.Object3D>(new THREE.Object3D());
@@ -459,6 +470,7 @@ function MannequinInstance({
     const clonedMaterials: THREE.Material[] = [];
     const meshEntries: NotanMeshEntry[] = [];
     const toonMaterials: THREE.MeshToonMaterial[] = [];
+    const ghostMaterials: THREE.MeshStandardMaterial[] = [];
 
     clonedScene.traverse((child) => {
       const mesh = child as THREE.Mesh;
@@ -481,11 +493,21 @@ function MannequinInstance({
           );
         }
         const toonMat = new THREE.MeshToonMaterial({ color: '#EFECE6' });
+        const ghostMat = new THREE.MeshStandardMaterial({
+          color: '#E5E7EB',
+          transparent: true,
+          opacity: 0.28,
+          depthWrite: false,
+          roughness: 0.85,
+          metalness: 0.02,
+        });
         toonMaterials.push(toonMat);
+        ghostMaterials.push(ghostMat);
         meshEntries.push({
           mesh,
           standardMaterial: mesh.material,
           toonMaterial: toonMat,
+          ghostMaterial: ghostMat,
         });
       }
 
@@ -528,6 +550,14 @@ function MannequinInstance({
       );
     }
 
+    rootGroup.userData.mortalMeshFigure = {
+      mannequinId: initialIdRef.current,
+      rigAdapter,
+      skinnedMeshes,
+      baseHeadHeight,
+      proportions: initialProportionsRef.current,
+    };
+
     return {
       rootGroup,
       scene: clonedScene,
@@ -540,6 +570,7 @@ function MannequinInstance({
       clonedMaterials,
       meshEntries,
       toonMaterials,
+      ghostMaterials,
       baseHeadHeight,
     };
   }, [template]);
@@ -552,23 +583,48 @@ function MannequinInstance({
       for (const toonMat of instance.toonMaterials) {
         toonMat.dispose();
       }
+      for (const ghostMat of instance.ghostMaterials) {
+        ghostMat.dispose();
+      }
     };
   }, [instance]);
 
   useEffect(() => {
     const palette = getNotanThemePalette(studioTheme);
+    const useToon = notanEnabled || drawing.drawingStyle === 'planar';
+    const isConstructiveOnly = drawing.constructiveMode === 'only';
+    const useGhost =
+      !isConstructiveOnly &&
+      !useToon &&
+      drawing.constructiveMode === 'overlay' &&
+      drawing.drawingStyle === 'off';
+
     for (const entry of instance.meshEntries) {
-      if (notanEnabled) {
+      entry.mesh.visible = !isConstructiveOnly;
+      if (useToon) {
         entry.toonMaterial.color.set(palette.figureColor);
         entry.toonMaterial.gradientMap = notanGradientTex;
         entry.toonMaterial.needsUpdate = true;
         entry.mesh.material = entry.toonMaterial;
+      } else if (useGhost) {
+        entry.ghostMaterial.color.set(
+          studioTheme === 'light' ? '#D1D5DB' : '#E5E7EB'
+        );
+        entry.mesh.material = entry.ghostMaterial;
       } else {
         entry.mesh.material = entry.standardMaterial;
       }
     }
     invalidate();
-  }, [notanEnabled, studioTheme, instance, notanGradientTex, invalidate]);
+  }, [
+    notanEnabled,
+    drawing.drawingStyle,
+    drawing.constructiveMode,
+    studioTheme,
+    instance,
+    notanGradientTex,
+    invalidate,
+  ]);
 
   useEffect(() => {
     const spec = MANNEQUIN_FINISHES[record.finish];
@@ -802,6 +858,7 @@ function MannequinInstance({
       }
     }
 
+    constructiveOverlayRef.current?.sync();
     emitHeadRulerMetrics();
     invalidate();
   }, [instance, emitHeadRulerMetrics, invalidate]);
@@ -856,6 +913,9 @@ function MannequinInstance({
       );
       lastAppliedProportionsRef.current = restoredProps;
       proportionsRef.current = restoredProps;
+      if (instance.rootGroup.userData.mortalMeshFigure) {
+        instance.rootGroup.userData.mortalMeshFigure.proportions = restoredProps;
+      }
 
       solverRef.current.sleepAll();
       solverAwakeRef.current = false;
@@ -1212,6 +1272,9 @@ function MannequinInstance({
       const clampedProps = clampFigureProportions(nextProportions);
       lastAppliedProportionsRef.current = clampedProps;
       proportionsRef.current = clampedProps;
+      if (instance.rootGroup.userData.mortalMeshFigure) {
+        instance.rootGroup.userData.mortalMeshFigure.proportions = clampedProps;
+      }
       instance.rigAdapter.applyProportions(clampedProps);
 
       if (record.groundSnapEnabled) {
@@ -1279,6 +1342,9 @@ function MannequinInstance({
         );
         lastAppliedProportionsRef.current = initProps;
         proportionsRef.current = initProps;
+        if (instance.rootGroup.userData.mortalMeshFigure) {
+          instance.rootGroup.userData.mortalMeshFigure.proportions = initProps;
+        }
         instance.rigAdapter.applyCanonicalSnapshotBones(initSnap.bones);
         instance.rigAdapter.applyProportions(initProps);
         const startX = initialPreserveExactPosRef.current
@@ -1304,6 +1370,9 @@ function MannequinInstance({
         const initProps = clampFigureProportions(initialProportionsRef.current);
         lastAppliedProportionsRef.current = initProps;
         proportionsRef.current = initProps;
+        if (instance.rootGroup.userData.mortalMeshFigure) {
+          instance.rootGroup.userData.mortalMeshFigure.proportions = initProps;
+        }
         const initPresetId = initialPosePresetIdRef.current;
         const preset =
           initPresetId && initPresetId !== 't-pose'
@@ -1355,6 +1424,9 @@ function MannequinInstance({
 
     lastAppliedProportionsRef.current = nextProps;
     proportionsRef.current = nextProps;
+    if (instance.rootGroup.userData.mortalMeshFigure) {
+      instance.rootGroup.userData.mortalMeshFigure.proportions = nextProps;
+    }
     instance.rigAdapter.applyProportions(nextProps);
 
     if (!lockedRef.current && record.groundSnapEnabled) {
@@ -2537,6 +2609,18 @@ function MannequinInstance({
         }}
       />
 
+      <ConstructiveOverlay
+        ref={constructiveOverlayRef}
+        mannequinId={record.id}
+        rigAdapter={instance.rigAdapter}
+        baseHeadHeight={instance.baseHeadHeight}
+        proportions={record.proportions}
+        groundY={0}
+        visible={record.visible}
+        drawing={drawing}
+        studioTheme={studioTheme}
+      />
+
       {showInteractive && (
         <>
           <JointRingMarkers
@@ -2658,6 +2742,7 @@ export function AnatomyModel({
   ikSwivelByHandle,
   notanEnabled,
   notanSplit,
+  drawing,
   showHeadRuler,
   onSelectMannequin,
   onDraggingChange,
@@ -2840,6 +2925,7 @@ export function AnatomyModel({
             ikSwivelByHandle={ikSwivelByHandle}
             notanEnabled={notanEnabled}
             notanSplit={notanSplit}
+            drawing={drawing}
             showHeadRuler={showHeadRuler}
             onSelectMannequin={onSelectMannequin}
             onDraggingChange={onDraggingChange}

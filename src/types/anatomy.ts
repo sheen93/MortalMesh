@@ -349,6 +349,17 @@ export interface SnapshotResult {
   height: number;
 }
 
+export interface SvgExportOptions {
+  transparent: boolean;
+}
+
+export interface SvgExportResult {
+  filename: string;
+  byteLength: number;
+  layerCounts: Record<string, number>;
+}
+
 export interface SnapshotBridge {
   captureSnapshot: (options: SnapshotOptions) => SnapshotResult | null;
+  exportBlueprintSvg: (options: SvgExportOptions) => SvgExportResult | null;
 }

@@ -8,12 +8,14 @@ import type {
   PoseControlMode,
   SnapshotOptions,
   StudioThemeId,
+  SvgExportOptions,
 } from '@/types/anatomy';
 import {
   CameraIcon,
   ChevronDownIcon,
   HelpCircleIcon,
   JointNodesIcon,
+  LayersIcon,
   LockIcon,
   Move3dIcon,
   RedoIcon,
@@ -47,8 +49,12 @@ interface StudioDockProps {
   onUndo: () => void;
   onRedo: () => void;
   isSnapshotOpen: boolean;
+  snapshotFormat: 'png' | 'svg';
+  onChangeSnapshotFormat: (fmt: 'png' | 'svg') => void;
+  drawingActive?: boolean;
   onToggleSnapshot: () => void;
   onCaptureSnapshot: (options: SnapshotOptions) => void;
+  onExportBlueprintSvg: (options: SvgExportOptions) => void;
   isShortcutsOpen: boolean;
   onToggleShortcuts: () => void;
   viewport: ViewportProfile;
@@ -60,6 +66,13 @@ const SNAPSHOT_BG_OPTIONS: ReadonlyArray<
 > = [
   { id: 'transparent', label: 'Transparent' },
   { id: 'studio', label: 'Studio' },
+];
+
+const SVG_BG_OPTIONS: ReadonlyArray<
+  SegmentedOption<'transparent' | 'paper'>
+> = [
+  { id: 'transparent', label: 'Transparent' },
+  { id: 'paper', label: 'Paper Backdrop' },
 ];
 
 const SNAPSHOT_SCALE_OPTIONS: ReadonlyArray<SegmentedOption<'1' | '2'>> = [
@@ -105,14 +118,21 @@ export function StudioDock({
   onUndo,
   onRedo,
   isSnapshotOpen,
+  snapshotFormat,
+  onChangeSnapshotFormat,
+  drawingActive = false,
   onToggleSnapshot,
   onCaptureSnapshot,
+  onExportBlueprintSvg,
   isShortcutsOpen,
   onToggleShortcuts,
   viewport,
   isHudMinimized = false,
 }: StudioDockProps) {
   const [snapshotBg, setSnapshotBg] = useState<'transparent' | 'studio'>(
+    'transparent'
+  );
+  const [svgBackdrop, setSvgBackdrop] = useState<'transparent' | 'paper'>(
     'transparent'
   );
   const [snapshotScale, setSnapshotScale] = useState<'1' | '2'>('2');
@@ -197,9 +217,9 @@ export function StudioDock({
       {isSnapshotOpen && !isHudMinimized && (
         <div
           role="dialog"
-          aria-label="PNG Snapshot Exporter"
+          aria-label="Export Snapshot"
           onPointerDown={(event) => event.stopPropagation()}
-          className={`pointer-events-auto w-[264px] max-w-[calc(100vw-2rem)] rounded-2xl p-3 space-y-2.5 ${ui.panel}`}
+          className={`pointer-events-auto w-[274px] max-w-[calc(100vw-2rem)] rounded-2xl p-3 space-y-2.5 ${ui.panel}`}
         >
           <div className="flex items-center justify-between gap-2">
             <span className="flex items-center gap-1.5 min-w-0">
@@ -207,7 +227,7 @@ export function StudioDock({
               <span
                 className={`text-[11px] font-semibold uppercase tracking-[0.11em] ${ui.textPrimary}`}
               >
-                PNG Snapshot
+                Export Snapshot
               </span>
             </span>
             <button
@@ -220,35 +240,107 @@ export function StudioDock({
             </button>
           </div>
 
-          <SegmentedControl
-            label="Background"
-            options={SNAPSHOT_BG_OPTIONS}
-            value={snapshotBg}
-            onChange={setSnapshotBg}
-            theme={theme}
-          />
-
-          <SegmentedControl
-            label="Resolution"
-            options={SNAPSHOT_SCALE_OPTIONS}
-            value={snapshotScale}
-            onChange={setSnapshotScale}
-            theme={theme}
-          />
-
-          <button
-            type="button"
-            onClick={() =>
-              onCaptureSnapshot({
-                transparent: snapshotBg === 'transparent',
-                scale: snapshotScale === '2' ? 2 : 1,
-              })
-            }
-            className={`w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[11.5px] font-medium transition-colors ${ui.pillButtonActive}`}
+          <div
+            role="group"
+            aria-label="Export Format"
+            className={`grid grid-cols-2 gap-1 rounded-xl p-1 ${ui.segmentedTrack}`}
           >
-            <CameraIcon className="h-3.5 w-3.5 shrink-0" />
-            <span>Export PNG</span>
-          </button>
+            <button
+              type="button"
+              data-export-format="png"
+              aria-pressed={snapshotFormat === 'png'}
+              onClick={() => onChangeSnapshotFormat('png')}
+              className={`rounded-[7px] px-2 py-1 text-[11px] font-medium transition-all ${
+                snapshotFormat === 'png'
+                  ? ui.segmentedItemActive
+                  : ui.segmentedItem
+              }`}
+            >
+              PNG
+            </button>
+            <button
+              type="button"
+              data-export-format="svg"
+              aria-pressed={snapshotFormat === 'svg'}
+              onClick={() => onChangeSnapshotFormat('svg')}
+              className={`rounded-[7px] px-2 py-1 text-[11px] font-medium transition-all ${
+                snapshotFormat === 'svg'
+                  ? ui.segmentedItemActive
+                  : ui.segmentedItem
+              }`}
+            >
+              Layered SVG
+            </button>
+          </div>
+
+          {snapshotFormat === 'png' ? (
+            <>
+              <SegmentedControl
+                label="Background"
+                options={SNAPSHOT_BG_OPTIONS}
+                value={snapshotBg}
+                onChange={setSnapshotBg}
+                theme={theme}
+              />
+
+              <SegmentedControl
+                label="Resolution"
+                options={SNAPSHOT_SCALE_OPTIONS}
+                value={snapshotScale}
+                onChange={setSnapshotScale}
+                theme={theme}
+              />
+
+              {drawingActive && (
+                <p className={`text-[10px] leading-snug ${ui.textMuted}`}>
+                  Captures active drawing shader / Notan &amp; Fisheye lens.
+                </p>
+              )}
+
+              <button
+                type="button"
+                data-testid="export-png-btn"
+                onClick={() =>
+                  onCaptureSnapshot({
+                    transparent: snapshotBg === 'transparent',
+                    scale: snapshotScale === '2' ? 2 : 1,
+                  })
+                }
+                className={`w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[11.5px] font-medium transition-colors ${ui.pillButtonActive}`}
+              >
+                <CameraIcon className="h-3.5 w-3.5 shrink-0" />
+                <span>Export PNG</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <SegmentedControl
+                label="Backdrop"
+                options={SVG_BG_OPTIONS}
+                value={svgBackdrop}
+                onChange={setSvgBackdrop}
+                theme={theme}
+              />
+
+              <div className={`rounded-lg px-2 py-1.5 text-[10px] leading-snug ${ui.card} ${ui.textMuted}`}>
+                Editable &lt;g&gt; layers: Silhouette, Construction, Cross-Contours, Line of Action &amp; Plumb.
+              </div>
+
+              <button
+                type="button"
+                data-testid="export-layered-svg-btn"
+                onClick={() =>
+                  onExportBlueprintSvg({
+                    transparent: svgBackdrop === 'transparent',
+                  })
+                }
+                className={`w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[11.5px] font-medium transition-colors ${ui.pillButtonActive}`}
+              >
+                <LayersIcon className="h-3.5 w-3.5 shrink-0" />
+                <span>Export Layered SVG</span>
+              </button>
+            </>
+          )}
         </div>
       )}
 

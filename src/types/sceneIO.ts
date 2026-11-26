@@ -9,6 +9,7 @@ import type {
   PoseControlMode,
   StudioThemeId,
 } from '@/types/anatomy';
+import type { StudioDrawingConfig } from '@/types/drawing';
 import type { ParsePoseResult, PoseSnapshot, Vec3Tuple } from '@/types/poseIO';
 import type { StudioProp } from '@/types/props';
 import type { MannequinFinish } from '@/types/scene';
@@ -62,6 +63,7 @@ export interface SerializedStudioSettings {
   compositionCrop?: CompositionCropRatio;
   compositionGrid?: CompositionGridType;
   goldenSpiralFlip?: boolean;
+  drawing?: StudioDrawingConfig;
 }
 
 export interface MortalMeshSceneFile {

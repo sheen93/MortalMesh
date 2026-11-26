@@ -220,7 +220,7 @@ export const STUDIO_THEMES: Record<StudioThemeId, StudioThemeSpec> = {
       badgeMuted: 'bg-zinc-900/[0.05] text-zinc-500 border border-zinc-900/[0.08]',
       iconButton: 'text-zinc-600 hover:bg-zinc-900/[0.08] hover:text-zinc-950',
       loadingBadge:
-        'border border-zinc-900/15 bg-white/92 text-zinc-900 backdrop-blur-xl shadow-[0_10px_28px_rgba(15,23,42,0.14)]',
+        'border border-zinc-900/15 bg-white/90 text-zinc-900 backdrop-blur-xl shadow-[0_10px_28px_rgba(15,23,42,0.14)]',
     },
   },
   gray: {
@@ -293,9 +293,9 @@ export const STUDIO_THEMES: Record<StudioThemeId, StudioThemeSpec> = {
     },
     ui: {
       panel:
-        'border border-white/[0.12] bg-[#1E2025]/84 text-zinc-100 backdrop-blur-xl shadow-[0_16px_40px_-6px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.08)]',
+        'border border-white/[0.12] bg-[#1E2025]/85 text-zinc-100 backdrop-blur-xl shadow-[0_16px_40px_-6px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.08)]',
       dock:
-        'border border-white/[0.12] bg-[#1E2025]/84 text-zinc-100 backdrop-blur-xl shadow-[0_16px_40px_-6px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.08)]',
+        'border border-white/[0.12] bg-[#1E2025]/85 text-zinc-100 backdrop-blur-xl shadow-[0_16px_40px_-6px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.08)]',
       header: 'border-b border-white/[0.08] bg-[#181A1F]/80',
       divider: 'divide-y divide-white/[0.08]',
       hairline: 'border-white/[0.08]',
@@ -324,7 +324,7 @@ export const STUDIO_THEMES: Record<StudioThemeId, StudioThemeSpec> = {
       badgeMuted: 'bg-white/[0.06] text-zinc-400 border border-white/[0.08]',
       iconButton: 'text-zinc-300 hover:bg-white/[0.10] hover:text-white',
       loadingBadge:
-        'border border-white/15 bg-[#1E2025]/92 text-zinc-100 backdrop-blur-xl shadow-[0_10px_28px_rgba(0,0,0,0.42)]',
+        'border border-white/15 bg-[#1E2025]/90 text-zinc-100 backdrop-blur-xl shadow-[0_10px_28px_rgba(0,0,0,0.42)]',
     },
   },
   dark: {
@@ -397,9 +397,9 @@ export const STUDIO_THEMES: Record<StudioThemeId, StudioThemeSpec> = {
     },
     ui: {
       panel:
-        'border border-white/[0.09] bg-[#111317]/86 text-zinc-100 backdrop-blur-xl shadow-[0_18px_48px_-8px_rgba(0,0,0,0.68),inset_0_1px_0_rgba(255,255,255,0.06)]',
+        'border border-white/[0.09] bg-[#111317]/85 text-zinc-100 backdrop-blur-xl shadow-[0_18px_48px_-8px_rgba(0,0,0,0.68),inset_0_1px_0_rgba(255,255,255,0.06)]',
       dock:
-        'border border-white/[0.09] bg-[#111317]/86 text-zinc-100 backdrop-blur-xl shadow-[0_18px_48px_-8px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.06)]',
+        'border border-white/[0.09] bg-[#111317]/85 text-zinc-100 backdrop-blur-xl shadow-[0_18px_48px_-8px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.06)]',
       header: 'border-b border-white/[0.07] bg-[#0D0F12]/80',
       divider: 'divide-y divide-white/[0.07]',
       hairline: 'border-white/[0.07]',
@@ -428,7 +428,7 @@ export const STUDIO_THEMES: Record<StudioThemeId, StudioThemeSpec> = {
       badgeMuted: 'bg-white/[0.04] text-zinc-500 border border-white/[0.07]',
       iconButton: 'text-zinc-400 hover:bg-white/[0.09] hover:text-white',
       loadingBadge:
-        'border border-white/10 bg-[#111317]/92 text-zinc-100 backdrop-blur-xl shadow-[0_10px_28px_rgba(0,0,0,0.65)]',
+        'border border-white/10 bg-[#111317]/90 text-zinc-100 backdrop-blur-xl shadow-[0_10px_28px_rgba(0,0,0,0.65)]',
     },
   },
 };

@@ -835,6 +835,25 @@ export function SaveIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
   );
 }
 
+export function PenToolIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="m8 2 4.5 5.25L9.75 11.5h-3.5L3.5 7.25 8 2Z" />
+      <path d="M8 2v4.5M5.25 13.75h5.5" />
+      <circle cx="8" cy="7.2" r="0.9" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 export function FolderOpenIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
   return (
     <svg

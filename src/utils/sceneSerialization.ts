@@ -16,6 +16,7 @@ import {
   clampLensCurvature,
   DEFAULT_LENS_CURVATURE,
 } from '@/utils/lensWarp';
+import { clampStudioDrawing } from '@/types/drawing';
 import type { PoseSnapshot, Vec3Tuple } from '@/types/poseIO';
 import { MAX_STUDIO_PROPS, type StudioProp, type StudioPropType } from '@/types/props';
 import {
@@ -165,6 +166,7 @@ export function serializeSceneFile({
       compositionCrop: studio.compositionCrop ?? 'off',
       compositionGrid: studio.compositionGrid ?? 'off',
       goldenSpiralFlip: studio.goldenSpiralFlip ?? false,
+      drawing: clampStudioDrawing(studio.drawing),
     },
     camera: {
       position: [camera.position[0], camera.position[1], camera.position[2]],
@@ -480,6 +482,9 @@ export function parseSceneFile(raw: unknown): ParseSceneResult {
   const compositionGrid = parseCompositionGrid(s.compositionGrid);
   const goldenSpiralFlip =
     typeof s.goldenSpiralFlip === 'boolean' ? s.goldenSpiralFlip : false;
+  const drawing = isPlainObject(s.drawing)
+    ? clampStudioDrawing(s.drawing)
+    : clampStudioDrawing(null);
 
   const parsedCamera = parseCameraView(raw.camera, 'camera');
   if (!parsedCamera.ok) {
@@ -537,6 +542,7 @@ export function parseSceneFile(raw: unknown): ParseSceneResult {
         compositionCrop,
         compositionGrid,
         goldenSpiralFlip,
+        drawing,
       },
       camera: parsedCamera.view,
       bookmarks: parsedBookmarks,
