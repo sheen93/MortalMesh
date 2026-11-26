@@ -7,25 +7,27 @@
     "build": "next build && node scripts/generatePrecache.mjs",
     "start": "next start",
     "lint": "next lint",
-    "icons": "node scripts/generatePwaIcons.mjs"
+    "icons": "node scripts/generatePwaIcons.mjs",
+    "sync:ai": "node scripts/syncAiAssets.mjs"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^1.2.3",
+    "@react-three/drei": "^9.117.3",
+    "@react-three/fiber": "^8.17.10",
+    "camera-controls": "^2.9.0",
     "next": "14.2.18",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "three": "^0.169.0",
-    "@react-three/fiber": "^8.17.10",
-    "@react-three/drei": "^9.117.3",
-    "camera-controls": "^2.9.0"
+    "three": "^0.169.0"
   },
   "devDependencies": {
-    "typescript": "^5.6.3",
     "@types/node": "^20.17.6",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/three": "^0.169.0",
-    "tailwindcss": "^3.4.15",
+    "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
-    "autoprefixer": "^10.4.20"
+    "tailwindcss": "^3.4.15",
+    "typescript": "^5.6.3"
   }
 }

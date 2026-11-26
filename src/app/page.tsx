@@ -11,8 +11,17 @@ import { CompositionOverlay } from '@/components/CompositionOverlay';
 import { FloatingSidebar } from '@/components/FloatingSidebar';
 import { HeadUnitRuler } from '@/components/HeadUnitRuler';
 import { JointControlPopover } from '@/components/JointControlPopover';
+import {
+  PhotoToPoseModal,
+  type PhotoToPoseApplyPayload,
+  type PhotoToPoseStageAllPayload,
+} from '@/components/PhotoToPoseModal';
 import { PoseLibraryModal } from '@/components/PoseLibraryModal';
 import { usePwaState } from '@/components/PwaManager';
+import {
+  buildMatchedCameraView,
+  retargetDetectedPersonToPose,
+} from '@/ai/poseRetargeting';
 import { ReferenceOverlay } from '@/components/ReferenceOverlay';
 import { ShortcutsModal } from '@/components/ShortcutsModal';
 import { StudioCanvas } from '@/components/StudioCanvas';
@@ -223,6 +232,7 @@ export default function HomePage() {
   const [referenceImage, setReferenceImage] =
     useState<ReferenceOverlayState | null>(null);
   const referenceUrlRef = useRef<string | null>(null);
+  const referenceFileRef = useRef<File | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isHudMinimized, setIsHudMinimized] = useState(false);
   const [activeRightRailTab, setActiveRightRailTab] =
@@ -232,6 +242,9 @@ export default function HomePage() {
   const [snapshotFormat, setSnapshotFormat] = useState<'png' | 'svg'>('png');
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isPoseLibraryOpen, setIsPoseLibraryOpen] = useState(false);
+  const [isPhotoToPoseOpen, setIsPhotoToPoseOpen] = useState(false);
+  const [photoToPoseInitialFile, setPhotoToPoseInitialFile] =
+    useState<File | null>(null);
 
   const [historyById, setHistoryById] = useState<
     Record<string, PoseHistoryState>
@@ -1384,6 +1397,7 @@ export default function HomePage() {
         URL.revokeObjectURL(referenceUrlRef.current);
         referenceUrlRef.current = null;
       }
+      referenceFileRef.current = file;
       const url = URL.createObjectURL(file);
       referenceUrlRef.current = url;
       setReferenceImage((prev) => ({
@@ -1402,6 +1416,27 @@ export default function HomePage() {
     [showToast]
   );
 
+  const handlePinPhotoReferenceBackdrop = useCallback((file: File) => {
+    if (referenceUrlRef.current) {
+      URL.revokeObjectURL(referenceUrlRef.current);
+      referenceUrlRef.current = null;
+    }
+    referenceFileRef.current = file;
+    const url = URL.createObjectURL(file);
+    referenceUrlRef.current = url;
+    setReferenceImage({
+      objectUrl: url,
+      filename: file.name,
+      mode: 'backdrop',
+      opacity: 0.35,
+      scale: 1,
+      flipH: false,
+      locked: true,
+      offsetX: 0,
+      offsetY: 0,
+    });
+  }, []);
+
   const handleUpdateReferenceImage = useCallback(
     (patch: Partial<ReferenceOverlayState>) => {
       setReferenceImage((prev) => (prev ? { ...prev, ...patch } : prev));
@@ -1414,8 +1449,240 @@ export default function HomePage() {
       URL.revokeObjectURL(referenceUrlRef.current);
       referenceUrlRef.current = null;
     }
+    referenceFileRef.current = null;
     setReferenceImage(null);
   }, []);
+
+  const handleOpenPhotoToPose = useCallback((initialFile: File | null = null) => {
+    setActiveRightRailTab(null);
+    setIsJointsPopoverOpen(false);
+    setIsSnapshotOpen(false);
+    setIsShortcutsOpen(false);
+    setIsPoseLibraryOpen(false);
+    setPhotoToPoseInitialFile(initialFile);
+    setIsPhotoToPoseOpen(true);
+  }, []);
+
+  const handleApplyPhotoPose = useCallback(
+    ({
+      person,
+      file,
+      pinBackdrop,
+      matchHandGestures,
+      matchCameraAngle,
+    }: PhotoToPoseApplyPayload) => {
+      if (activeLocked) {
+        showToast('Unlock figure to apply', 'error');
+        return;
+      }
+
+      try {
+        const targetId = activeMannequin.id;
+        const retargeted = retargetDetectedPersonToPose(person, {
+          includeHandGestures: matchHandGestures,
+          normalizeFacingYaw: matchCameraAngle,
+          groundEnabled,
+          groundSnapEnabled: activeMannequin.groundSnapEnabled,
+        });
+
+        const applied = bridgesRef.current
+          .get(targetId)
+          ?.applyReconstructedPose(retargeted.snapshot, {
+            preserveRootXZ: true,
+          });
+        if (!applied) {
+          showToast('Figure rig not ready yet — try again in a moment', 'error');
+          return;
+        }
+
+        poseByIdRef.current.set(targetId, clonePoseSnapshot(applied));
+        setMoveBodyEnabled(false);
+        setIkSwivelByHandle(ZERO_IK_SWIVEL);
+        setMannequins((prev) =>
+          prev.map((m) =>
+            m.id === targetId
+              ? {
+                  ...m,
+                  elevationY: applied.elevationY,
+                  groundSnapEnabled: applied.groundSnapEnabled,
+                  pinnedBones: [...applied.pinnedBones],
+                  activePosePresetId: null,
+                }
+              : m
+          )
+        );
+        handleCommitPoseSnapshot(targetId, applied);
+        setPoseCommitVersion((prev) => prev + 1);
+
+        if (pinBackdrop) {
+          handlePinPhotoReferenceBackdrop(file);
+        }
+
+        if (matchCameraAngle) {
+          const camView = buildMatchedCameraView(
+            retargeted.cameraEstimate,
+            applied.rootPosition
+          );
+          cameraBridgeRef.current?.setView(camView, true);
+        }
+
+        setIsPhotoToPoseOpen(false);
+        setPhotoToPoseInitialFile(null);
+        const modelLabel = MODEL_CATALOG[activeMannequin.modelId].label;
+        showToast(
+          `Pose reconstructed on ${modelLabel} — drag IK handles to fine-tune`,
+          'success'
+        );
+      } catch {
+        showToast('Unable to retarget detected landmarks onto figure', 'error');
+      }
+    },
+    [
+      activeLocked,
+      activeMannequin,
+      groundEnabled,
+      handleCommitPoseSnapshot,
+      handlePinPhotoReferenceBackdrop,
+      showToast,
+    ]
+  );
+
+  const handleStageAllPhotoPoses = useCallback(
+    ({
+      people,
+      file,
+      pinBackdrop,
+      matchHandGestures,
+      matchCameraAngle,
+    }: PhotoToPoseStageAllPayload) => {
+      const targetCount = Math.min(people.length, MAX_MANNEQUINS);
+      if (targetCount === 0) return;
+
+      try {
+        const spacingX = targetCount <= 2 ? 1.15 : 1.05;
+        const centerShift = ((targetCount - 1) * spacingX) / 2;
+
+        const reusable = [
+          ...(!activeMannequin.locked ? [activeMannequin] : []),
+          ...mannequins.filter(
+            (m) => m.id !== activeMannequin.id && !m.locked
+          ),
+        ];
+
+        const updatedIds = new Set<string>();
+        const spawnedRecords: MannequinRecord[] = [];
+        const patchById = new Map<
+          string,
+          { applied: PoseSnapshot; x: number }
+        >();
+
+        for (let i = 0; i < targetCount; i += 1) {
+          const person = people[i];
+          const xPos = Number((i * spacingX - centerShift).toFixed(2));
+          const retargeted = retargetDetectedPersonToPose(person, {
+            includeHandGestures: matchHandGestures,
+            normalizeFacingYaw: false,
+            groundEnabled,
+            groundSnapEnabled: groundEnabled,
+          });
+          const stagedSnap: PoseSnapshot = {
+            ...retargeted.snapshot,
+            rootPosition: [xPos, retargeted.snapshot.rootPosition[1], 0],
+            proportions: { ...DEFAULT_FIGURE_PROPORTIONS },
+          };
+
+          const existing = reusable[i];
+          if (existing) {
+            const applied = bridgesRef.current
+              .get(existing.id)
+              ?.applyReconstructedPose(stagedSnap, { preserveRootXZ: false });
+            if (applied) {
+              poseByIdRef.current.set(existing.id, clonePoseSnapshot(applied));
+              handleCommitPoseSnapshot(existing.id, applied);
+              updatedIds.add(existing.id);
+              patchById.set(existing.id, { applied, x: xPos });
+            }
+          } else if (mannequins.length + spawnedRecords.length < MAX_MANNEQUINS) {
+            const num = nextFigureNumberRef.current;
+            nextFigureNumberRef.current += 1;
+            const newId = `figure-${num}`;
+            const clonedSnap = clonePoseSnapshot(stagedSnap);
+            poseByIdRef.current.set(newId, clonedSnap);
+            spawnedRecords.push({
+              id: newId,
+              name: `Figure ${num}`,
+              modelId: activeMannequin.modelId,
+              previousModelId: activeMannequin.previousModelId,
+              locked: false,
+              visible: true,
+              finish: pickNextFinish(
+                mannequins.length + spawnedRecords.length
+              ),
+              spawnOffset: [xPos, 0, 0],
+              elevationY: clonedSnap.elevationY,
+              groundSnapEnabled: groundEnabled,
+              pinnedBones: [],
+              activePosePresetId: null,
+              proportions: { ...DEFAULT_FIGURE_PROPORTIONS },
+              initialSnapshot: clonedSnap,
+            });
+          }
+        }
+
+        setMannequins((prev) => {
+          const updated = prev.map((m) => {
+            const p = patchById.get(m.id);
+            if (!p) return m;
+            return {
+              ...m,
+              spawnOffset: [p.x, 0, 0] as [number, number, number],
+              elevationY: p.applied.elevationY,
+              groundSnapEnabled: p.applied.groundSnapEnabled,
+              pinnedBones: [...p.applied.pinnedBones],
+              activePosePresetId: null,
+            };
+          });
+          return [...updated, ...spawnedRecords];
+        });
+
+        setMoveBodyEnabled(false);
+        setIkSwivelByHandle(ZERO_IK_SWIVEL);
+        setPoseCommitVersion((prev) => prev + 1);
+
+        if (pinBackdrop) {
+          handlePinPhotoReferenceBackdrop(file);
+        }
+
+        if (matchCameraAngle) {
+          cameraBridgeRef.current?.setView(
+            {
+              position: [0, 1.35, 5.2 + targetCount * 0.45],
+              target: [0, 0.98, 0],
+            },
+            true
+          );
+        }
+
+        setIsPhotoToPoseOpen(false);
+        setPhotoToPoseInitialFile(null);
+        const totalApplied = updatedIds.size + spawnedRecords.length;
+        showToast(
+          `Staged ${totalApplied} reconstructed ${totalApplied === 1 ? 'figure' : 'figures'}`,
+          'success'
+        );
+      } catch {
+        showToast('Unable to stage all detected poses', 'error');
+      }
+    },
+    [
+      activeMannequin,
+      groundEnabled,
+      handleCommitPoseSnapshot,
+      handlePinPhotoReferenceBackdrop,
+      mannequins,
+      showToast,
+    ]
+  );
 
   const handleUpdateReferenceOffset = useCallback((x: number, y: number) => {
     setReferenceImage((prev) =>
@@ -1977,12 +2244,15 @@ export default function HomePage() {
 
   const handleEscape = useCallback(() => {
     if (
+      isPhotoToPoseOpen ||
       isPoseLibraryOpen ||
       isSnapshotOpen ||
       isShortcutsOpen ||
       isJointsPopoverOpen ||
       activeRightRailTab !== null
     ) {
+      setIsPhotoToPoseOpen(false);
+      setPhotoToPoseInitialFile(null);
       setIsPoseLibraryOpen(false);
       setIsSnapshotOpen(false);
       setIsShortcutsOpen(false);
@@ -2004,6 +2274,7 @@ export default function HomePage() {
       setIsHudMinimized(false);
     }
   }, [
+    isPhotoToPoseOpen,
     isPoseLibraryOpen,
     isSnapshotOpen,
     isShortcutsOpen,
@@ -2023,6 +2294,8 @@ export default function HomePage() {
       setIsHudMinimized(false);
       return;
     }
+    setIsPhotoToPoseOpen(false);
+    setPhotoToPoseInitialFile(null);
     setIsPoseLibraryOpen(false);
     setIsSnapshotOpen(false);
     setIsShortcutsOpen(false);
@@ -2147,6 +2420,8 @@ export default function HomePage() {
           setIsShortcutsOpen(false);
           setIsPoseLibraryOpen(true);
         }}
+        onOpenPhotoToPose={() => handleOpenPhotoToPose(null)}
+        aiCacheReady={pwa.aiCacheReady}
         onMirrorPose={handleMirrorPose}
         onExportPoseJson={handleExportPoseJson}
         onImportSceneOrPoseJson={handleImportSceneOrPoseJson}
@@ -2174,6 +2449,25 @@ export default function HomePage() {
             setIsPoseLibraryOpen(false);
           }
         }}
+      />
+      <PhotoToPoseModal
+        isOpen={isPhotoToPoseOpen}
+        initialFile={photoToPoseInitialFile}
+        onClose={() => {
+          setIsPhotoToPoseOpen(false);
+          setPhotoToPoseInitialFile(null);
+        }}
+        studioTheme={studioTheme}
+        activeFigureName={activeMannequin.name}
+        activeFigureModelLabel={MODEL_CATALOG[activeMannequin.modelId].label}
+        activeFigureLocked={activeLocked}
+        maxFigures={MAX_MANNEQUINS}
+        aiCacheReady={pwa.aiCacheReady}
+        onAiCacheReadyChange={(ready) => {
+          if (ready) pwa.refreshAiCacheStatus();
+        }}
+        onApplySinglePerson={handleApplyPhotoPose}
+        onStageAllPeople={handleStageAllPhotoPoses}
       />
       <ShortcutsModal
         isOpen={isShortcutsOpen}
@@ -2225,6 +2519,12 @@ export default function HomePage() {
         onImportReferenceImage={handleImportReferenceImage}
         onUpdateReferenceImage={handleUpdateReferenceImage}
         onRemoveReferenceImage={handleRemoveReferenceImage}
+        canExtractPoseFromReference={referenceFileRef.current !== null}
+        onExtractPoseFromReference={() => {
+          if (referenceFileRef.current) {
+            handleOpenPhotoToPose(referenceFileRef.current);
+          }
+        }}
       />
       <StudioDock
         studioTheme={studioTheme}

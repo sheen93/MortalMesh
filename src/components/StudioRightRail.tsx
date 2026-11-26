@@ -18,6 +18,7 @@ import {
   RotateCcwIcon,
   RulerIcon,
   SegmentedControl,
+  SparklesIcon,
   SunIcon,
   ToggleSwitch,
   TrashIcon,
@@ -95,6 +96,8 @@ interface StudioRightRailProps {
   onImportReferenceImage: (file: File) => void;
   onUpdateReferenceImage: (patch: Partial<ReferenceOverlayState>) => void;
   onRemoveReferenceImage: () => void;
+  canExtractPoseFromReference?: boolean;
+  onExtractPoseFromReference?: () => void;
 }
 
 const DAMPING_OPTIONS: ReadonlyArray<SegmentedOption<DampingPreset>> = [
@@ -181,6 +184,8 @@ export function StudioRightRail({
   onImportReferenceImage,
   onUpdateReferenceImage,
   onRemoveReferenceImage,
+  canExtractPoseFromReference = false,
+  onExtractPoseFromReference,
 }: StudioRightRailProps) {
   const refFileInputRef = useRef<HTMLInputElement>(null);
   const [lightingSubTab, setLightingSubTab] = useState<'lighting' | 'drawing'>(
@@ -894,6 +899,19 @@ export function StudioRightRail({
                           <span>Remove</span>
                         </button>
                       </div>
+
+                      {canExtractPoseFromReference && onExtractPoseFromReference && (
+                        <button
+                          type="button"
+                          data-testid="extract-pose-from-ref-btn"
+                          onClick={onExtractPoseFromReference}
+                          title="Detect 3D pose & hand gestures from this reference image (on-device AI)"
+                          className={`w-full flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors ${ui.pillButtonActive}`}
+                        >
+                          <SparklesIcon className="h-3.5 w-3.5 shrink-0" />
+                          <span>Extract 3D Pose</span>
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

@@ -15,10 +15,18 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 const MODEL_URLS = MODEL_ORDER.map((id) => MODEL_CATALOG[id].url);
+const AI_CACHE_NAME = 'mortal-mesh-ai-v1';
+const REQUIRED_AI_URLS = [
+  '/ai/wasm/vision_wasm_internal.js',
+  '/ai/wasm/vision_wasm_internal.wasm',
+  '/ai/models/pose_landmarker_full.task',
+  '/ai/models/hand_landmarker.task',
+];
 
 export interface PwaState {
   isOnline: boolean;
   offlineReady: boolean;
+  aiCacheReady: boolean;
   canInstall: boolean;
   isStandalone: boolean;
   isSwSupported: boolean;
@@ -26,7 +34,22 @@ export interface PwaState {
   totalModelsCount: number;
   isWarmingModels: boolean;
   warmAllModels: () => void;
+  warmAiAssets: () => void;
+  refreshAiCacheStatus: () => void;
   promptInstall: () => Promise<'accepted' | 'dismissed' | 'unavailable'>;
+}
+
+export async function verifyAiCachesReady(): Promise<boolean> {
+  if (typeof window === 'undefined' || !('caches' in window)) return false;
+  try {
+    const aiCache = await caches.open(AI_CACHE_NAME);
+    const matches = await Promise.all(
+      REQUIRED_AI_URLS.map((url) => aiCache.match(url, { ignoreSearch: true }))
+    );
+    return matches.every(Boolean);
+  } catch {
+    return false;
+  }
 }
 
 async function verifyCriticalCachesReady(): Promise<boolean> {
@@ -59,12 +82,55 @@ async function countCachedModels(): Promise<number> {
 export function usePwaState(): PwaState {
   const [isOnline, setIsOnline] = useState(true);
   const [offlineReady, setOfflineReady] = useState(false);
+  const [aiCacheReady, setAiCacheReady] = useState(false);
   const [canInstall, setCanInstall] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
   const [isSwSupported, setIsSwSupported] = useState(false);
   const [cachedModelsCount, setCachedModelsCount] = useState(0);
   const [isWarmingModels, setIsWarmingModels] = useState(false);
   const deferredPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
+
+  const refreshAiCacheStatus = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    void verifyAiCachesReady().then((ready) => {
+      setAiCacheReady(ready);
+    });
+    if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
+      void navigator.serviceWorker
+        .getRegistration('/')
+        .then((reg) => {
+          const target = navigator.serviceWorker.controller || reg?.active;
+          if (target) {
+            target.postMessage({ type: 'CHECK_AI_CACHE_STATUS' });
+          }
+        })
+        .catch(() => {
+          // Ignore SW status query errors
+        });
+    }
+  }, []);
+
+  const warmAiAssets = useCallback(() => {
+    if (
+      typeof window === 'undefined' ||
+      !('serviceWorker' in navigator) ||
+      !navigator.onLine
+    ) {
+      return;
+    }
+
+    void navigator.serviceWorker
+      .getRegistration('/')
+      .then((reg) => {
+        const target = navigator.serviceWorker.controller || reg?.active;
+        if (target) {
+          target.postMessage({ type: 'WARM_AI_ASSETS' });
+        }
+      })
+      .catch(() => {
+        // Ignore AI cache warm errors
+      });
+  }, []);
 
   const warmAllModels = useCallback(() => {
     if (
@@ -108,6 +174,7 @@ export function usePwaState(): PwaState {
 
     const handleOnline = () => {
       setIsOnline(true);
+      refreshAiCacheStatus();
       if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
         void countCachedModels().then((count) => {
           setCachedModelsCount(count);
@@ -147,11 +214,13 @@ export function usePwaState(): PwaState {
           navigator.serviceWorker.controller || reg?.active
         );
         if (hasControllerOrActive) {
-          const [cached, modelCount] = await Promise.all([
+          const [cached, modelCount, aiReady] = await Promise.all([
             verifyCriticalCachesReady(),
             countCachedModels(),
+            verifyAiCachesReady(),
           ]);
           setCachedModelsCount(modelCount);
+          setAiCacheReady(aiReady);
           if (cached) {
             setOfflineReady(true);
             if (modelCount < MODEL_URLS.length && navigator.onLine) {
@@ -167,15 +236,18 @@ export function usePwaState(): PwaState {
           type?: string;
           cachedCount?: number;
           totalCount?: number;
+          cached?: boolean;
         };
 
         if (msg.type === 'SW_OFFLINE_READY') {
           void Promise.all([
             verifyCriticalCachesReady(),
             countCachedModels(),
-          ]).then(([ready, modelCount]) => {
+            verifyAiCachesReady(),
+          ]).then(([ready, modelCount, aiReady]) => {
             setOfflineReady(ready);
             setCachedModelsCount(modelCount);
+            setAiCacheReady(aiReady);
             if (ready && modelCount < MODEL_URLS.length && navigator.onLine) {
               warmAllModels();
             }
@@ -189,6 +261,12 @@ export function usePwaState(): PwaState {
               : MODEL_URLS.length;
           setCachedModelsCount(count);
           setIsWarmingModels(count < total);
+        } else if (msg.type === 'SW_AI_CACHE_STATUS') {
+          if (typeof msg.cached === 'boolean') {
+            setAiCacheReady(msg.cached);
+          } else {
+            void verifyAiCachesReady().then(setAiCacheReady);
+          }
         }
       };
 
@@ -226,14 +304,17 @@ export function usePwaState(): PwaState {
         );
       };
     } else if (swSupported) {
-      void Promise.all([verifyCriticalCachesReady(), countCachedModels()]).then(
-        ([cached, modelCount]) => {
-          setCachedModelsCount(modelCount);
-          if (cached && navigator.serviceWorker.controller) {
-            setOfflineReady(true);
-          }
+      void Promise.all([
+        verifyCriticalCachesReady(),
+        countCachedModels(),
+        verifyAiCachesReady(),
+      ]).then(([cached, modelCount, aiReady]) => {
+        setCachedModelsCount(modelCount);
+        setAiCacheReady(aiReady);
+        if (cached && navigator.serviceWorker.controller) {
+          setOfflineReady(true);
         }
-      );
+      });
     }
 
     return () => {
@@ -246,7 +327,7 @@ export function usePwaState(): PwaState {
       window.removeEventListener('appinstalled', handleAppInstalled);
       cleanupSw();
     };
-  }, [warmAllModels]);
+  }, [warmAllModels, refreshAiCacheStatus]);
 
   const promptInstall = useCallback(async () => {
     const promptEvent = deferredPromptRef.current;
@@ -265,6 +346,7 @@ export function usePwaState(): PwaState {
   return {
     isOnline,
     offlineReady,
+    aiCacheReady,
     canInstall,
     isStandalone,
     isSwSupported,
@@ -272,6 +354,8 @@ export function usePwaState(): PwaState {
     totalModelsCount: MODEL_URLS.length,
     isWarmingModels,
     warmAllModels,
+    warmAiAssets,
+    refreshAiCacheStatus,
     promptInstall,
   };
 }
@@ -288,13 +372,14 @@ export function PwaStatusFooter({
   onInstallApp,
 }: PwaStatusFooterProps) {
   const { ui } = theme;
+  const aiSuffix = pwa.aiCacheReady ? ' · AI Ready' : '';
   const statusLabel = !pwa.isOnline
-    ? 'Offline Mode'
+    ? `Offline Mode${aiSuffix}`
     : pwa.offlineReady
-      ? `Offline Ready (${pwa.cachedModelsCount}/${pwa.totalModelsCount} Models)`
+      ? `Offline Ready (${pwa.cachedModelsCount}/${pwa.totalModelsCount} Models${aiSuffix})`
       : process.env.NODE_ENV === 'production' && pwa.isSwSupported
         ? 'Caching Offline...'
-        : 'Studio Live';
+        : `Studio Live${aiSuffix}`;
 
   return (
     <div

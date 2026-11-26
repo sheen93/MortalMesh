@@ -44,6 +44,7 @@ import { STUDIO_THEMES } from '@/data/studioThemes';
 import {
   AccordionSection,
   BoxIcon,
+  CameraIcon,
   ChevronDownIcon,
   CopyIcon,
   DownloadIcon,
@@ -99,6 +100,8 @@ interface FloatingSidebarProps {
   activePosePresetId: string | null;
   onSelectPosePreset: (presetId: string) => void;
   onOpenPoseLibrary: () => void;
+  onOpenPhotoToPose: () => void;
+  aiCacheReady: boolean;
   onMirrorPose: () => void;
   onExportPoseJson: () => void;
   onImportSceneOrPoseJson: (file: File) => void;
@@ -140,6 +143,8 @@ export function FloatingSidebar({
   activePosePresetId,
   onSelectPosePreset,
   onOpenPoseLibrary,
+  onOpenPhotoToPose,
+  aiCacheReady,
   onMirrorPose,
   onExportPoseJson,
   onImportSceneOrPoseJson,
@@ -695,6 +700,25 @@ export function FloatingSidebar({
             onToggle={() => toggleSection('presets')}
             theme={theme}
           >
+            {/* On-Device AI Photo-to-Pose Launch Button */}
+            <button
+              type="button"
+              data-testid="open-photo-to-pose-btn"
+              onClick={onOpenPhotoToPose}
+              title="Reconstruct 3D pose & hand gestures directly from a reference photo (100% on-device)"
+              className={`w-full flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors ${ui.pillButton}`}
+            >
+              <span className="flex items-center gap-1.5 min-w-0">
+                <CameraIcon className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">Photo → Pose</span>
+              </span>
+              <span
+                className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[9.5px] font-semibold ${ui.monoPill}`}
+              >
+                {aiCacheReady ? 'AI · Offline' : 'AI'}
+              </span>
+            </button>
+
             {/* Search + Expand Gallery Row */}
             <div className="flex items-center gap-1.5">
               <div

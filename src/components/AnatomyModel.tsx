@@ -980,6 +980,54 @@ function MannequinInstance({
     return applySnapshot(mirrored, { recomputeGroundIfSnapped: true });
   }, [instance, captureSnapshot, applySnapshot]);
 
+  const applyReconstructedPose = useCallback(
+    (
+      snapshot: PoseSnapshot,
+      options?: { preserveRootXZ?: boolean }
+    ): PoseSnapshot | null => {
+      if (lockedRef.current) return null;
+
+      ikSwivelByHandleRef.current = {
+        hand_l: 0,
+        hand_r: 0,
+        foot_l: 0,
+        foot_r: 0,
+      };
+
+      const preserveRootXZ = options?.preserveRootXZ ?? true;
+      const mergedSnapshot: PoseSnapshot = {
+        ...snapshot,
+        bones: { ...snapshot.bones },
+        rootPosition: [
+          preserveRootXZ ? instance.rootGroup.position.x : snapshot.rootPosition[0],
+          snapshot.rootPosition[1],
+          preserveRootXZ ? instance.rootGroup.position.z : snapshot.rootPosition[2],
+        ],
+        groundEnabled: groundEnabledRef.current,
+        groundSnapEnabled: groundSnapEnabledRef.current,
+        pinnedBones: [...pinnedBonesRef.current],
+        proportions: clampFigureProportions(proportionsRef.current),
+      };
+
+      const applied = applySnapshot(mergedSnapshot, {
+        recomputeGroundIfSnapped: true,
+      });
+
+      const activeHandle = selectedIKHandleRef.current;
+      if (applied && activeHandle) {
+        const handleBone = instance.bonesByName.get(activeHandle);
+        if (handleBone) {
+          instance.rootGroup.updateMatrixWorld(true);
+          handleBone.getWorldPosition(ikProxyRef.current.position);
+          ikProxyRef.current.updateMatrixWorld(true);
+        }
+      }
+
+      return applied;
+    },
+    [instance, applySnapshot]
+  );
+
   const applyHandGesture = useCallback(
     (side: HandSide, gestureId: HandGestureId): PoseSnapshot | null => {
       if (lockedRef.current || !instance.rigAdapter.hasFingerBones) return null;
@@ -1307,6 +1355,7 @@ function MannequinInstance({
     onMannequinBridgeChange(record.id, {
       captureSnapshot,
       applySnapshot,
+      applyReconstructedPose,
       mirrorCurrentPose,
       applyHandGesture,
       mirrorHandGesture,
@@ -1321,6 +1370,7 @@ function MannequinInstance({
     record.id,
     captureSnapshot,
     applySnapshot,
+    applyReconstructedPose,
     mirrorCurrentPose,
     applyHandGesture,
     mirrorHandGesture,

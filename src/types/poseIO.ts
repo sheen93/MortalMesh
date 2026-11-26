@@ -37,6 +37,10 @@ export interface PoseBridge {
     snapshot: PoseSnapshot,
     options?: { recomputeGroundIfSnapped?: boolean }
   ) => PoseSnapshot | null;
+  applyReconstructedPose: (
+    snapshot: PoseSnapshot,
+    options?: { preserveRootXZ?: boolean }
+  ) => PoseSnapshot | null;
   mirrorCurrentPose: () => PoseSnapshot | null;
   applyHandGesture: (
     side: HandSide,

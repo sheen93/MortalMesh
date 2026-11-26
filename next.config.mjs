@@ -69,6 +69,45 @@ const nextConfig = {
           },
         ],
       },
+      {
+        source: '/ai/wasm/:file(.*\\.wasm)',
+        headers: [
+          {
+            key: 'Content-Type',
+            value: 'application/wasm',
+          },
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      {
+        source: '/ai/wasm/:file(.*\\.js)',
+        headers: [
+          {
+            key: 'Content-Type',
+            value: 'application/javascript; charset=utf-8',
+          },
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      {
+        source: '/ai/models/:file(.*\\.task)',
+        headers: [
+          {
+            key: 'Content-Type',
+            value: 'application/octet-stream',
+          },
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
     ];
   },
 };

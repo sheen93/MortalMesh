@@ -71,6 +71,7 @@ export interface SolveLimbIKParams {
   jointLimitsEnabled: boolean;
   swivelDeg?: number;
   poleHintOverride?: THREE.Vector3;
+  poleDirectionWorld?: THREE.Vector3;
 }
 
 export interface SolveLimbIKResult {
@@ -174,7 +175,7 @@ function readBoneDelta(
   };
 }
 
-function quatToIKAngles(
+export function quatToIKAngles(
   boneName: string,
   deltaQuat: THREE.Quaternion,
   jointLimitsEnabled: boolean
@@ -385,6 +386,7 @@ export function solveLimbIK({
   jointLimitsEnabled,
   swivelDeg = 0,
   poleHintOverride,
+  poleDirectionWorld,
 }: SolveLimbIKParams): SolveLimbIKResult | null {
   const chain = IK_CHAINS[handleId];
   const upperBone = bonesByName.get(chain.upperBone);
@@ -422,12 +424,18 @@ export function solveLimbIK({
     endPos
   );
   const basePole =
-    poleHintOverride && poleHintOverride.lengthSq() > 1e-6
-      ? safeNorm(
-          poleHintOverride.clone().normalize().multiplyScalar(0.8).addScaledVector(naturalPole, 0.2),
-          naturalPole
-        )
-      : naturalPole;
+    poleDirectionWorld && poleDirectionWorld.lengthSq() > 1e-6
+      ? safeNorm(poleDirectionWorld, naturalPole)
+      : poleHintOverride && poleHintOverride.lengthSq() > 1e-6
+        ? safeNorm(
+            poleHintOverride
+              .clone()
+              .normalize()
+              .multiplyScalar(0.8)
+              .addScaledVector(naturalPole, 0.2),
+            naturalPole
+          )
+        : naturalPole;
 
   const specUpper = getJointSpec(chain.upperBone);
   const specLower = getJointSpec(chain.lowerBone);

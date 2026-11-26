@@ -5,6 +5,8 @@ import path from 'node:path';
 const ROOT_DIR = process.cwd();
 const NEXT_STATIC_DIR = path.join(ROOT_DIR, '.next', 'static');
 const PUBLIC_ICONS_DIR = path.join(ROOT_DIR, 'public', 'icons');
+const PUBLIC_AI_WASM_DIR = path.join(ROOT_DIR, 'public', 'ai', 'wasm');
+const PUBLIC_AI_MODELS_DIR = path.join(ROOT_DIR, 'public', 'ai', 'models');
 const OUTPUT_FILE = path.join(ROOT_DIR, 'public', 'sw-precache.json');
 
 const CORE_URLS = [
@@ -68,6 +70,17 @@ const optionalModelUrls = OPTIONAL_MODEL_URLS.filter((url) =>
   fs.existsSync(path.join(ROOT_DIR, 'public', url.replace(/^\//, '')))
 );
 
+const aiAssetUrlSet = new Set();
+for (const absPath of [
+  ...walkFiles(PUBLIC_AI_WASM_DIR),
+  ...walkFiles(PUBLIC_AI_MODELS_DIR),
+]) {
+  const rel = path.relative(path.join(ROOT_DIR, 'public'), absPath);
+  const url = '/' + rel.split(path.sep).join('/');
+  aiAssetUrlSet.add(url);
+}
+const aiAssetUrls = Array.from(aiAssetUrlSet).sort();
+
 for (const url of urls) {
   hash.update(url);
   hash.update('\n');
@@ -101,9 +114,10 @@ const manifest = {
   generatedAt: new Date().toISOString(),
   urls,
   optionalModelUrls,
+  aiAssetUrls,
 };
 
 fs.writeFileSync(OUTPUT_FILE, JSON.stringify(manifest, null, 2) + '\n');
 console.log(
-  `Generated public/sw-precache.json (version=${version}, ${urls.length} core URLs, ${optionalModelUrls.length} optional models)`
+  `Generated public/sw-precache.json (version=${version}, ${urls.length} core URLs, ${optionalModelUrls.length} optional models, ${aiAssetUrls.length} lazy AI assets)`
 );
