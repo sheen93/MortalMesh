@@ -34,8 +34,11 @@ import {
   type ContextualAnchor,
   type DampingPreset,
   type ElevationCommand,
+  type FigureProportions,
   type HandGestureId,
   type HandSide,
+  type HeadRulerMetrics,
+  type HeadRulerTick,
   type IKHandleId,
   type JointAngleCommand,
   type JointAngles,
@@ -54,6 +57,10 @@ import {
 import { clampJointAngles, getJointSpec } from '@/data/jointLimits';
 import { MODEL_CATALOG, type MannequinModelId } from '@/data/modelCatalog';
 import { getPosePreset } from '@/data/poses';
+import {
+  clampFigureProportions,
+  proportionsEqual,
+} from '@/data/proportions';
 import { STUDIO_THEMES } from '@/data/studioThemes';
 import {
   getInitialGravityWakeBones,
@@ -74,6 +81,11 @@ import {
   getMirroredBoneName,
   mirrorPoseSnapshot,
 } from '@/utils/mirrorPose';
+import {
+  createNotanGradientTexture,
+  getNotanThemePalette,
+  updateNotanGradientTexture,
+} from '@/utils/notanGradient';
 
 interface MannequinTemplate {
   modelId: MannequinModelId;
@@ -87,6 +99,12 @@ interface MaterialBinding {
   role: 'main' | 'joint';
   originalColor: THREE.Color;
   originalRoughness: number;
+}
+
+interface NotanMeshEntry {
+  mesh: THREE.Mesh;
+  standardMaterial: THREE.Material | THREE.Material[];
+  toonMaterial: THREE.MeshToonMaterial;
 }
 
 interface CanonicalBoneEntry {
@@ -104,6 +122,9 @@ interface ClonedInstanceData {
   restQuaternions: ReadonlyMap<string, THREE.Quaternion>;
   materialBindings: MaterialBinding[];
   clonedMaterials: THREE.Material[];
+  meshEntries: NotanMeshEntry[];
+  toonMaterials: THREE.MeshToonMaterial[];
+  baseHeadHeight: number;
 }
 
 interface DragGuardState {
@@ -136,6 +157,9 @@ interface AnatomyModelProps {
   cameraRestSeq: number;
   ikPinFeet: boolean;
   ikSwivelByHandle: Record<Exclude<IKHandleId, 'pelvis'>, number>;
+  notanEnabled: boolean;
+  notanSplit: number;
+  showHeadRuler: boolean;
   onSelectMannequin: (id: string) => void;
   onDraggingChange: (isDragging: boolean) => void;
   onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
@@ -148,6 +172,7 @@ interface AnatomyModelProps {
   onInitialPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onCommitPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onContextualAnchorChange: (anchor: ContextualAnchor | null) => void;
+  onHeadRulerMetricsChange: (metrics: HeadRulerMetrics | null) => void;
 }
 
 interface MannequinInstanceProps {
@@ -176,6 +201,9 @@ interface MannequinInstanceProps {
   cameraRestSeq: number;
   ikPinFeet: boolean;
   ikSwivelByHandle: Record<Exclude<IKHandleId, 'pelvis'>, number>;
+  notanEnabled: boolean;
+  notanSplit: number;
+  showHeadRuler: boolean;
   onSelectMannequin: (id: string) => void;
   onDraggingChange: (isDragging: boolean) => void;
   onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
@@ -188,6 +216,7 @@ interface MannequinInstanceProps {
   onInitialPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onCommitPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onContextualAnchorChange: (anchor: ContextualAnchor | null) => void;
+  onHeadRulerMetricsChange: (metrics: HeadRulerMetrics | null) => void;
 }
 
 interface DraggingChangedDispatcher {
@@ -261,6 +290,9 @@ function MannequinInstance({
   cameraRestSeq,
   ikPinFeet,
   ikSwivelByHandle,
+  notanEnabled,
+  notanSplit,
+  showHeadRuler,
   onSelectMannequin,
   onDraggingChange,
   onSelectBoneChange,
@@ -273,6 +305,7 @@ function MannequinInstance({
   onInitialPoseSnapshot,
   onCommitPoseSnapshot,
   onContextualAnchorChange,
+  onHeadRulerMetricsChange,
 }: MannequinInstanceProps) {
   const [selectedBoneName, setSelectedBoneName] = useState<string | null>(null);
   const [hoveredBoneName, setHoveredBoneName] = useState<string | null>(null);
@@ -286,9 +319,17 @@ function MannequinInstance({
   const initialIdRef = useRef(record.id);
   const initialSpawnOffsetRef = useRef(record.spawnOffset);
   const initialSnapshotRef = useRef(record.initialSnapshot);
+  const initialPosePresetIdRef = useRef(record.activePosePresetId);
+  const initialProportionsRef = useRef(
+    clampFigureProportions(record.proportions)
+  );
   const initialPreserveExactPosRef = useRef(
     Boolean(record.preserveExactRootPosition)
   );
+  const lastAppliedProportionsRef = useRef(
+    clampFigureProportions(record.proportions)
+  );
+  const lastRulerEmitKeyRef = useRef<string>('');
   const hitboxRefs = useRef<Map<string, THREE.Object3D>>(new Map());
   const ikHandleRefs = useRef<Map<IKHandleId, THREE.Group>>(new Map());
   const ikProxyRef = useRef<THREE.Object3D>(new THREE.Object3D());
@@ -334,6 +375,9 @@ function MannequinInstance({
   const lensCurvatureRef = useRef<number>(lensCurvature);
   const ikPinFeetRef = useRef<boolean>(ikPinFeet);
   const ikSwivelByHandleRef = useRef(ikSwivelByHandle);
+  const proportionsRef = useRef(clampFigureProportions(record.proportions));
+  const showHeadRulerRef = useRef(showHeadRuler);
+  const recordVisibleRef = useRef(record.visible);
 
   const onSelectBoneChangeRef = useRef(onSelectBoneChange);
   const onSelectIKHandleChangeRef = useRef(onSelectIKHandleChange);
@@ -341,6 +385,7 @@ function MannequinInstance({
   const onInitialPoseSnapshotRef = useRef(onInitialPoseSnapshot);
   const onCommitPoseSnapshotRef = useRef(onCommitPoseSnapshot);
   const onContextualAnchorChangeRef = useRef(onContextualAnchorChange);
+  const onHeadRulerMetricsChangeRef = useRef(onHeadRulerMetricsChange);
 
   const solverRef = useRef(new JointSpaceGravitySolver());
   const solverAwakeRef = useRef(false);
@@ -364,14 +409,31 @@ function MannequinInstance({
   lensCurvatureRef.current = lensCurvature;
   ikPinFeetRef.current = ikPinFeet;
   ikSwivelByHandleRef.current = ikSwivelByHandle;
+  proportionsRef.current = clampFigureProportions(record.proportions);
+  showHeadRulerRef.current = showHeadRuler;
+  recordVisibleRef.current = record.visible;
   onSelectBoneChangeRef.current = onSelectBoneChange;
   onSelectIKHandleChangeRef.current = onSelectIKHandleChange;
   onElevationSyncRef.current = onElevationSync;
   onInitialPoseSnapshotRef.current = onInitialPoseSnapshot;
   onCommitPoseSnapshotRef.current = onCommitPoseSnapshot;
   onContextualAnchorChangeRef.current = onContextualAnchorChange;
+  onHeadRulerMetricsChangeRef.current = onHeadRulerMetricsChange;
 
   const { camera, size, invalidate } = useThree();
+
+  const notanGradientTex = useMemo(() => createNotanGradientTexture(0.5), []);
+
+  useEffect(() => {
+    return () => {
+      notanGradientTex.dispose();
+    };
+  }, [notanGradientTex]);
+
+  useEffect(() => {
+    updateNotanGradientTexture(notanGradientTex, notanSplit);
+    invalidate();
+  }, [notanGradientTex, notanSplit, invalidate]);
 
   const instance = useMemo<ClonedInstanceData>(() => {
     const clonedScene = SkeletonUtils.clone(template.scene) as THREE.Group;
@@ -395,6 +457,8 @@ function MannequinInstance({
     const skinnedMeshes: THREE.SkinnedMesh[] = [];
     const materialBindings: MaterialBinding[] = [];
     const clonedMaterials: THREE.Material[] = [];
+    const meshEntries: NotanMeshEntry[] = [];
+    const toonMaterials: THREE.MeshToonMaterial[] = [];
 
     clonedScene.traverse((child) => {
       const mesh = child as THREE.Mesh;
@@ -416,6 +480,13 @@ function MannequinInstance({
             materialBindings
           );
         }
+        const toonMat = new THREE.MeshToonMaterial({ color: '#EFECE6' });
+        toonMaterials.push(toonMat);
+        meshEntries.push({
+          mesh,
+          standardMaterial: mesh.material,
+          toonMaterial: toonMat,
+        });
       }
 
       if (isSkinnedMesh) {
@@ -430,6 +501,33 @@ function MannequinInstance({
       rigAdapter.bonesByCanonicalName.entries()
     ).map(([canonicalName, bone]) => ({ canonicalName, bone }));
 
+    rootGroup.updateMatrixWorld(true);
+    let maxTPoseY = -Infinity;
+    const tmpBox = new THREE.Box3();
+    for (const sm of skinnedMeshes) {
+      sm.computeBoundingBox();
+      if (!sm.boundingBox) continue;
+      tmpBox.copy(sm.boundingBox).applyMatrix4(sm.matrixWorld);
+      if (tmpBox.max.y > maxTPoseY) maxTPoseY = tmpBox.max.y;
+    }
+    if (!Number.isFinite(maxTPoseY)) maxTPoseY = 2.0;
+
+    const headBone = rigAdapter.bonesByCanonicalName.get('Head');
+    const neckBone = rigAdapter.bonesByCanonicalName.get('neck_01');
+    let baseHeadHeight = 2.0 / 7.5;
+    if (headBone && neckBone) {
+      const headW = new THREE.Vector3();
+      const neckW = new THREE.Vector3();
+      headBone.getWorldPosition(headW);
+      neckBone.getWorldPosition(neckW);
+      const chinApproxY = THREE.MathUtils.lerp(neckW.y, headW.y, 0.25);
+      baseHeadHeight = THREE.MathUtils.clamp(
+        maxTPoseY - chinApproxY,
+        0.255,
+        0.275
+      );
+    }
+
     return {
       rootGroup,
       scene: clonedScene,
@@ -440,6 +538,9 @@ function MannequinInstance({
       restQuaternions: rigAdapter.canonicalRestLocalQuats,
       materialBindings,
       clonedMaterials,
+      meshEntries,
+      toonMaterials,
+      baseHeadHeight,
     };
   }, [template]);
 
@@ -448,8 +549,26 @@ function MannequinInstance({
       for (const material of instance.clonedMaterials) {
         material.dispose();
       }
+      for (const toonMat of instance.toonMaterials) {
+        toonMat.dispose();
+      }
     };
   }, [instance]);
+
+  useEffect(() => {
+    const palette = getNotanThemePalette(studioTheme);
+    for (const entry of instance.meshEntries) {
+      if (notanEnabled) {
+        entry.toonMaterial.color.set(palette.figureColor);
+        entry.toonMaterial.gradientMap = notanGradientTex;
+        entry.toonMaterial.needsUpdate = true;
+        entry.mesh.material = entry.toonMaterial;
+      } else {
+        entry.mesh.material = entry.standardMaterial;
+      }
+    }
+    invalidate();
+  }, [notanEnabled, studioTheme, instance, notanGradientTex, invalidate]);
 
   useEffect(() => {
     const spec = MANNEQUIN_FINISHES[record.finish];
@@ -512,6 +631,147 @@ function MannequinInstance({
     [selectedBoneName]
   );
 
+  const computeSkinnedBounds = useCallback((): {
+    minY: number;
+    maxY: number;
+    minX: number;
+    maxX: number;
+  } => {
+    if (instance.skinnedMeshes.length === 0) {
+      return { minY: 0, maxY: 2, minX: -0.5, maxX: 0.5 };
+    }
+
+    instance.rootGroup.updateMatrixWorld(true);
+    const meshBox = tempBoxRef.current;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let minX = Infinity;
+    let maxX = -Infinity;
+
+    for (const skinnedMesh of instance.skinnedMeshes) {
+      skinnedMesh.computeBoundingBox();
+      if (!skinnedMesh.boundingBox) continue;
+      meshBox
+        .copy(skinnedMesh.boundingBox)
+        .applyMatrix4(skinnedMesh.matrixWorld);
+      if (meshBox.min.y < minY) minY = meshBox.min.y;
+      if (meshBox.max.y > maxY) maxY = meshBox.max.y;
+      if (meshBox.min.x < minX) minX = meshBox.min.x;
+      if (meshBox.max.x > maxX) maxX = meshBox.max.x;
+    }
+
+    return {
+      minY: Number.isFinite(minY) ? minY : 0,
+      maxY: Number.isFinite(maxY) ? maxY : 2,
+      minX: Number.isFinite(minX) ? minX : -0.5,
+      maxX: Number.isFinite(maxX) ? maxX : 0.5,
+    };
+  }, [instance]);
+
+  const computeSkinnedMinY = useCallback((): number => {
+    return computeSkinnedBounds().minY;
+  }, [computeSkinnedBounds]);
+
+  const emitHeadRulerMetrics = useCallback(() => {
+    if (
+      !isActiveRef.current ||
+      !showHeadRulerRef.current ||
+      !recordVisibleRef.current
+    ) {
+      if (lastRulerEmitKeyRef.current !== '') {
+        lastRulerEmitKeyRef.current = '';
+        onHeadRulerMetricsChangeRef.current(null);
+      }
+      return;
+    }
+
+    const bounds = computeSkinnedBounds();
+    const standingHeightMeters = Math.max(0.4, bounds.maxY - bounds.minY);
+    const headHeightMeters = Math.max(
+      0.12,
+      instance.baseHeadHeight * proportionsRef.current.headScale
+    );
+    const headCount = standingHeightMeters / headHeightMeters;
+
+    const rulerWorldX = bounds.maxX + 0.18;
+    const rulerWorldZ = instance.rootGroup.position.z;
+    const topProj = projectWorldPointToScreen(
+      new THREE.Vector3(rulerWorldX, bounds.maxY, rulerWorldZ),
+      camera,
+      size.width,
+      size.height,
+      activePresetRef.current,
+      lensCurvatureRef.current
+    );
+    const bottomProj = projectWorldPointToScreen(
+      new THREE.Vector3(rulerWorldX, bounds.minY, rulerWorldZ),
+      camera,
+      size.width,
+      size.height,
+      activePresetRef.current,
+      lensCurvatureRef.current
+    );
+
+    const ticks: HeadRulerTick[] = [
+      {
+        headIndex: 0,
+        label: '0H',
+        screenX: Math.round(topProj.screenX * 2) / 2,
+        screenY: Math.round(topProj.screenY * 2) / 2,
+        isMajor: true,
+      },
+    ];
+
+    const wholeHeads = Math.floor(headCount);
+    for (let k = 1; k <= wholeHeads && k <= 12; k += 1) {
+      const worldY = bounds.maxY - k * headHeightMeters;
+      const p = projectWorldPointToScreen(
+        new THREE.Vector3(rulerWorldX, worldY, rulerWorldZ),
+        camera,
+        size.width,
+        size.height,
+        activePresetRef.current,
+        lensCurvatureRef.current
+      );
+      ticks.push({
+        headIndex: k,
+        label: `${k}H`,
+        screenX: Math.round(p.screenX * 2) / 2,
+        screenY: Math.round(p.screenY * 2) / 2,
+        isMajor: k === 1 || k % 2 === 0,
+      });
+    }
+
+    if (headCount - wholeHeads >= 0.12) {
+      ticks.push({
+        headIndex: 99,
+        label: `${headCount.toFixed(1)}H`,
+        screenX: Math.round(bottomProj.screenX * 2) / 2,
+        screenY: Math.round(bottomProj.screenY * 2) / 2,
+        isMajor: true,
+      });
+    }
+
+    const anchorX = Math.round(topProj.screenX * 2) / 2;
+    const topY = Math.round(topProj.screenY * 2) / 2;
+    const bottomY = Math.round(bottomProj.screenY * 2) / 2;
+    const roundedHeads = headCount.toFixed(1);
+    const key = `${anchorX}:${topY}:${bottomY}:${roundedHeads}:${Math.round(standingHeightMeters * 100)}:${ticks.length}`;
+    if (key === lastRulerEmitKeyRef.current) return;
+    lastRulerEmitKeyRef.current = key;
+
+    onHeadRulerMetricsChangeRef.current({
+      visible: true,
+      headCount,
+      headHeightMeters,
+      standingHeightMeters,
+      anchorX,
+      topY,
+      bottomY,
+      ticks,
+    });
+  }, [instance, computeSkinnedBounds, camera, size.width, size.height]);
+
   const syncHitboxPositions = useCallback(() => {
     instance.rootGroup.updateMatrixWorld(true);
     const tempVec = tempWorldPosRef.current;
@@ -542,29 +802,9 @@ function MannequinInstance({
       }
     }
 
+    emitHeadRulerMetrics();
     invalidate();
-  }, [instance, invalidate]);
-
-  const computeSkinnedMinY = useCallback((): number => {
-    if (instance.skinnedMeshes.length === 0) return 0;
-
-    instance.rootGroup.updateMatrixWorld(true);
-    const meshBox = tempBoxRef.current;
-    let minY = Infinity;
-
-    for (const skinnedMesh of instance.skinnedMeshes) {
-      skinnedMesh.computeBoundingBox();
-      if (!skinnedMesh.boundingBox) continue;
-      meshBox
-        .copy(skinnedMesh.boundingBox)
-        .applyMatrix4(skinnedMesh.matrixWorld);
-      if (meshBox.min.y < minY) {
-        minY = meshBox.min.y;
-      }
-    }
-
-    return Number.isFinite(minY) ? minY : 0;
-  }, [instance]);
+  }, [instance, emitHeadRulerMetrics, invalidate]);
 
   const recomputeGroundOffset = useCallback(
     (targetElevationY = 0) => {
@@ -593,6 +833,7 @@ function MannequinInstance({
       groundEnabled: groundEnabledRef.current,
       groundSnapEnabled: groundSnapEnabledRef.current,
       pinnedBones: [...pinnedBonesRef.current],
+      proportions: instance.rigAdapter.getActiveProportions(),
     };
   }, [instance, computeSkinnedMinY]);
 
@@ -610,11 +851,18 @@ function MannequinInstance({
       groundSnapEnabledRef.current = snapshot.groundSnapEnabled;
       pinnedBonesRef.current = snapshot.pinnedBones;
 
+      const restoredProps = clampFigureProportions(
+        snapshot.proportions ?? proportionsRef.current
+      );
+      lastAppliedProportionsRef.current = restoredProps;
+      proportionsRef.current = restoredProps;
+
       solverRef.current.sleepAll();
       solverAwakeRef.current = false;
       gravityMovedSinceWakeRef.current = false;
 
       instance.rigAdapter.applyCanonicalSnapshotBones(snapshot.bones);
+      instance.rigAdapter.applyProportions(restoredProps);
 
       instance.rootGroup.position.set(
         snapshot.rootPosition[0],
@@ -955,6 +1203,43 @@ function MannequinInstance({
     ]
   );
 
+  const syncProportions = useCallback(
+    (
+      nextProportions: FigureProportions,
+      commitHistory = false
+    ): PoseSnapshot | null => {
+      if (lockedRef.current) return null;
+      const clampedProps = clampFigureProportions(nextProportions);
+      lastAppliedProportionsRef.current = clampedProps;
+      proportionsRef.current = clampedProps;
+      instance.rigAdapter.applyProportions(clampedProps);
+
+      if (record.groundSnapEnabled) {
+        recomputeGroundOffset(0);
+      } else {
+        syncHitboxPositions();
+        onElevationSyncRef.current(record.id, round2(computeSkinnedMinY()));
+      }
+      invalidate();
+
+      const snap = captureSnapshot();
+      if (commitHistory) {
+        onCommitPoseSnapshotRef.current(record.id, snap);
+      }
+      return snap;
+    },
+    [
+      instance,
+      record.id,
+      record.groundSnapEnabled,
+      recomputeGroundOffset,
+      syncHitboxPositions,
+      computeSkinnedMinY,
+      captureSnapshot,
+      invalidate,
+    ]
+  );
+
   useEffect(() => {
     onMannequinBridgeChange(record.id, {
       captureSnapshot,
@@ -966,6 +1251,7 @@ function MannequinInstance({
       applyIKSwivel,
       resetIKLimb,
       plantFootIK,
+      syncProportions,
     });
     return () => onMannequinBridgeChange(record.id, null);
   }, [
@@ -979,6 +1265,7 @@ function MannequinInstance({
     applyIKSwivel,
     resetIKLimb,
     plantFootIK,
+    syncProportions,
     onMannequinBridgeChange,
   ]);
 
@@ -987,7 +1274,13 @@ function MannequinInstance({
       hasInitializedGroundRef.current = true;
       const initSnap = initialSnapshotRef.current;
       if (initSnap) {
+        const initProps = clampFigureProportions(
+          initSnap.proportions ?? initialProportionsRef.current
+        );
+        lastAppliedProportionsRef.current = initProps;
+        proportionsRef.current = initProps;
         instance.rigAdapter.applyCanonicalSnapshotBones(initSnap.bones);
+        instance.rigAdapter.applyProportions(initProps);
         const startX = initialPreserveExactPosRef.current
           ? initSnap.rootPosition[0]
           : initialSpawnOffsetRef.current[0];
@@ -1008,7 +1301,32 @@ function MannequinInstance({
           onElevationSyncRef.current(record.id, round2(computeSkinnedMinY()));
         }
       } else {
-        recomputeGroundOffset(0);
+        const initProps = clampFigureProportions(initialProportionsRef.current);
+        lastAppliedProportionsRef.current = initProps;
+        proportionsRef.current = initProps;
+        const initPresetId = initialPosePresetIdRef.current;
+        const preset =
+          initPresetId && initPresetId !== 't-pose'
+            ? getPosePreset(initPresetId)
+            : null;
+        if (preset) {
+          instance.rigAdapter.resetToTPose();
+          const resolvedBones = instance.rigAdapter.resolvePresetBoneAngles(
+            preset.bones
+          );
+          for (const [boneName, rawAngles] of Object.entries(resolvedBones)) {
+            if (!instance.rigAdapter.hasJoint(boneName)) continue;
+            const spec = getJointSpec(boneName);
+            const clamped = clampJointAngles(rawAngles, spec, true);
+            instance.rigAdapter.applyCanonicalAngles(
+              boneName,
+              clamped,
+              spec.order
+            );
+          }
+        }
+        instance.rigAdapter.applyProportions(initProps);
+        recomputeGroundOffset(preset && !preset.groundSnap ? preset.elevationY : 0);
       }
 
       const initialSnap = captureSnapshot();
@@ -1030,6 +1348,56 @@ function MannequinInstance({
     syncHitboxPositions,
     captureSnapshot,
   ]);
+
+  useEffect(() => {
+    const nextProps = clampFigureProportions(record.proportions);
+    if (proportionsEqual(nextProps, lastAppliedProportionsRef.current)) return;
+
+    lastAppliedProportionsRef.current = nextProps;
+    proportionsRef.current = nextProps;
+    instance.rigAdapter.applyProportions(nextProps);
+
+    if (!lockedRef.current && record.groundSnapEnabled) {
+      recomputeGroundOffset(0);
+    } else {
+      syncHitboxPositions();
+      onElevationSyncRef.current(record.id, round2(computeSkinnedMinY()));
+    }
+    invalidate();
+  }, [
+    record.proportions,
+    record.id,
+    record.groundSnapEnabled,
+    instance,
+    recomputeGroundOffset,
+    syncHitboxPositions,
+    computeSkinnedMinY,
+    invalidate,
+  ]);
+
+  useEffect(() => {
+    emitHeadRulerMetrics();
+  }, [
+    isActive,
+    showHeadRuler,
+    record.visible,
+    record.proportions,
+    activePreset,
+    lensCurvature,
+    cameraRestSeq,
+    size.width,
+    size.height,
+    emitHeadRulerMetrics,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (lastRulerEmitKeyRef.current !== '') {
+        lastRulerEmitKeyRef.current = '';
+        onHeadRulerMetricsChangeRef.current(null);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!isActive) {
@@ -1389,6 +1757,9 @@ function MannequinInstance({
       jointLimitsEnabled
     );
     instance.rigAdapter.applyCanonicalAngles(boneName, clamped, spec.order);
+    if (instance.rigAdapter.needsProportionSync) {
+      instance.rigAdapter.syncProportionScales();
+    }
     solverRef.current.zeroBoneVelocity(boneName);
 
     if (record.groundSnapEnabled) {
@@ -1582,6 +1953,9 @@ function MannequinInstance({
       const clamped = clampJointAngles(rawAngles, spec, true);
       instance.rigAdapter.applyCanonicalAngles(boneName, clamped, spec.order);
     }
+    if (instance.rigAdapter.needsProportionSync) {
+      instance.rigAdapter.syncProportionScales();
+    }
 
     // Preserve current staged X/Z position so multi-figure posing never overlaps Figure 1.
     setSelectedBoneName(null);
@@ -1657,6 +2031,13 @@ function MannequinInstance({
   ]);
 
   useFrame((_, delta) => {
+    if (
+      isActiveRef.current &&
+      showHeadRulerRef.current &&
+      recordVisibleRef.current
+    ) {
+      emitHeadRulerMetrics();
+    }
     if (record.locked || !gravityEnabled || !solverAwakeRef.current) return;
 
     const result = solverRef.current.step({
@@ -1674,6 +2055,9 @@ function MannequinInstance({
     });
 
     if (result.didMove) {
+      if (instance.rigAdapter.needsProportionSync) {
+        instance.rigAdapter.syncProportionScales();
+      }
       gravityMovedSinceWakeRef.current = true;
       if (record.groundSnapEnabled) {
         recomputeGroundOffset(0);
@@ -2272,6 +2656,9 @@ export function AnatomyModel({
   cameraRestSeq,
   ikPinFeet,
   ikSwivelByHandle,
+  notanEnabled,
+  notanSplit,
+  showHeadRuler,
   onSelectMannequin,
   onDraggingChange,
   onSelectBoneChange,
@@ -2284,6 +2671,7 @@ export function AnatomyModel({
   onInitialPoseSnapshot,
   onCommitPoseSnapshot,
   onContextualAnchorChange,
+  onHeadRulerMetricsChange,
 }: AnatomyModelProps) {
   const [templatesByModel, setTemplatesByModel] = useState<
     Partial<Record<MannequinModelId, MannequinTemplate>>
@@ -2450,6 +2838,9 @@ export function AnatomyModel({
             cameraRestSeq={cameraRestSeq}
             ikPinFeet={ikPinFeet}
             ikSwivelByHandle={ikSwivelByHandle}
+            notanEnabled={notanEnabled}
+            notanSplit={notanSplit}
+            showHeadRuler={showHeadRuler}
             onSelectMannequin={onSelectMannequin}
             onDraggingChange={onDraggingChange}
             onSelectBoneChange={onSelectBoneChange}
@@ -2462,6 +2853,7 @@ export function AnatomyModel({
             onInitialPoseSnapshot={onInitialPoseSnapshot}
             onCommitPoseSnapshot={onCommitPoseSnapshot}
             onContextualAnchorChange={onContextualAnchorChange}
+            onHeadRulerMetricsChange={onHeadRulerMetricsChange}
           />
         );
       })}

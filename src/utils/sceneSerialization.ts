@@ -1,9 +1,14 @@
+import { clampStudioLighting } from '@/data/lightingPresets';
 import { isMannequinModelId, type MannequinModelId } from '@/data/modelCatalog';
+import { clampFigureProportions } from '@/data/proportions';
 import { isStudioThemeId } from '@/data/studioThemes';
 import {
   isCameraPreset,
   type CameraPreset,
+  type CompositionCropRatio,
+  type CompositionGridType,
   type DampingPreset,
+  type FigureProportions,
   type KeyLightSettings,
   type PoseControlMode,
 } from '@/types/anatomy';
@@ -79,10 +84,17 @@ export function serializeSceneFile({
     .slice(0, MAX_MANNEQUINS)
     .map((m) => {
       const snap = poseById.get(m.id);
+      const propsNorm = clampFigureProportions(m.proportions);
       const fallbackPose: PoseSnapshot = snap
-        ? clonePoseSnapshot(snap)
+        ? {
+            ...clonePoseSnapshot(snap),
+            proportions: propsNorm,
+          }
         : m.initialSnapshot
-          ? clonePoseSnapshot(m.initialSnapshot)
+          ? {
+              ...clonePoseSnapshot(m.initialSnapshot),
+              proportions: propsNorm,
+            }
           : {
               bones: {},
               rootPosition: [...m.spawnOffset] as Vec3Tuple,
@@ -90,6 +102,7 @@ export function serializeSceneFile({
               groundEnabled: studio.groundEnabled,
               groundSnapEnabled: m.groundSnapEnabled,
               pinnedBones: [...m.pinnedBones],
+              proportions: propsNorm,
             };
       return {
         id: m.id,
@@ -100,6 +113,7 @@ export function serializeSceneFile({
         visible: m.visible,
         spawnOffset: [m.spawnOffset[0], m.spawnOffset[1], m.spawnOffset[2]],
         activePosePresetId: m.activePosePresetId,
+        proportions: propsNorm,
         pose: fallbackPose,
       };
     });
@@ -141,16 +155,16 @@ export function serializeSceneFile({
       gravityDamping: studio.gravityDamping,
       jointLimitsEnabled: studio.jointLimitsEnabled,
       controlMode: studio.controlMode,
-      keyLight: {
-        azimuth: studio.keyLight.azimuth,
-        elevation: studio.keyLight.elevation,
-        intensity: studio.keyLight.intensity,
-      },
+      keyLight: clampStudioLighting(studio.keyLight),
       perspectiveMode: studio.perspectiveMode ?? '1-point',
       lensCurvature: clampLensCurvature(
         studio.lensCurvature ?? DEFAULT_LENS_CURVATURE
       ),
       showPerspectiveGuides: studio.showPerspectiveGuides ?? true,
+      showHeadRuler: studio.showHeadRuler ?? false,
+      compositionCrop: studio.compositionCrop ?? 'off',
+      compositionGrid: studio.compositionGrid ?? 'off',
+      goldenSpiralFlip: studio.goldenSpiralFlip ?? false,
     },
     camera: {
       position: [camera.position[0], camera.position[1], camera.position[2]],
@@ -200,11 +214,52 @@ function parseKeyLight(rawLight: unknown): KeyLightSettings | null {
   ) {
     return null;
   }
-  return {
-    azimuth: Math.min(360, Math.max(0, rawLight.azimuth)),
-    elevation: Math.min(89, Math.max(10, rawLight.elevation)),
-    intensity: Math.min(5, Math.max(0.1, rawLight.intensity)),
-  };
+  return clampStudioLighting({
+    azimuth: rawLight.azimuth,
+    elevation: rawLight.elevation,
+    intensity: rawLight.intensity,
+    rimIntensity: isFiniteNumber(rawLight.rimIntensity)
+      ? rawLight.rimIntensity
+      : undefined,
+    rimAzimuthOffset: isFiniteNumber(rawLight.rimAzimuthOffset)
+      ? rawLight.rimAzimuthOffset
+      : undefined,
+    fillIntensity: isFiniteNumber(rawLight.fillIntensity)
+      ? rawLight.fillIntensity
+      : undefined,
+    notanEnabled:
+      typeof rawLight.notanEnabled === 'boolean'
+        ? rawLight.notanEnabled
+        : undefined,
+    notanSplit: isFiniteNumber(rawLight.notanSplit)
+      ? rawLight.notanSplit
+      : undefined,
+  });
+}
+
+function parseCompositionCrop(raw: unknown): CompositionCropRatio {
+  if (
+    raw === '4:5' ||
+    raw === '16:9' ||
+    raw === '1:1' ||
+    raw === '9:16' ||
+    raw === 'off'
+  ) {
+    return raw;
+  }
+  return 'off';
+}
+
+function parseCompositionGrid(raw: unknown): CompositionGridType {
+  if (
+    raw === 'thirds' ||
+    raw === 'cross' ||
+    raw === 'golden' ||
+    raw === 'off'
+  ) {
+    return raw;
+  }
+  return 'off';
 }
 
 function parseCameraPreset(raw: unknown): CameraPreset {
@@ -300,6 +355,11 @@ export function parseSceneFile(raw: unknown): ParseSceneResult {
         ? item.modelId
         : 'classic';
 
+    const proportions = isPlainObject(item.proportions)
+      ? clampFigureProportions(item.proportions as Partial<FigureProportions>)
+      : clampFigureProportions(parsedPose.pose.proportions);
+    parsedPose.pose.proportions = proportions;
+
     mannequinIds.add(item.id);
     parsedMannequins.push({
       id: item.id,
@@ -310,6 +370,7 @@ export function parseSceneFile(raw: unknown): ParseSceneResult {
       visible: item.visible,
       spawnOffset,
       activePosePresetId: item.activePosePresetId,
+      proportions,
       pose: parsedPose.pose,
     });
   }
@@ -413,6 +474,12 @@ export function parseSceneFile(raw: unknown): ParseSceneResult {
     : DEFAULT_LENS_CURVATURE;
   const showPerspectiveGuides =
     typeof s.showPerspectiveGuides === 'boolean' ? s.showPerspectiveGuides : true;
+  const showHeadRuler =
+    typeof s.showHeadRuler === 'boolean' ? s.showHeadRuler : false;
+  const compositionCrop = parseCompositionCrop(s.compositionCrop);
+  const compositionGrid = parseCompositionGrid(s.compositionGrid);
+  const goldenSpiralFlip =
+    typeof s.goldenSpiralFlip === 'boolean' ? s.goldenSpiralFlip : false;
 
   const parsedCamera = parseCameraView(raw.camera, 'camera');
   if (!parsedCamera.ok) {
@@ -466,6 +533,10 @@ export function parseSceneFile(raw: unknown): ParseSceneResult {
         perspectiveMode,
         lensCurvature,
         showPerspectiveGuides,
+        showHeadRuler,
+        compositionCrop,
+        compositionGrid,
+        goldenSpiralFlip,
       },
       camera: parsedCamera.view,
       bookmarks: parsedBookmarks,

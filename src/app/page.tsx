@@ -7,10 +7,13 @@ import {
   useState,
   type CSSProperties,
 } from 'react';
+import { CompositionOverlay } from '@/components/CompositionOverlay';
 import { FloatingSidebar } from '@/components/FloatingSidebar';
+import { HeadUnitRuler } from '@/components/HeadUnitRuler';
 import { JointControlPopover } from '@/components/JointControlPopover';
 import { PoseLibraryModal } from '@/components/PoseLibraryModal';
 import { usePwaState } from '@/components/PwaManager';
+import { ReferenceOverlay } from '@/components/ReferenceOverlay';
 import { ShortcutsModal } from '@/components/ShortcutsModal';
 import { StudioCanvas } from '@/components/StudioCanvas';
 import { StudioDock } from '@/components/StudioDock';
@@ -21,8 +24,19 @@ import {
 import { StudioToast, type StudioToastData } from '@/components/StudioToast';
 import { EyeIcon } from '@/components/StudioPrimitives';
 import { HAND_GESTURE_BY_ID } from '@/data/handGestures';
+import {
+  clampStudioLighting,
+  DEFAULT_STUDIO_LIGHTING,
+  LIGHTING_PRESETS,
+} from '@/data/lightingPresets';
 import { MODEL_CATALOG, type MannequinModelId } from '@/data/modelCatalog';
 import { getPosePreset } from '@/data/poses';
+import {
+  clampFigureProportions,
+  DEFAULT_FIGURE_PROPORTIONS,
+  PROPORTION_PRESETS,
+  type ProportionPresetId,
+} from '@/data/proportions';
 import {
   isStudioThemeId,
   STUDIO_THEMES,
@@ -32,24 +46,29 @@ import { useStudioShortcuts } from '@/hooks/useStudioShortcuts';
 import { useViewportProfile } from '@/hooks/useViewportProfile';
 import {
   CAMERA_PRESETS,
-  DEFAULT_KEY_LIGHT,
   isCoreBoneName,
   ZERO_JOINT_ANGLES,
   type AxisKey,
   type CameraPreset,
+  type CompositionCropRatio,
+  type CompositionGridType,
   type ContextualAnchor,
   type DampingPreset,
   type ElevationCommand,
+  type FigureProportions,
   type HandGestureId,
   type HandSide,
+  type HeadRulerMetrics,
   type IKHandleId,
   type JointAngleCommand,
   type JointAngles,
   type JointsDisplayMode,
   type KeyLightSettings,
   type LayerVisibility,
+  type LightingPresetId,
   type PoseControlMode,
   type PosePresetCommand,
+  type ReferenceOverlayState,
   type SnapshotBridge,
   type SnapshotOptions,
   type StudioThemeId,
@@ -180,7 +199,20 @@ export default function HomePage() {
   const [gravityEnabled, setGravityEnabled] = useState(false);
   const [dampingPreset, setDampingPreset] = useState<DampingPreset>('natural');
 
-  const [keyLight, setKeyLight] = useState<KeyLightSettings>(DEFAULT_KEY_LIGHT);
+  const [keyLight, setKeyLight] = useState<KeyLightSettings>(
+    DEFAULT_STUDIO_LIGHTING
+  );
+  const [showHeadRuler, setShowHeadRuler] = useState(false);
+  const [headRulerMetrics, setHeadRulerMetrics] =
+    useState<HeadRulerMetrics | null>(null);
+  const [compositionCrop, setCompositionCrop] =
+    useState<CompositionCropRatio>('off');
+  const [compositionGrid, setCompositionGrid] =
+    useState<CompositionGridType>('off');
+  const [goldenSpiralFlip, setGoldenSpiralFlip] = useState(false);
+  const [referenceImage, setReferenceImage] =
+    useState<ReferenceOverlayState | null>(null);
+  const referenceUrlRef = useRef<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isHudMinimized, setIsHudMinimized] = useState(false);
   const [activeRightRailTab, setActiveRightRailTab] =
@@ -249,6 +281,10 @@ export default function HomePage() {
       if (autosaveTimerRef.current) {
         clearTimeout(autosaveTimerRef.current);
       }
+      if (referenceUrlRef.current) {
+        URL.revokeObjectURL(referenceUrlRef.current);
+        referenceUrlRef.current = null;
+      }
     };
   }, []);
 
@@ -278,6 +314,10 @@ export default function HomePage() {
         (m) => {
           maxFigNum = Math.max(maxFigNum, parseTrailingInt(m.id));
           const clonedPose = clonePoseSnapshot(m.pose);
+          const restoredProps = clampFigureProportions(
+            m.proportions ?? clonedPose.proportions
+          );
+          clonedPose.proportions = restoredProps;
           poseByIdRef.current.set(m.id, clonedPose);
           nextHistory[m.id] = initPoseHistory(clonedPose);
           return {
@@ -296,6 +336,7 @@ export default function HomePage() {
             groundSnapEnabled: clonedPose.groundSnapEnabled,
             pinnedBones: [...clonedPose.pinnedBones],
             activePosePresetId: m.activePosePresetId,
+            proportions: restoredProps,
             initialSnapshot: clonedPose,
             preserveExactRootPosition: true,
           };
@@ -335,7 +376,7 @@ export default function HomePage() {
       setDampingPreset(sceneFile.studio.gravityDamping);
       setJointLimitsEnabled(sceneFile.studio.jointLimitsEnabled);
       setControlMode(sceneFile.studio.controlMode);
-      setKeyLight({ ...sceneFile.studio.keyLight });
+      setKeyLight(clampStudioLighting(sceneFile.studio.keyLight));
       setActivePreset(sceneFile.studio.perspectiveMode ?? '1-point');
       setLensCurvature(
         clampLensCurvature(
@@ -343,6 +384,10 @@ export default function HomePage() {
         )
       );
       setShowPerspectiveGuides(sceneFile.studio.showPerspectiveGuides ?? true);
+      setShowHeadRuler(sceneFile.studio.showHeadRuler ?? false);
+      setCompositionCrop(sceneFile.studio.compositionCrop ?? 'off');
+      setCompositionGrid(sceneFile.studio.compositionGrid ?? 'off');
+      setGoldenSpiralFlip(sceneFile.studio.goldenSpiralFlip ?? false);
 
       setMannequins(restoredMannequins);
       setActiveMannequinId(sceneFile.activeMannequinId);
@@ -434,6 +479,10 @@ export default function HomePage() {
         perspectiveMode: activePreset,
         lensCurvature,
         showPerspectiveGuides,
+        showHeadRuler,
+        compositionCrop,
+        compositionGrid,
+        goldenSpiralFlip,
       },
       camera: liveCamera,
       bookmarks,
@@ -444,6 +493,10 @@ export default function HomePage() {
     activePreset,
     lensCurvature,
     showPerspectiveGuides,
+    showHeadRuler,
+    compositionCrop,
+    compositionGrid,
+    goldenSpiralFlip,
     studioProps,
     studioTheme,
     groundEnabled,
@@ -556,6 +609,9 @@ export default function HomePage() {
                 elevationY: applied.elevationY,
                 groundSnapEnabled: applied.groundSnapEnabled,
                 pinnedBones: [...applied.pinnedBones],
+                proportions: clampFigureProportions(
+                  applied.proportions ?? m.proportions
+                ),
                 activePosePresetId: null,
               }
             : m
@@ -604,6 +660,7 @@ export default function HomePage() {
       groundSnapEnabled: groundEnabled,
       pinnedBones: [],
       activePosePresetId: 't-pose',
+      proportions: { ...DEFAULT_FIGURE_PROPORTIONS },
     };
 
     setMannequins((prev) => [...prev, newRecord]);
@@ -647,6 +704,9 @@ export default function HomePage() {
         : source.groundSnapEnabled,
       pinnedBones: snap ? [...snap.pinnedBones] : [...source.pinnedBones],
       activePosePresetId: source.activePosePresetId,
+      proportions: clampFigureProportions(
+        snap?.proportions ?? source.proportions
+      ),
       initialSnapshot: snap ? clonePoseSnapshot(snap) : undefined,
     };
 
@@ -995,6 +1055,11 @@ export default function HomePage() {
       autosaveTimerRef.current = null;
     }
     clearSavedSceneFromLocalStorage();
+    try {
+      window.localStorage.removeItem(STUDIO_THEME_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors
+    }
     skipNextAutosaveRef.current = true;
 
     bridgesRef.current.clear();
@@ -1003,7 +1068,8 @@ export default function HomePage() {
     nextPropSeqRef.current = 1;
     bookmarkSeqRef.current = 1;
 
-    setMannequins([createInitialMannequin()]);
+    setStudioTheme('gray');
+    setMannequins([createInitialMannequin('female')]);
     setActiveMannequinId('figure-1');
     setHistoryById({});
     setStudioProps([]);
@@ -1018,17 +1084,22 @@ export default function HomePage() {
     setGravityEnabled(false);
     setJointLimitsEnabled(true);
     setMoveBodyEnabled(false);
-    setKeyLight(DEFAULT_KEY_LIGHT);
+    setKeyLight(DEFAULT_STUDIO_LIGHTING);
     setActivePreset('1-point');
     setLensCurvature(DEFAULT_LENS_CURVATURE);
     setShowPerspectiveGuides(true);
+    setShowHeadRuler(false);
+    setHeadRulerMetrics(null);
+    setCompositionCrop('off');
+    setCompositionGrid('off');
+    setGoldenSpiralFlip(false);
     setContextualAnchor(null);
     setActiveHandGestureId(null);
     setActiveRightRailTab(null);
     setIsJointsPopoverOpen(false);
     setSnapTrigger((prev) => prev + 1);
     setSceneLoadId((prev) => prev + 1);
-    showToast('Started new blank scene', 'success');
+    showToast('Started new atelier scene', 'success');
   }, [showToast]);
 
   const handleChangeControlMode = useCallback((mode: PoseControlMode) => {
@@ -1188,18 +1259,139 @@ export default function HomePage() {
 
   const handleChangeKeyLight = useCallback(
     (patch: Partial<KeyLightSettings>) => {
-      setKeyLight((prev) => ({ ...prev, ...patch }));
+      setKeyLight((prev) => clampStudioLighting({ ...prev, ...patch }));
+    },
+    []
+  );
+
+  const handleSelectLightingPreset = useCallback(
+    (presetId: LightingPresetId) => {
+      const preset = LIGHTING_PRESETS[presetId];
+      setKeyLight((prev) =>
+        clampStudioLighting({
+          azimuth: preset.azimuth,
+          elevation: preset.elevation,
+          intensity: preset.intensity,
+          rimIntensity: preset.rimIntensity,
+          rimAzimuthOffset: preset.rimAzimuthOffset,
+          fillIntensity: preset.fillIntensity,
+          notanEnabled: prev.notanEnabled,
+          notanSplit: prev.notanSplit,
+          presetId,
+        })
+      );
     },
     []
   );
 
   const handleResetKeyLight = useCallback(() => {
-    setKeyLight({
-      azimuth: DEFAULT_KEY_LIGHT.azimuth,
-      elevation: DEFAULT_KEY_LIGHT.elevation,
-      intensity: STUDIO_THEMES[studioTheme].lighting.key,
-    });
-  }, [studioTheme]);
+    setKeyLight(DEFAULT_STUDIO_LIGHTING);
+  }, []);
+
+  const handleChangeMannequinProportions = useCallback(
+    (id: string, patch: Partial<FigureProportions>) => {
+      const target = mannequins.find((m) => m.id === id);
+      if (!target || target.locked) return;
+
+      const nextProps = clampFigureProportions({
+        ...target.proportions,
+        ...patch,
+      });
+      const snapped = bridgesRef.current.get(id)?.syncProportions(nextProps, false);
+      setMannequins((prev) =>
+        prev.map((m) =>
+          m.id === id
+            ? {
+                ...m,
+                proportions: nextProps,
+                elevationY: snapped ? snapped.elevationY : m.elevationY,
+              }
+            : m
+        )
+      );
+    },
+    [mannequins]
+  );
+
+  const handleApplyProportionPreset = useCallback(
+    (id: string, presetId: ProportionPresetId) => {
+      const target = mannequins.find((m) => m.id === id);
+      if (!target || target.locked) {
+        if (target?.locked) {
+          showToast(`Unlock ${target.name} before editing proportions`, 'error');
+        }
+        return;
+      }
+
+      const nextProps = clampFigureProportions(
+        PROPORTION_PRESETS[presetId].proportions
+      );
+      const snapped = bridgesRef.current.get(id)?.syncProportions(nextProps, true);
+      setMannequins((prev) =>
+        prev.map((m) =>
+          m.id === id
+            ? {
+                ...m,
+                proportions: nextProps,
+                elevationY: snapped ? snapped.elevationY : m.elevationY,
+              }
+            : m
+        )
+      );
+    },
+    [mannequins, showToast]
+  );
+
+  const handleImportReferenceImage = useCallback(
+    (file: File) => {
+      if (referenceUrlRef.current) {
+        URL.revokeObjectURL(referenceUrlRef.current);
+        referenceUrlRef.current = null;
+      }
+      const url = URL.createObjectURL(file);
+      referenceUrlRef.current = url;
+      setReferenceImage((prev) => ({
+        objectUrl: url,
+        filename: file.name,
+        mode: prev?.mode ?? 'backdrop',
+        opacity: prev ? prev.opacity : 0.35,
+        scale: prev ? prev.scale : 1,
+        flipH: prev?.flipH ?? false,
+        locked: prev?.locked ?? true,
+        offsetX: 0,
+        offsetY: 0,
+      }));
+      showToast('Reference image loaded', 'success');
+    },
+    [showToast]
+  );
+
+  const handleUpdateReferenceImage = useCallback(
+    (patch: Partial<ReferenceOverlayState>) => {
+      setReferenceImage((prev) => (prev ? { ...prev, ...patch } : prev));
+    },
+    []
+  );
+
+  const handleRemoveReferenceImage = useCallback(() => {
+    if (referenceUrlRef.current) {
+      URL.revokeObjectURL(referenceUrlRef.current);
+      referenceUrlRef.current = null;
+    }
+    setReferenceImage(null);
+  }, []);
+
+  const handleUpdateReferenceOffset = useCallback((x: number, y: number) => {
+    setReferenceImage((prev) =>
+      prev ? { ...prev, offsetX: x, offsetY: y } : prev
+    );
+  }, []);
+
+  const handleToggleReferenceLock = useCallback(() => {
+    setReferenceImage((prev) =>
+      prev ? { ...prev, locked: !prev.locked } : prev
+    );
+  }, []);
 
   const handleToggleRightRailTab = useCallback((tab: RightRailTab) => {
     setActiveRightRailTab((prev) => {
@@ -1882,6 +2074,9 @@ export default function HomePage() {
         onToggleVisibleMannequin={handleToggleVisibleMannequin}
         onChangeMannequinFinish={handleChangeMannequinFinish}
         onChangeMannequinModel={handleChangeMannequinModel}
+        onChangeMannequinProportions={handleChangeMannequinProportions}
+        onApplyProportionPreset={handleApplyProportionPreset}
+        onCommitSliderHistory={handleCommitSliderHistory}
         onToggleSkeletonMode={handleToggleSkeletonMode}
         onDeleteMannequin={handleDeleteMannequin}
         layers={layers}
@@ -1941,6 +2136,11 @@ export default function HomePage() {
         groundSnapEnabled={activeMannequin.groundSnapEnabled}
         elevationY={activeMannequin.elevationY}
         keyLight={keyLight}
+        showHeadRuler={showHeadRuler}
+        compositionCrop={compositionCrop}
+        compositionGrid={compositionGrid}
+        goldenSpiralFlip={goldenSpiralFlip}
+        referenceImage={referenceImage}
         onToggleTab={handleToggleRightRailTab}
         onCloseTab={() => setActiveRightRailTab(null)}
         onSelectStudioTheme={handleChangeStudioTheme}
@@ -1953,7 +2153,17 @@ export default function HomePage() {
         onCommitSliderHistory={handleCommitSliderHistory}
         onDropToFloor={handleDropToFloor}
         onChangeKeyLight={handleChangeKeyLight}
+        onSelectLightingPreset={handleSelectLightingPreset}
         onResetKeyLight={handleResetKeyLight}
+        onToggleHeadRuler={() => setShowHeadRuler((prev) => !prev)}
+        onChangeCompositionCrop={setCompositionCrop}
+        onChangeCompositionGrid={setCompositionGrid}
+        onToggleGoldenSpiralFlip={() =>
+          setGoldenSpiralFlip((prev) => !prev)
+        }
+        onImportReferenceImage={handleImportReferenceImage}
+        onUpdateReferenceImage={handleUpdateReferenceImage}
+        onRemoveReferenceImage={handleRemoveReferenceImage}
       />
       <StudioDock
         studioTheme={studioTheme}
@@ -2067,6 +2277,7 @@ export default function HomePage() {
         cameraRestSeq={cameraRestSeq}
         ikPinFeet={ikPinFeet}
         ikSwivelByHandle={ikSwivelByHandle}
+        showHeadRuler={showHeadRuler}
         onSelectMannequin={handleSelectMannequin}
         onSelectBoneChange={handleSelectBoneChange}
         onSelectIKHandleChange={handleSelectIKHandleChange}
@@ -2083,9 +2294,34 @@ export default function HomePage() {
         onCommitPoseSnapshot={handleCommitPoseSnapshot}
         onMannequinAnchorChange={handleMannequinAnchorChange}
         onPropAnchorChange={handlePropAnchorChange}
+        onHeadRulerMetricsChange={setHeadRulerMetrics}
         onCameraRest={handleCameraRest}
         onSnapshotBridgeReady={handleSnapshotBridgeReady}
         onCameraBridgeReady={handleCameraBridgeReady}
+      />
+      <ReferenceOverlay
+        reference={referenceImage}
+        studioTheme={studioTheme}
+        viewport={viewport}
+        isHudMinimized={isHudMinimized}
+        onUpdateOffset={handleUpdateReferenceOffset}
+        onToggleLock={handleToggleReferenceLock}
+        onRemove={handleRemoveReferenceImage}
+      />
+      <HeadUnitRuler
+        metrics={headRulerMetrics}
+        studioTheme={studioTheme}
+        width={viewport.width}
+        height={viewport.height}
+        isHudMinimized={isHudMinimized}
+      />
+      <CompositionOverlay
+        crop={compositionCrop}
+        grid={compositionGrid}
+        goldenSpiralFlip={goldenSpiralFlip}
+        studioTheme={studioTheme}
+        width={viewport.width}
+        height={viewport.height}
       />
     </main>
   );

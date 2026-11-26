@@ -32,12 +32,13 @@ export interface PwaState {
 async function verifyCriticalCachesReady(): Promise<boolean> {
   if (typeof window === 'undefined' || !('caches' in window)) return false;
   try {
-    const [rootMatch, modelMatch, wasmMatch] = await Promise.all([
+    const [rootMatch, classicMatch, femaleMatch, wasmMatch] = await Promise.all([
       caches.match('/'),
       caches.match('/models/anatomy.glb'),
+      caches.match('/models/mannequin-female.glb'),
       caches.match('/draco/draco_decoder.wasm'),
     ]);
-    return Boolean(rootMatch && modelMatch && wasmMatch);
+    return Boolean(rootMatch && classicMatch && femaleMatch && wasmMatch);
   } catch {
     return false;
   }

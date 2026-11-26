@@ -13,6 +13,11 @@ import { TransformControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { STUDIO_THEMES } from '@/data/studioThemes';
+import {
+  createNotanGradientTexture,
+  getNotanThemePalette,
+  updateNotanGradientTexture,
+} from '@/utils/notanGradient';
 import type {
   CameraPreset,
   ContextualAnchor,
@@ -51,6 +56,8 @@ interface StudioPropsStageProps {
   propTransformMode: PropTransformMode;
   studioTheme: StudioThemeId;
   groundEnabled: boolean;
+  notanEnabled: boolean;
+  notanSplit: number;
   dropPropToFloorCommand: PropDropCommand | null;
   dragGuardRef: MutableRefObject<DragGuardState>;
   activePreset: CameraPreset;
@@ -80,12 +87,18 @@ function PropMeshContent({
   emissive,
   emissiveIntensity,
   roughness,
+  notanEnabled,
+  notanColor,
+  notanTexture,
 }: {
   type: StudioPropType;
   color: string;
   emissive: string;
   emissiveIntensity: number;
   roughness: number;
+  notanEnabled: boolean;
+  notanColor: string;
+  notanTexture: THREE.DataTexture;
 }) {
   const stoolLegs = useMemo<
     ReadonlyArray<{ pos: [number, number, number]; rot: [number, number, number] }>
@@ -99,18 +112,25 @@ function PropMeshContent({
     []
   );
 
+  const renderMat = () =>
+    notanEnabled ? (
+      <meshToonMaterial color={notanColor} gradientMap={notanTexture} />
+    ) : (
+      <meshStandardMaterial
+        color={color}
+        emissive={emissive}
+        emissiveIntensity={emissiveIntensity}
+        roughness={roughness}
+        metalness={0.08}
+      />
+    );
+
   if (type === 'stool') {
     return (
       <>
         <mesh position={[0, 0.205, 0]} castShadow receiveShadow>
           <cylinderGeometry args={[0.21, 0.2, 0.05, 24]} />
-          <meshStandardMaterial
-            color={color}
-            emissive={emissive}
-            emissiveIntensity={emissiveIntensity}
-            roughness={roughness}
-            metalness={0.08}
-          />
+          {renderMat()}
         </mesh>
         {stoolLegs.map((leg, idx) => (
           <mesh
@@ -121,13 +141,7 @@ function PropMeshContent({
             receiveShadow
           >
             <cylinderGeometry args={[0.017, 0.015, 0.422, 12]} />
-            <meshStandardMaterial
-              color={color}
-              emissive={emissive}
-              emissiveIntensity={emissiveIntensity}
-              roughness={roughness}
-              metalness={0.08}
-            />
+            {renderMat()}
           </mesh>
         ))}
       </>
@@ -140,13 +154,7 @@ function PropMeshContent({
       {type === 'cylinder' && <cylinderGeometry args={[0.22, 0.22, 0.8, 28]} />}
       {type === 'sphere' && <sphereGeometry args={[0.24, 28, 20]} />}
       {type === 'staff' && <cylinderGeometry args={[0.022, 0.022, 1.75, 20]} />}
-      <meshStandardMaterial
-        color={color}
-        emissive={emissive}
-        emissiveIntensity={emissiveIntensity}
-        roughness={roughness}
-        metalness={0.08}
-      />
+      {renderMat()}
     </mesh>
   );
 }
@@ -157,6 +165,8 @@ export function StudioProps({
   propTransformMode,
   studioTheme,
   groundEnabled,
+  notanEnabled,
+  notanSplit,
   dropPropToFloorCommand,
   dragGuardRef,
   activePreset,
@@ -185,6 +195,20 @@ export function StudioProps({
 
   const theme = STUDIO_THEMES[studioTheme];
   const propStyle = theme.prop;
+  const notanPalette = getNotanThemePalette(studioTheme);
+
+  const notanTexture = useMemo(() => createNotanGradientTexture(0.5), []);
+
+  useEffect(() => {
+    return () => {
+      notanTexture.dispose();
+    };
+  }, [notanTexture]);
+
+  useEffect(() => {
+    updateNotanGradientTexture(notanTexture, notanSplit);
+    invalidate();
+  }, [notanTexture, notanSplit, invalidate]);
 
   const selectedProp = useMemo(
     () =>
@@ -195,7 +219,14 @@ export function StudioProps({
 
   useEffect(() => {
     invalidate();
-  }, [propsList, studioTheme, selectedPropId, propTransformMode, invalidate]);
+  }, [
+    propsList,
+    studioTheme,
+    selectedPropId,
+    propTransformMode,
+    notanEnabled,
+    invalidate,
+  ]);
 
   useEffect(() => {
     if (!selectedProp) {
@@ -430,6 +461,9 @@ export function StudioProps({
                 }
                 emissiveIntensity={isSelected && !prop.locked ? 0.22 : 0}
                 roughness={propStyle.roughness}
+                notanEnabled={notanEnabled}
+                notanColor={notanPalette.propColor}
+                notanTexture={notanTexture}
               />
             </group>
           );

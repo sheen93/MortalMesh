@@ -11,6 +11,7 @@ const CORE_URLS = [
   '/',
   '/manifest.webmanifest',
   '/models/anatomy.glb',
+  '/models/mannequin-female.glb',
   '/draco/draco_decoder.js',
   '/draco/draco_decoder.wasm',
   '/draco/draco_wasm_wrapper.js',
@@ -19,7 +20,6 @@ const CORE_URLS = [
 const OPTIONAL_MODEL_URLS = [
   '/models/mannequin-2.glb',
   '/models/mannequin-3.glb',
-  '/models/mannequin-female.glb',
   '/models/skeleton-rig.glb',
 ];
 
@@ -73,7 +73,13 @@ for (const url of urls) {
   hash.update('\n');
 }
 
-const allModelUrls = ['/models/anatomy.glb', ...optionalModelUrls];
+const allModelUrls = Array.from(
+  new Set([
+    '/models/anatomy.glb',
+    '/models/mannequin-female.glb',
+    ...optionalModelUrls,
+  ])
+);
 for (const modelUrl of allModelUrls) {
   const modelFile = path.join(ROOT_DIR, 'public', modelUrl.replace(/^\//, ''));
   if (fs.existsSync(modelFile)) {

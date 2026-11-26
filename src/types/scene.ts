@@ -1,5 +1,9 @@
 import type { MannequinModelId } from '@/data/modelCatalog';
+import { DEFAULT_FIGURE_PROPORTIONS } from '@/data/proportions';
+import type { FigureProportions } from '@/types/anatomy';
 import type { PoseSnapshot } from '@/types/poseIO';
+
+export type { FigureProportions };
 
 export const MAX_MANNEQUINS = 6;
 
@@ -78,6 +82,7 @@ export interface MannequinRecord {
   groundSnapEnabled: boolean;
   pinnedBones: string[];
   activePosePresetId: string | null;
+  proportions: FigureProportions;
   initialSnapshot?: PoseSnapshot;
   preserveExactRootPosition?: boolean;
 }
@@ -104,7 +109,7 @@ export function pickNextFinish(count: number): MannequinFinish {
 }
 
 export function createInitialMannequin(
-  modelId: MannequinModelId = 'classic'
+  modelId: MannequinModelId = 'female'
 ): MannequinRecord {
   return {
     id: 'figure-1',
@@ -112,11 +117,12 @@ export function createInitialMannequin(
     modelId,
     locked: false,
     visible: true,
-    finish: 'classic',
+    finish: 'ivory',
     spawnOffset: [0, 0, 0],
     elevationY: 0,
     groundSnapEnabled: true,
     pinnedBones: [],
-    activePosePresetId: 't-pose',
+    activePosePresetId: 'contrapposto',
+    proportions: { ...DEFAULT_FIGURE_PROPORTIONS },
   };
 }

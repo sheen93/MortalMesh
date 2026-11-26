@@ -1,7 +1,10 @@
 import type { MannequinModelId } from '@/data/modelCatalog';
 import type {
   CameraPreset,
+  CompositionCropRatio,
+  CompositionGridType,
   DampingPreset,
+  FigureProportions,
   KeyLightSettings,
   PoseControlMode,
   StudioThemeId,
@@ -40,6 +43,7 @@ export interface SerializedMannequin {
   visible: boolean;
   spawnOffset: Vec3Tuple;
   activePosePresetId: string | null;
+  proportions?: FigureProportions;
   pose: PoseSnapshot;
 }
 
@@ -54,6 +58,10 @@ export interface SerializedStudioSettings {
   perspectiveMode?: CameraPreset;
   lensCurvature?: number;
   showPerspectiveGuides?: boolean;
+  showHeadRuler?: boolean;
+  compositionCrop?: CompositionCropRatio;
+  compositionGrid?: CompositionGridType;
+  goldenSpiralFlip?: boolean;
 }
 
 export interface MortalMeshSceneFile {

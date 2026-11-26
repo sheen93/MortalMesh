@@ -528,6 +528,9 @@ export function JointArcGizmo({
         clamped,
         props.spec.order
       );
+      if (props.rigAdapter.needsProportionSync) {
+        props.rigAdapter.syncProportionScales();
+      }
       syncGizmoTransforms();
 
       const roundedAngles: JointAngles = {

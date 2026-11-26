@@ -3,7 +3,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PwaStatusFooter, type PwaState } from '@/components/PwaManager';
 import type { ViewportProfile } from '@/hooks/useViewportProfile';
-import type { LayerVisibility, StudioThemeId } from '@/types/anatomy';
+import type {
+  FigureProportions,
+  LayerVisibility,
+  StudioThemeId,
+} from '@/types/anatomy';
+import {
+  detectMatchingProportionPreset,
+  PROPORTION_LIMITS,
+  PROPORTION_PRESET_ORDER,
+  PROPORTION_PRESETS,
+  type ProportionPresetId,
+} from '@/data/proportions';
 import {
   MAX_STUDIO_PROPS,
   STUDIO_PROP_CATALOG,
@@ -33,6 +44,7 @@ import { STUDIO_THEMES } from '@/data/studioThemes';
 import {
   AccordionSection,
   BoxIcon,
+  ChevronDownIcon,
   CopyIcon,
   DownloadIcon,
   ExpandGalleryIcon,
@@ -46,6 +58,8 @@ import {
   LogoMarkIcon,
   PanelToggleIcon,
   PlusIcon,
+  PrecisionSlider,
+  RotateCcwIcon,
   SaveIcon,
   SearchIcon,
   SparklesIcon,
@@ -72,6 +86,12 @@ interface FloatingSidebarProps {
   onToggleVisibleMannequin: (id: string) => void;
   onChangeMannequinFinish: (id: string, finish: MannequinFinish) => void;
   onChangeMannequinModel: (id: string, modelId: MannequinModelId) => void;
+  onChangeMannequinProportions: (
+    id: string,
+    patch: Partial<FigureProportions>
+  ) => void;
+  onApplyProportionPreset: (id: string, presetId: ProportionPresetId) => void;
+  onCommitSliderHistory: () => void;
   onToggleSkeletonMode: () => void;
   onDeleteMannequin: (id: string) => void;
   layers: LayerVisibility;
@@ -110,6 +130,9 @@ export function FloatingSidebar({
   onToggleVisibleMannequin,
   onChangeMannequinFinish,
   onChangeMannequinModel,
+  onChangeMannequinProportions,
+  onApplyProportionPreset,
+  onCommitSliderHistory,
   onToggleSkeletonMode,
   onDeleteMannequin,
   layers,
@@ -134,6 +157,7 @@ export function FloatingSidebar({
 }: FloatingSidebarProps) {
   const [poseQuery, setPoseQuery] = useState('');
   const [poseCategory, setPoseCategory] = useState<PoseCategory | 'all'>('all');
+  const [isProportionsOpen, setIsProportionsOpen] = useState(false);
   const poseFileInputRef = useRef<HTMLInputElement>(null);
   const sceneFileInputRef = useRef<HTMLInputElement>(null);
   const [openSections, setOpenSections] = useState({
@@ -510,6 +534,134 @@ export function FloatingSidebar({
                             })}
                           </div>
                         </div>
+
+                        {/* Collapsible Proportions Morph Sub-Drawer */}
+                        {(() => {
+                          const matchedCanon = detectMatchingProportionPreset(
+                            fig.proportions
+                          );
+                          const badgeLabel = matchedCanon
+                            ? PROPORTION_PRESETS[matchedCanon].shortLabel
+                            : 'Custom';
+                          return (
+                            <div className={`border-t pt-1.5 ${ui.hairline}`}>
+                              <button
+                                type="button"
+                                data-testid="proportions-toggle"
+                                aria-expanded={isProportionsOpen}
+                                onClick={() =>
+                                  setIsProportionsOpen((prev) => !prev)
+                                }
+                                className={`flex w-full items-center justify-between gap-2 rounded-lg px-1 py-1 text-left text-[10.5px] font-medium transition-colors ${ui.textSecondary} hover:bg-zinc-500/10`}
+                              >
+                                <span>Proportions</span>
+                                <span className="flex items-center gap-1">
+                                  <span
+                                    className={`rounded px-1 py-0.5 font-mono text-[9.5px] ${ui.monoPill}`}
+                                  >
+                                    {badgeLabel}
+                                  </span>
+                                  <ChevronDownIcon
+                                    className={`h-3 w-3 transition-transform ${
+                                      isProportionsOpen ? 'rotate-180' : ''
+                                    }`}
+                                  />
+                                </span>
+                              </button>
+
+                              {isProportionsOpen && (
+                                <div className="mt-1.5 space-y-2 px-0.5 pb-1">
+                                  <div className="flex items-center gap-1">
+                                    {PROPORTION_PRESET_ORDER.map((presetId) => {
+                                      const preset =
+                                        PROPORTION_PRESETS[presetId];
+                                      const isCanonActive =
+                                        matchedCanon === presetId;
+                                      return (
+                                        <button
+                                          key={presetId}
+                                          type="button"
+                                          data-proportion-preset={presetId}
+                                          disabled={fig.locked}
+                                          aria-pressed={isCanonActive}
+                                          title={preset.description}
+                                          onClick={() =>
+                                            onApplyProportionPreset(
+                                              fig.id,
+                                              presetId
+                                            )
+                                          }
+                                          className={`flex-1 rounded-md px-1.5 py-1 text-[10px] font-medium transition-colors ${
+                                            fig.locked
+                                              ? ui.pillButtonDisabled
+                                              : isCanonActive
+                                                ? ui.pillButtonActive
+                                                : ui.pillButton
+                                          }`}
+                                        >
+                                          {preset.shortLabel}
+                                        </button>
+                                      );
+                                    })}
+                                    <button
+                                      type="button"
+                                      disabled={fig.locked}
+                                      title="Reset proportions to Natural (7.5H)"
+                                      aria-label="Reset proportions"
+                                      onClick={() =>
+                                        onApplyProportionPreset(
+                                          fig.id,
+                                          'natural'
+                                        )
+                                      }
+                                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors ${
+                                        fig.locked
+                                          ? ui.pillButtonDisabled
+                                          : ui.pillButton
+                                      }`}
+                                    >
+                                      <RotateCcwIcon className="h-3 w-3" />
+                                    </button>
+                                  </div>
+
+                                  {(
+                                    [
+                                      'headScale',
+                                      'shoulderWidth',
+                                      'torsoLength',
+                                      'hipWidth',
+                                      'limbLength',
+                                    ] as const
+                                  ).map((key) => {
+                                    const spec = PROPORTION_LIMITS[key];
+                                    const val = fig.proportions[key];
+                                    return (
+                                      <PrecisionSlider
+                                        key={key}
+                                        id={`prop-${fig.id}-${key}`}
+                                        label={spec.label}
+                                        value={val}
+                                        min={spec.min}
+                                        max={spec.max}
+                                        step={spec.step}
+                                        disabled={fig.locked}
+                                        displayValue={`${Math.round(val * 100)}%`}
+                                        onChange={(nextVal) =>
+                                          onChangeMannequinProportions(
+                                            fig.id,
+                                            { [key]: nextVal }
+                                          )
+                                        }
+                                        onCommit={onCommitSliderHistory}
+                                        theme={theme}
+                                      />
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
                   </div>

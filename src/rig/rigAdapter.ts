@@ -1,8 +1,17 @@
 import * as THREE from 'three';
 import { getJointSpec, type JointSpec } from '@/data/jointLimits';
 import type { MannequinModelId } from '@/data/modelCatalog';
+import {
+  clampFigureProportions,
+  DEFAULT_FIGURE_PROPORTIONS,
+  isDefaultProportions,
+} from '@/data/proportions';
 import { CANONICAL_REST_LOCAL_QUATS, CANONICAL_REST_WORLD_QUATS } from '@/rig/canonicalReference';
-import { POSEABLE_BONE_NAMES, type JointAngles } from '@/types/anatomy';
+import {
+  POSEABLE_BONE_NAMES,
+  type FigureProportions,
+  type JointAngles,
+} from '@/types/anatomy';
 import type { QuaternionTuple } from '@/types/poseIO';
 
 interface NativeChainMapping {
@@ -22,6 +31,141 @@ export interface BoundCanonicalJoint {
   canonicalName: string;
   primary: BoundChainBone;
   segments: readonly BoundChainBone[];
+}
+
+interface ProportionBoneEntry {
+  canonicalName: string;
+  bone: THREE.Bone;
+  depth: number;
+  restLocalScale: THREE.Vector3;
+  restAxisWorldLen: [number, number, number];
+  longAxis: 0 | 1 | 2;
+  latAxis: 0 | 1 | 2;
+  depthAxis: 0 | 1 | 2;
+}
+
+const LOCAL_AXIS_VECTORS: readonly THREE.Vector3[] = [
+  new THREE.Vector3(1, 0, 0),
+  new THREE.Vector3(0, 1, 0),
+  new THREE.Vector3(0, 0, 1),
+];
+
+function computeBoneDepth(
+  bone: THREE.Object3D,
+  rootScene: THREE.Object3D
+): number {
+  let depth = 0;
+  let curr: THREE.Object3D | null = bone;
+  while (curr && curr !== rootScene && depth < 128) {
+    curr = curr.parent;
+    depth += 1;
+  }
+  return depth;
+}
+
+function getCanonicalTPoseWorldAxes(canonicalName: string): {
+  longDir: THREE.Vector3;
+  latDir: THREE.Vector3;
+} {
+  const isArm =
+    canonicalName.startsWith('clavicle_') ||
+    canonicalName.startsWith('upperarm_') ||
+    canonicalName.startsWith('lowerarm_') ||
+    canonicalName.startsWith('hand_') ||
+    canonicalName.startsWith('thumb_') ||
+    canonicalName.startsWith('index_') ||
+    canonicalName.startsWith('middle_') ||
+    canonicalName.startsWith('ring_') ||
+    canonicalName.startsWith('pinky_');
+
+  if (isArm) {
+    const sign = canonicalName.endsWith('_r') ? -1 : 1;
+    return {
+      longDir: new THREE.Vector3(sign, 0, 0),
+      latDir: new THREE.Vector3(0, 1, 0),
+    };
+  }
+  return {
+    longDir: new THREE.Vector3(0, 1, 0),
+    latDir: new THREE.Vector3(1, 0, 0),
+  };
+}
+
+function getDesiredWorldScaleForJoint(
+  canonicalName: string,
+  p: FigureProportions
+): { long: number; lat: number; depth: number } {
+  switch (canonicalName) {
+    case 'pelvis':
+      return {
+        lat: p.hipWidth,
+        long: 1,
+        depth: 1 + (p.hipWidth - 1) * 0.3,
+      };
+    case 'spine_01':
+      return {
+        lat: 1 + (p.hipWidth - 1) * 0.25,
+        long: p.torsoLength,
+        depth: 1,
+      };
+    case 'spine_02':
+      return {
+        lat: 1 + (p.shoulderWidth - 1) * 0.45,
+        long: p.torsoLength,
+        depth: 1 + (p.shoulderWidth - 1) * 0.15,
+      };
+    case 'spine_03':
+      return {
+        lat: p.shoulderWidth,
+        long: p.torsoLength,
+        depth: 1 + (p.shoulderWidth - 1) * 0.25,
+      };
+    case 'neck_01':
+      return {
+        lat: 1,
+        long: 1 + (p.torsoLength - 1) * 0.25,
+        depth: 1,
+      };
+    case 'Head':
+      return {
+        lat: p.headScale,
+        long: p.headScale,
+        depth: p.headScale,
+      };
+    case 'clavicle_l':
+    case 'clavicle_r':
+      return {
+        lat: 1,
+        long: p.shoulderWidth,
+        depth: 1,
+      };
+    case 'upperarm_l':
+    case 'upperarm_r':
+    case 'lowerarm_l':
+    case 'lowerarm_r':
+      return {
+        lat: 1,
+        long: p.limbLength,
+        depth: 1,
+      };
+    case 'thigh_l':
+    case 'thigh_r':
+      return {
+        lat: 1 + (p.hipWidth - 1) * 0.25,
+        long: p.limbLength,
+        depth: 1 + (p.hipWidth - 1) * 0.15,
+      };
+    case 'calf_l':
+    case 'calf_r':
+      return {
+        lat: 1,
+        long: p.limbLength,
+        depth: 1,
+      };
+    default:
+      // Compensate hands, feet, toes, and fingers back to unstretched proportions.
+      return { lat: 1, long: 1, depth: 1 };
+  }
 }
 
 const IDENTITY_QUAT = new THREE.Quaternion();
@@ -478,8 +622,15 @@ export class RigAdapter {
   readonly bonesByCanonicalName: Map<string, THREE.Bone>;
   readonly canonicalRestLocalQuats: ReadonlyMap<string, THREE.Quaternion>;
   private readonly orderedJoints: readonly BoundCanonicalJoint[];
+  private readonly rootScene: THREE.Object3D;
+  private readonly proportionEntries: readonly ProportionBoneEntry[];
+  private activeProportions: FigureProportions = {
+    ...DEFAULT_FIGURE_PROPORTIONS,
+  };
+  private hasNonDefaultProportions = false;
 
   constructor(modelId: MannequinModelId, rootScene: THREE.Object3D) {
+    this.rootScene = rootScene;
     this.modelId = modelId;
     this.canonicalRestLocalQuats = getCanonicalRestLocalQuatMap();
 
@@ -570,6 +721,142 @@ export class RigAdapter {
         joints.has('index_01_r') &&
         joints.has('thumb_01_r')
     );
+
+    const proportionEntries: ProportionBoneEntry[] = [];
+    for (const bound of orderedJoints) {
+      const { longDir, latDir } = getCanonicalTPoseWorldAxes(
+        bound.canonicalName
+      );
+      for (const seg of bound.segments) {
+        const bone = seg.bone;
+        const m = bone.matrixWorld.elements;
+        const basisCols = [
+          new THREE.Vector3(m[0], m[1], m[2]),
+          new THREE.Vector3(m[4], m[5], m[6]),
+          new THREE.Vector3(m[8], m[9], m[10]),
+        ];
+        const restAxisWorldLen: [number, number, number] = [
+          Math.max(1e-6, basisCols[0].length()),
+          Math.max(1e-6, basisCols[1].length()),
+          Math.max(1e-6, basisCols[2].length()),
+        ];
+        const unitCols = basisCols.map((c, idx) =>
+          c.clone().divideScalar(restAxisWorldLen[idx])
+        );
+
+        let longAxis: 0 | 1 | 2 = 1;
+        let bestLong = -1;
+        for (let i = 0; i < 3; i += 1) {
+          const d = Math.abs(unitCols[i].dot(longDir));
+          if (d > bestLong) {
+            bestLong = d;
+            longAxis = i as 0 | 1 | 2;
+          }
+        }
+
+        let latAxis: 0 | 1 | 2 = longAxis === 0 ? 1 : 0;
+        let bestLat = -1;
+        for (let i = 0; i < 3; i += 1) {
+          if (i === longAxis) continue;
+          const d = Math.abs(unitCols[i].dot(latDir));
+          if (d > bestLat) {
+            bestLat = d;
+            latAxis = i as 0 | 1 | 2;
+          }
+        }
+        const depthAxis = (3 - longAxis - latAxis) as 0 | 1 | 2;
+
+        proportionEntries.push({
+          canonicalName: bound.canonicalName,
+          bone,
+          depth: computeBoneDepth(bone, rootScene),
+          restLocalScale: bone.scale.clone(),
+          restAxisWorldLen,
+          longAxis,
+          latAxis,
+          depthAxis,
+        });
+      }
+    }
+    proportionEntries.sort((a, b) => a.depth - b.depth);
+    this.proportionEntries = proportionEntries;
+  }
+
+  get needsProportionSync(): boolean {
+    return this.hasNonDefaultProportions;
+  }
+
+  getActiveProportions(): FigureProportions {
+    return { ...this.activeProportions };
+  }
+
+  applyProportions(proportions: FigureProportions): void {
+    const clamped = clampFigureProportions(proportions);
+    this.activeProportions = clamped;
+    this.hasNonDefaultProportions = !isDefaultProportions(clamped);
+    this.syncProportionScales();
+  }
+
+  syncProportionScales(): void {
+    if (!this.hasNonDefaultProportions) {
+      for (const entry of this.proportionEntries) {
+        entry.bone.scale.copy(entry.restLocalScale);
+      }
+      this.rootScene.updateMatrixWorld(true);
+      return;
+    }
+
+    const rotatedAxis = new THREE.Vector3();
+    for (const entry of this.proportionEntries) {
+      const desired = getDesiredWorldScaleForJoint(
+        entry.canonicalName,
+        this.activeProportions
+      );
+      const axisTargets: [number, number, number] = [1, 1, 1];
+      axisTargets[entry.longAxis] = desired.long;
+      axisTargets[entry.latAxis] = desired.lat;
+      axisTargets[entry.depthAxis] = desired.depth;
+
+      const bone = entry.bone;
+      const parentM = bone.parent ? bone.parent.matrixWorld.elements : null;
+      const nextScale: [number, number, number] = [1, 1, 1];
+
+      for (let i = 0; i < 3; i += 1) {
+        rotatedAxis.copy(LOCAL_AXIS_VECTORS[i]).applyQuaternion(bone.quaternion);
+        let unitWorldLen = 1;
+        if (parentM) {
+          const wx =
+            parentM[0] * rotatedAxis.x +
+            parentM[4] * rotatedAxis.y +
+            parentM[8] * rotatedAxis.z;
+          const wy =
+            parentM[1] * rotatedAxis.x +
+            parentM[5] * rotatedAxis.y +
+            parentM[9] * rotatedAxis.z;
+          const wz =
+            parentM[2] * rotatedAxis.x +
+            parentM[6] * rotatedAxis.y +
+            parentM[10] * rotatedAxis.z;
+          unitWorldLen = Math.hypot(wx, wy, wz);
+        }
+        const restComp = entry.restLocalScale.getComponent(i);
+        const baseMag = Math.max(1e-5, Math.abs(restComp));
+        const rawMag =
+          (entry.restAxisWorldLen[i] * axisTargets[i]) /
+          Math.max(1e-6, unitWorldLen);
+        const clampedMag = Math.min(
+          baseMag * 2.25,
+          Math.max(baseMag * 0.45, rawMag)
+        );
+        nextScale[i] = restComp < 0 ? -clampedMag : clampedMag;
+      }
+
+      bone.scale.set(nextScale[0], nextScale[1], nextScale[2]);
+      bone.updateMatrix();
+      bone.updateMatrixWorld(true);
+    }
+
+    this.rootScene.updateMatrixWorld(true);
   }
 
   getBone(canonicalName: string): THREE.Bone | null {
@@ -585,6 +872,9 @@ export class RigAdapter {
       for (const seg of joint.segments) {
         seg.bone.quaternion.copy(seg.tPoseLocalQuat);
       }
+    }
+    if (this.hasNonDefaultProportions) {
+      this.syncProportionScales();
     }
   }
 
@@ -785,6 +1075,10 @@ export class RigAdapter {
           }
         }
       }
+    }
+
+    if (this.hasNonDefaultProportions) {
+      this.syncProportionScales();
     }
   }
 

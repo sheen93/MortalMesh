@@ -32,6 +32,7 @@ import {
   type ContextualAnchor,
   type DampingPreset,
   type ElevationCommand,
+  type HeadRulerMetrics,
   type IKHandleId,
   type JointAngleCommand,
   type JointAngles,
@@ -49,6 +50,7 @@ import {
   getFisheyeOptics,
   getFisheyeReferenceDistance,
 } from '@/utils/lensWarp';
+import { getNotanThemePalette } from '@/utils/notanGradient';
 import type {
   PropDropCommand,
   PropTransformMode,
@@ -119,11 +121,13 @@ interface StudioCanvasProps {
   cameraRestSeq: number;
   ikPinFeet: boolean;
   ikSwivelByHandle: Record<Exclude<IKHandleId, 'pelvis'>, number>;
+  showHeadRuler: boolean;
   onMannequinBridgeChange: (id: string, bridge: PoseBridge | null) => void;
   onInitialPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onCommitPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onMannequinAnchorChange: (anchor: ContextualAnchor | null) => void;
   onPropAnchorChange: (anchor: ContextualAnchor | null) => void;
+  onHeadRulerMetricsChange: (metrics: HeadRulerMetrics | null) => void;
   onCameraRest: () => void;
   onSnapshotBridgeReady: (bridge: SnapshotBridge | null) => void;
   onCameraBridgeReady: (bridge: CameraBridge | null) => void;
@@ -135,9 +139,6 @@ function formatMatrixNum(value: number): string {
   return Math.abs(value) < 1e-6 ? '0' : value.toFixed(6);
 }
 
-const FILL_LIGHT_POS: [number, number, number] = [-5, 4, 3];
-const RIM_LIGHT_POS: [number, number, number] = [0, 6, -6];
-
 const StudioLighting = memo(function StudioLighting({
   theme,
   keyLight,
@@ -146,7 +147,7 @@ const StudioLighting = memo(function StudioLighting({
   keyLight: KeyLightSettings;
 }) {
   const { invalidate } = useThree();
-  const { lighting } = theme;
+  const notanPalette = getNotanThemePalette(theme.id);
 
   const keyLightTarget = useMemo(() => {
     const targetObj = new THREE.Object3D();
@@ -165,16 +166,35 @@ const StudioLighting = memo(function StudioLighting({
     ];
   }, [keyLight.azimuth, keyLight.elevation]);
 
+  const rimPosition = useMemo<[number, number, number]>(() => {
+    const azRad = THREE.MathUtils.degToRad(
+      keyLight.azimuth + keyLight.rimAzimuthOffset
+    );
+    const elRad = THREE.MathUtils.degToRad(34);
+    const r = 6.8;
+    const horiz = r * Math.cos(elRad);
+    return [horiz * Math.sin(azRad), 1 + r * Math.sin(elRad), horiz * Math.cos(azRad)];
+  }, [keyLight.azimuth, keyLight.rimAzimuthOffset]);
+
+  const fillPosition = useMemo<[number, number, number]>(() => {
+    const azRad = THREE.MathUtils.degToRad(keyLight.azimuth - 105);
+    const elRad = THREE.MathUtils.degToRad(22);
+    const r = 6.5;
+    const horiz = r * Math.cos(elRad);
+    return [horiz * Math.sin(azRad), 1 + r * Math.sin(elRad), horiz * Math.cos(azRad)];
+  }, [keyLight.azimuth]);
+
+  const hemiIntensity = keyLight.notanEnabled ? 0 : keyLight.fillIntensity * 0.85;
   const hemisphereArgs = useMemo<[string, string, number]>(
     () => [
-      lighting.hemisphereSky,
-      lighting.hemisphereGround,
-      lighting.hemisphereIntensity,
+      theme.lighting.hemisphereSky,
+      theme.lighting.hemisphereGround,
+      hemiIntensity,
     ],
     [
-      lighting.hemisphereSky,
-      lighting.hemisphereGround,
-      lighting.hemisphereIntensity,
+      theme.lighting.hemisphereSky,
+      theme.lighting.hemisphereGround,
+      hemiIntensity,
     ]
   );
 
@@ -185,27 +205,43 @@ const StudioLighting = memo(function StudioLighting({
     keyLight.azimuth,
     keyLight.elevation,
     keyLight.intensity,
+    keyLight.rimIntensity,
+    keyLight.rimAzimuthOffset,
+    keyLight.fillIntensity,
+    keyLight.notanEnabled,
+    keyLight.notanSplit,
     theme,
     keyLightTarget,
     invalidate,
   ]);
 
+  const effectiveKeyIntensity = keyLight.notanEnabled
+    ? Math.max(notanPalette.keyIntensity, Math.min(2.8, keyLight.intensity * 1.25))
+    : keyLight.intensity;
+  const effectiveRimIntensity = keyLight.notanEnabled ? 0 : keyLight.rimIntensity;
+  const effectiveFillIntensity = keyLight.notanEnabled
+    ? 0
+    : keyLight.fillIntensity * 0.9;
+  const effectiveAmbient = keyLight.notanEnabled
+    ? notanPalette.ambient
+    : keyLight.fillIntensity * 0.65;
+
   return (
     <>
-      <ambientLight intensity={lighting.ambient} color="#ffffff" />
+      <ambientLight intensity={effectiveAmbient} color="#ffffff" />
       <hemisphereLight args={hemisphereArgs} />
       <primitive object={keyLightTarget} />
       <directionalLight
         position={keyPosition}
         target={keyLightTarget}
-        intensity={keyLight.intensity}
-        color="#ffffff"
+        intensity={effectiveKeyIntensity}
+        color="#FFFDF9"
         castShadow
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
-        shadow-bias={-0.0004}
-        shadow-normalBias={0.02}
-        shadow-radius={4}
+        shadow-bias={-0.0005}
+        shadow-normalBias={0.025}
+        shadow-radius={keyLight.notanEnabled ? 1.5 : 4}
         shadow-camera-left={-3.5}
         shadow-camera-right={3.5}
         shadow-camera-top={3.5}
@@ -214,14 +250,16 @@ const StudioLighting = memo(function StudioLighting({
         shadow-camera-far={25}
       />
       <directionalLight
-        position={FILL_LIGHT_POS}
-        intensity={lighting.fill}
+        position={fillPosition}
+        target={keyLightTarget}
+        intensity={effectiveFillIntensity}
         color="#ffffff"
       />
       <directionalLight
-        position={RIM_LIGHT_POS}
-        intensity={lighting.rim}
-        color="#ffffff"
+        position={rimPosition}
+        target={keyLightTarget}
+        intensity={effectiveRimIntensity}
+        color="#DDE8F8"
       />
     </>
   );
@@ -723,6 +761,9 @@ interface StageReferenceProps {
   cameraRestSeq: number;
   ikPinFeet: boolean;
   ikSwivelByHandle: Record<Exclude<IKHandleId, 'pelvis'>, number>;
+  notanEnabled: boolean;
+  notanSplit: number;
+  showHeadRuler: boolean;
   onSelectMannequin: (id: string) => void;
   onDraggingChange: (isDragging: boolean) => void;
   onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
@@ -744,6 +785,7 @@ interface StageReferenceProps {
   onCommitPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onMannequinAnchorChange: (anchor: ContextualAnchor | null) => void;
   onPropAnchorChange: (anchor: ContextualAnchor | null) => void;
+  onHeadRulerMetricsChange: (metrics: HeadRulerMetrics | null) => void;
 }
 
 const StageReference = memo(function StageReference({
@@ -777,6 +819,9 @@ const StageReference = memo(function StageReference({
   cameraRestSeq,
   ikPinFeet,
   ikSwivelByHandle,
+  notanEnabled,
+  notanSplit,
+  showHeadRuler,
   onSelectMannequin,
   onDraggingChange,
   onSelectBoneChange,
@@ -791,6 +836,7 @@ const StageReference = memo(function StageReference({
   onCommitPoseSnapshot,
   onMannequinAnchorChange,
   onPropAnchorChange,
+  onHeadRulerMetricsChange,
 }: StageReferenceProps) {
   const handleClearPropSelection = useCallback(
     () => onSelectProp(null),
@@ -828,6 +874,9 @@ const StageReference = memo(function StageReference({
         cameraRestSeq={cameraRestSeq}
         ikPinFeet={ikPinFeet}
         ikSwivelByHandle={ikSwivelByHandle}
+        notanEnabled={notanEnabled}
+        notanSplit={notanSplit}
+        showHeadRuler={showHeadRuler}
         onSelectMannequin={onSelectMannequin}
         onDraggingChange={onDraggingChange}
         onSelectBoneChange={onSelectBoneChange}
@@ -840,6 +889,7 @@ const StageReference = memo(function StageReference({
         onInitialPoseSnapshot={onInitialPoseSnapshot}
         onCommitPoseSnapshot={onCommitPoseSnapshot}
         onContextualAnchorChange={onMannequinAnchorChange}
+        onHeadRulerMetricsChange={onHeadRulerMetricsChange}
       />
 
       <StudioProps
@@ -848,6 +898,8 @@ const StageReference = memo(function StageReference({
         propTransformMode={propTransformMode}
         studioTheme={studioTheme}
         groundEnabled={groundEnabled}
+        notanEnabled={notanEnabled}
+        notanSplit={notanSplit}
         dropPropToFloorCommand={dropPropToFloorCommand}
         dragGuardRef={propDragGuardRef}
         activePreset={activePreset}
@@ -918,11 +970,13 @@ export function StudioCanvas({
   cameraRestSeq,
   ikPinFeet,
   ikSwivelByHandle,
+  showHeadRuler,
   onMannequinBridgeChange,
   onInitialPoseSnapshot,
   onCommitPoseSnapshot,
   onMannequinAnchorChange,
   onPropAnchorChange,
+  onHeadRulerMetricsChange,
   onCameraRest,
   onSnapshotBridgeReady,
   onCameraBridgeReady,
@@ -1110,6 +1164,9 @@ export function StudioCanvas({
           cameraRestSeq={cameraRestSeq}
           ikPinFeet={ikPinFeet}
           ikSwivelByHandle={ikSwivelByHandle}
+          notanEnabled={keyLight.notanEnabled}
+          notanSplit={keyLight.notanSplit}
+          showHeadRuler={showHeadRuler}
           onSelectMannequin={onSelectMannequin}
           onDraggingChange={onDraggingChange}
           onSelectBoneChange={onSelectBoneChange}
@@ -1124,6 +1181,7 @@ export function StudioCanvas({
           onCommitPoseSnapshot={onCommitPoseSnapshot}
           onMannequinAnchorChange={onMannequinAnchorChange}
           onPropAnchorChange={onPropAnchorChange}
+          onHeadRulerMetricsChange={onHeadRulerMetricsChange}
         />
         {isFisheyePreset(activePreset) && (
           <CurvilinearLens

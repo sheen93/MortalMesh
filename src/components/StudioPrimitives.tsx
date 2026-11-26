@@ -619,6 +619,61 @@ export function LockIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
   );
 }
 
+export function FrameGuidesIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="2.25" y="2.75" width="11.5" height="10.5" rx="1.5" />
+      <path d="M6.1 2.75v10.5M9.9 2.75v10.5M2.25 6.25h11.5M2.25 9.75h11.5" />
+    </svg>
+  );
+}
+
+export function RulerIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M5.25 2v12h5.5V2h-5.5Z" />
+      <path d="M5.25 5h2.25M5.25 8h3.25M5.25 11h2.25" />
+    </svg>
+  );
+}
+
+export function ImageIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="2" y="2.75" width="12" height="10.5" rx="1.5" />
+      <circle cx="5.5" cy="6" r="1" />
+      <path d="m2.5 11.5 3.3-3.2a.8.8 0 0 1 1.13 0L9.2 10.6l1.4-1.35a.8.8 0 0 1 1.12 0L13.75 11.2" />
+    </svg>
+  );
+}
+
 export function UnlockIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
   return (
     <svg

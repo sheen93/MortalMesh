@@ -1,4 +1,9 @@
-import type { HandGestureId, HandSide, IKHandleId } from '@/types/anatomy';
+import type {
+  FigureProportions,
+  HandGestureId,
+  HandSide,
+  IKHandleId,
+} from '@/types/anatomy';
 
 export type QuaternionTuple = [number, number, number, number];
 
@@ -11,6 +16,7 @@ export interface PoseSnapshot {
   groundEnabled: boolean;
   groundSnapEnabled: boolean;
   pinnedBones: string[];
+  proportions?: FigureProportions;
 }
 
 export interface MortalMeshPoseFile {
@@ -45,4 +51,8 @@ export interface PoseBridge {
   ) => PoseSnapshot | null;
   resetIKLimb: (handleId: IKHandleId) => PoseSnapshot | null;
   plantFootIK: (handleId: 'foot_l' | 'foot_r') => PoseSnapshot | null;
+  syncProportions: (
+    proportions: FigureProportions,
+    commitHistory?: boolean
+  ) => PoseSnapshot | null;
 }

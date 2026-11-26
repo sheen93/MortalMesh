@@ -42,7 +42,12 @@ async function warmOptionalModels(manifestArg, cacheNameArg) {
       const optionalUrls = Array.isArray(manifest?.optionalModelUrls)
         ? manifest.optionalModelUrls
         : [];
-      const allModelUrls = ['/models/anatomy.glb', ...optionalUrls];
+      const coreModelUrls = Array.isArray(manifest?.urls)
+        ? manifest.urls.filter(
+            (u) => typeof u === 'string' && u.startsWith('/models/')
+          )
+        : ['/models/anatomy.glb', '/models/mannequin-female.glb'];
+      const allModelUrls = Array.from(new Set([...coreModelUrls, ...optionalUrls]));
       const totalCount = allModelUrls.length;
       const cache = await caches.open(targetCacheName);
 

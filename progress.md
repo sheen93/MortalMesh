@@ -1,7 +1,7 @@
 # Mortal Mesh — Project Progress & Handoff Guide
 
 **Last Updated:** 2026-11-26  
-**Status:** Phase 13 Complete — Studio IK Reticles, Custom 3-Axis/Screen-Plane IK Gizmo, 1-Gesture Direct Drag, Limb Swivel & Pelvis Squat Built & Verified  
+**Status:** Phase 14 Complete — Atelier Default, 3-Point Rembrandt Lighting & 2-Value Notan Shader, Non-Destructive Proportion Morphs, Head-Unit Ruler, Composition Crops/Grids & Reference Image Overlay Built & Verified  
 **Local Server:** Stopped cleanly (start preview via `rm -rf .next && npm run build && npm run start`, or dev via `npm run dev`)
 
 ---
@@ -382,3 +382,34 @@ All four new GLB assets from `/home/sheen/Documents/Mortal Mesh/models/` were cl
   - **Fisheye 70% & Clean Transparent PNG Cutout:** Dragged `hand_l` (`x: 995, y: 235`) under `Fisheye` Dome `70%`, exported Transparent PNG (`cornerAlpha: 0, centerAlpha: 255`), and visually verified `p13_desktop_fisheye_ik.png`.
   - **Galaxy S25 Ultra (`412×915`) Compact IK Tray:** Verified `hand_l` tray (`popHeight: 101`, `upperClearFraction: 0.82`, `dockOverflow: false`, `overlapsDock: false`, `overlapsStage: false`) and `foot_l` tray (`popHeight: 98.75`, `upperClearFraction: 0.82`, `hasPlantBtn: true`, `hasSwivelSlider: true`), visually verified in `p13_mobile_ik_hand_tray.png` and `p13_mobile_ik_foot_tray.png`.
 - **Phase 12, Phase 11 & Phase 10 Regression Suites (`verify_phase12_cdp.mjs`, `verify_phase11_cdp.mjs`, `verify_phase10_cdp.mjs`):** All three exited `0` (`"status": "PASS"`, `consoleErrorCount: 0`, `pageExceptionCount: 0`, `networkFailureCount: 0`). Production server stopped cleanly afterward (`0` background tasks running).
+
+---
+
+## 12. Phase 14: Atelier Default, 3-Point Rembrandt Lighting & 2-Value Notan, Non-Destructive Proportion Morphs, Head-Unit Ruler, Composition Overlays & Reference Image HUD
+
+### 12.1 Delivered Systems & Artist Workflow Enhancements
+
+- **Milestone 30 — Classical Atelier Boot, 3-Point Lighting & 2-Value Notan (`src/data/lightingPresets.ts`, `src/utils/notanGradient.ts`, `src/components/StudioCanvas.tsx`, `src/components/StudioRightRail.tsx`, `src/components/AnatomyModel.tsx`, `src/components/StudioProps.tsx`, `scripts/generatePrecache.mjs`, `public/sw.js`):**
+  - Updated fresh boot and `New Blank Scene` defaults in `src/app/page.tsx` and `src/types/scene.ts` (`createInitialMannequin(modelId = 'female')`) to open in **Neutral Gray** (`#686E78`, `rgb(104, 110, 120)`) with a matte `Ivory` **Female** mannequin (`public/models/mannequin-female.glb`) posed in `Contrapposto (David)` (`'contrapposto'`) and Rembrandt 3-point key/rim/fill lighting (`DEFAULT_KEY_LIGHT`: azimuth `42°`, elevation `48°`, key `1.85`, rim `0.75` @ `175°` offset, fill `0.38`).
+  - Added 4 single-tap studio lighting presets in `src/data/lightingPresets.ts` (`Rembrandt`, `Chiaroscuro`, `Top-Down`, `Rim`) alongside `Rim Light`, `Fill Light`, `2-Value Shadow (Notan)` toggle, and `Shadow Split` (`20%–80%`) inside the exclusive `Studio Lighting` right-rail popover (`src/components/StudioRightRail.tsx`).
+  - Implemented crisp hard-step `2-Value Shadow (Notan)` shading using a procedural `256×1` `THREE.DataTexture` (`NearestFilter`) in `src/utils/notanGradient.ts`, swapping materials to `THREE.MeshToonMaterial` with rim/fill suppression across all 5 mannequin rigs (`AnatomyModel.tsx`) and Studio Props (`StudioProps.tsx`) with clean restoration and disposal.
+  - Promoted `/models/mannequin-female.glb` into `CORE_URLS` alongside `/models/anatomy.glb` inside `scripts/generatePrecache.mjs` (`public/sw.js` + `src/components/PwaManager.tsx`), leaving 3 optional models in `OPTIONAL_MODEL_URLS` (`28` core URLs, `3` optional models, `0` duplicate URLs, `Offline Ready (5/5 Models)`).
+- **Milestone 31 — Non-Destructive Proportion Morphs & Live Head-Unit Ruler (`src/data/proportions.ts`, `src/rig/rigAdapter.ts`, `src/physics/runtimeIK.ts`, `src/components/JointArcGizmo.tsx`, `src/components/FloatingSidebar.tsx`, `src/components/HeadUnitRuler.tsx`):**
+  - Added `FigureProportions` (`headScale`, `shoulderWidth`, `torsoLength`, `hipWidth`, `limbLength`), clamping/equality helpers, and 3 canon presets (`6.5H` Stylized, `7.5H` Natural, `8.5H` Heroic) in `src/data/proportions.ts`, with backward-compatible Scene JSON round-trip (`src/types/sceneIO.ts`, `src/utils/sceneSerialization.ts`) and Pose JSON serialization (`src/types/poseIO.ts`, `src/utils/poseSerialization.ts`).
+  - Added depth-sorted top-down non-cascading hierarchical bone scaling (`applyProportions` / `syncProportionScales`) across all 5 skeletons (including multi-segment torso bones and `skeleton-rig.glb` intermediate thorax nodes) inside `src/rig/rigAdapter.ts`, preserving unstretched hands/feet/joints and feeding live IK segment re-measurement in `src/physics/runtimeIK.ts`.
+  - Built the collapsible `Proportions` sub-drawer under each active figure inside `FloatingSidebar.tsx` (disabled when figure is locked, single Undo/Redo commit on slider release or preset tap) and projected live SkinnedMesh world bounds + optional Fisheye warp into `src/components/HeadUnitRuler.tsx` (excluded cleanly from PNG exports).
+- **Milestone 32 — Exclusive `Guides & Ref` Right-Rail Hub & Viewport Overlays (`src/components/StudioRightRail.tsx`, `src/components/CompositionOverlay.tsx`, `src/components/ReferenceOverlay.tsx`):**
+  - Added `Guides & Ref` as the 4th exclusive right-rail popover (`FrameGuidesIcon`, `RulerIcon`, `ImageIcon` in `StudioPrimitives.tsx`): `Head-Unit Ruler` toggle, `Composition Frame` (`Off | 4:5 | 16:9 | 1:1 | 9:16`), `Composition Grid` (`Off | Thirds | Cross | Golden` + `Flip Spiral`), and 100% client-side local `Reference Image` loader with `Backdrop` (click-through `pointer-events: none` when locked, drag-repositionable when unlocked) vs draggable/minimizable `Corner PiP` card, plus `Opacity`, `Scale`, `Flip H`, `Lock`, `Remove`, and `URL.revokeObjectURL` cleanup.
+
+### 12.2 Phase 14 Final Verification Outputs
+
+- **TypeScript (`npx tsc --noEmit`):** Exited `0` (`0` errors).
+- **Pose & Hand Gesture Validation (`node scripts/validatePoses.mjs`):** Exited `0` — `50` poses + `12x2` hand gestures, `0` violations.
+- **Log Audit (`grep -rn "console\.log" src/`):** Zero matches.
+- **Production Build (`rm -rf .next && npm run build`):** Exited `0` (`/` `345 kB`, First Load JS `432 kB`, `0` TypeScript/ESLint errors), generated `public/sw-precache.json` (`version=1442cc2006d0`, `28` core URLs, `3` optional models, `0` duplicate URLs).
+- **Phase 14 Headless Chrome QA (`verify_phase14_cdp.mjs` against `npm run start`):** Exited `0` (`"status": "PASS"`, `consoleErrorCount: 0`, `pageExceptionCount: 0`, `networkFailureCount: 0`):
+  - **Atelier Default & Demand Rendering:** Confirmed Gray (`rgb(104, 110, 120)`), `Female`, `Ivory`, `Contrapposto (David)`, and `idleAtelier: 0` / `idleAfterNotan: 0` WebGL draws.
+  - **3-Point Lighting, Notan & Fisheye PNG Export:** Cycled all 4 lighting presets, toggled `2-Value Shadow (Notan)` + `Shadow Split` (`0.3` → `0.7`), and exported Transparent PNG under `Fisheye 70%` (`cornerAlpha: 0, centerAlpha: 255`).
+  - **Proportions & Cross-Rig Skeleton Scaling:** Verified live Head-Unit Ruler updates across canon presets (`stylized: "5.9 Heads · 187cm"`, `natural: "7.1 Heads · 196cm"`, `heroic: "8.6 Heads · 209cm"`) and switched cleanly to `Skeleton` (`"8.7 Heads · 210cm"`) with intact ribs/spine, plus Scene JSON save/load round-trip.
+  - **Guides & Ref Overlay + Core Regressions:** Verified `4:5` composition frame, `Thirds` + `Golden` spiral flip, local reference `Backdrop` click-through (`upperarm_l` pick passed through locked backdrop), `Corner PiP` card, Zen Mode empty-tap minimize/restore, FK ring selection, IK direct drag (`"Left Hand · Δ39cm"`), and Pelvis squat (`"Pelvis · Squat -30cm"`).
+  - **Zero-Duplication, 5-Viewport Audit & Offline SW Reload:** Verified zero HUD duplication (`4` right-rail buttons), zero overflow/overlap across `1440×900`, `412×915`, `915×412`, `1280×800`, and `800×1280`, offline reload preserving Gray atelier, `8.6 Heads · 209cm`, `4:5` crop, and `"Offline Mode"`, and visually inspected all 9 Phase 14 screenshots (`p14_atelier_default.png`, `p14_notan_gray.png`, `p14_notan_fisheye.png`, `p14_proportions_heroic_ruler.png`, `p14_proportions_skeleton.png`, `p14_guides_ref_backdrop.png`, `p14_guides_ref_pip.png`, `p14_mobile_atelier.png`, `p14_mobile_guides_popover.png`). Production test server stopped cleanly afterward (`0` background tasks running).

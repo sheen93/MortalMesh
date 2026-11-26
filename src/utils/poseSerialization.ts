@@ -1,4 +1,13 @@
-import { isCoreBoneName, POSEABLE_BONE_NAMES } from '@/types/anatomy';
+import {
+  clampFigureProportions,
+  DEFAULT_FIGURE_PROPORTIONS,
+  proportionsEqual,
+} from '@/data/proportions';
+import {
+  isCoreBoneName,
+  POSEABLE_BONE_NAMES,
+  type FigureProportions,
+} from '@/types/anatomy';
 import type {
   MortalMeshPoseFile,
   ParsePoseResult,
@@ -119,6 +128,10 @@ export function parsePoseSnapshotObject(
     }
   }
 
+  const proportions = isPlainObject(rawPose.proportions)
+    ? clampFigureProportions(rawPose.proportions as Partial<FigureProportions>)
+    : { ...DEFAULT_FIGURE_PROPORTIONS };
+
   return {
     ok: true,
     pose: {
@@ -128,6 +141,7 @@ export function parsePoseSnapshotObject(
       groundEnabled: rawPose.groundEnabled,
       groundSnapEnabled: rawPose.groundSnapEnabled,
       pinnedBones: Array.from(pinnedSet),
+      proportions,
     },
   };
 }
@@ -148,6 +162,9 @@ export function clonePoseSnapshot(snapshot: PoseSnapshot): PoseSnapshot {
     groundEnabled: snapshot.groundEnabled,
     groundSnapEnabled: snapshot.groundSnapEnabled,
     pinnedBones: [...snapshot.pinnedBones],
+    proportions: snapshot.proportions
+      ? clampFigureProportions(snapshot.proportions)
+      : { ...DEFAULT_FIGURE_PROPORTIONS },
   };
 }
 
@@ -159,6 +176,7 @@ export function snapshotsEqual(
   if (a.groundEnabled !== b.groundEnabled) return false;
   if (a.groundSnapEnabled !== b.groundSnapEnabled) return false;
   if (Math.abs(a.elevationY - b.elevationY) > 1e-3) return false;
+  if (!proportionsEqual(a.proportions, b.proportions)) return false;
 
   for (let i = 0; i < 3; i += 1) {
     if (Math.abs(a.rootPosition[i] - b.rootPosition[i]) > 1e-3) {

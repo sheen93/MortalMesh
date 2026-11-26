@@ -1,14 +1,16 @@
 {
-  "version": "37b05d559a6e",
-  "generatedAt": "2026-11-26T07:00:25.005Z",
+  "version": "1442cc2006d0",
+  "generatedAt": "2026-11-26T19:28:13.381Z",
   "urls": [
     "/",
+    "/_next/static/HiawRbZ0Xg-pmAcfFgljs/_buildManifest.js",
+    "/_next/static/HiawRbZ0Xg-pmAcfFgljs/_ssgManifest.js",
     "/_next/static/chunks/117-03ce761b2ee9e3ad.js",
-    "/_next/static/chunks/12-f6eb5c3eb02023b7.js",
+    "/_next/static/chunks/12-3e62fc2c35d7856d.js",
     "/_next/static/chunks/app/_not-found/page-bcd7a36e5884db01.js",
     "/_next/static/chunks/app/layout-4828418c2726d79b.js",
-    "/_next/static/chunks/app/page-210c50cd19bdc6e0.js",
-    "/_next/static/chunks/b536a0f1-631dc24d1d7c2b76.js",
+    "/_next/static/chunks/app/page-32a47485b94a32be.js",
+    "/_next/static/chunks/b536a0f1-3ad2872148860e77.js",
     "/_next/static/chunks/fd9d1056-52f1ccaae4b348b2.js",
     "/_next/static/chunks/framework-d1703057b07599d4.js",
     "/_next/static/chunks/main-42291a07341cb7b4.js",
@@ -17,9 +19,7 @@
     "/_next/static/chunks/pages/_error-7ba65e1336b92748.js",
     "/_next/static/chunks/polyfills-42372ed130431b0a.js",
     "/_next/static/chunks/webpack-a3c37fcbf859f6f9.js",
-    "/_next/static/css/8218478a3af47c24.css",
-    "/_next/static/iHikP2hsozxqPwqSJjdmC/_buildManifest.js",
-    "/_next/static/iHikP2hsozxqPwqSJjdmC/_ssgManifest.js",
+    "/_next/static/css/27e084f338b640fa.css",
     "/draco/draco_decoder.js",
     "/draco/draco_decoder.wasm",
     "/draco/draco_wasm_wrapper.js",
@@ -28,12 +28,12 @@
     "/icons/icon-512.png",
     "/icons/icon-maskable-512.png",
     "/manifest.webmanifest",
-    "/models/anatomy.glb"
+    "/models/anatomy.glb",
+    "/models/mannequin-female.glb"
   ],
   "optionalModelUrls": [
     "/models/mannequin-2.glb",
     "/models/mannequin-3.glb",
-    "/models/mannequin-female.glb",
     "/models/skeleton-rig.glb"
   ]
 }

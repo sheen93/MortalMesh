@@ -265,17 +265,78 @@ export interface ContextualAnchor {
   figureCenterScreenX?: number;
 }
 
-export interface KeyLightSettings {
+export type LightingPresetId = 'rembrandt' | 'chiaroscuro' | 'top-down' | 'rim';
+
+export interface StudioLightingConfig {
   azimuth: number; // 0..360 deg
   elevation: number; // 15..85 deg
   intensity: number; // 0.4..2.8
+  rimIntensity: number; // 0.0..2.4
+  rimAzimuthOffset: number; // 90..270 deg
+  fillIntensity: number; // 0.05..1.2
+  notanEnabled: boolean;
+  notanSplit: number; // 0.2..0.8
+  presetId?: LightingPresetId | null;
 }
 
+export type KeyLightSettings = StudioLightingConfig;
+
 export const DEFAULT_KEY_LIGHT: KeyLightSettings = {
-  azimuth: 45,
-  elevation: 45,
-  intensity: 1.4,
+  azimuth: 42,
+  elevation: 48,
+  intensity: 1.85,
+  rimIntensity: 0.75,
+  rimAzimuthOffset: 175,
+  fillIntensity: 0.38,
+  notanEnabled: false,
+  notanSplit: 0.5,
+  presetId: 'rembrandt',
 };
+
+export interface FigureProportions {
+  headScale: number;
+  shoulderWidth: number;
+  torsoLength: number;
+  hipWidth: number;
+  limbLength: number;
+}
+
+export interface HeadRulerTick {
+  headIndex: number;
+  label: string;
+  screenX: number;
+  screenY: number;
+  isMajor: boolean;
+}
+
+export interface HeadRulerMetrics {
+  visible: boolean;
+  headCount: number;
+  headHeightMeters: number;
+  standingHeightMeters: number;
+  anchorX: number;
+  topY: number;
+  bottomY: number;
+  ticks: HeadRulerTick[];
+}
+
+export type CompositionCropRatio = 'off' | '4:5' | '16:9' | '1:1' | '9:16';
+
+export type CompositionGridType = 'off' | 'thirds' | 'cross' | 'golden';
+
+export type ReferenceOverlayMode = 'backdrop' | 'pip';
+
+export interface ReferenceOverlayState {
+  objectUrl: string;
+  filename: string;
+  mode: ReferenceOverlayMode;
+  opacity: number; // 0.1..0.95
+  scale: number; // 0.25..1.8
+  flipH: boolean;
+  locked: boolean;
+  offsetX: number;
+  offsetY: number;
+}
 
 export interface SnapshotOptions {
   transparent: boolean;

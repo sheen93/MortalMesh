@@ -576,6 +576,9 @@ export function solveLimbIK({
     jointLimitsEnabled
   );
   applyJoint(chain.lowerBone, lowerBone, restLower, finalLowerAngles, specLower.order);
+  if (rigAdapter?.needsProportionSync) {
+    rigAdapter.syncProportionScales();
+  }
   rootGroup.updateMatrixWorld(true);
 
   const achievedPos = getBoneWorldPos(endBone);
@@ -648,6 +651,9 @@ export function solvePelvisSquatIK({
           jointLimitsEnabled
         );
         rigAdapter.applyCanonicalAngles(footName, nextFoot, fSpec.order);
+        if (rigAdapter.needsProportionSync) {
+          rigAdapter.syncProportionScales();
+        }
       };
 
       if (anchoredFootL) {
