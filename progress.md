@@ -1,7 +1,7 @@
 # Mortal Mesh — Project Progress & Handoff Guide
 
 **Last Updated:** 2026-11-26  
-**Status:** Phase 12 Complete — Clean Mobile UI, Studio Tap-to-Minimize Zen Mode, Precision Joint Pin-Rings & Custom Arc Gizmo Built & Verified  
+**Status:** Phase 13 Complete — Studio IK Reticles, Custom 3-Axis/Screen-Plane IK Gizmo, 1-Gesture Direct Drag, Limb Swivel & Pelvis Squat Built & Verified  
 **Local Server:** Stopped cleanly (start preview via `rm -rf .next && npm run build && npm run start`, or dev via `npm run dev`)
 
 ---
@@ -348,3 +348,37 @@ All four new GLB assets from `/home/sheen/Documents/Mortal Mesh/models/` were cl
   - Verified Desktop & Galaxy S25 Ultra (`412×915`) Zen Mode: empty studio tap minimizes HUD (`sidebarOpacity: "0"`, `dockOpacity: "0"`, `railOpacity: "0"`, `[data-testid="restore-hud-pill"]` shown), mannequin tap & orbit drag keep Zen active, and second empty tap restores HUD cleanly.
   - Verified Mobile (`412×915`) layout: compact camera pill (`"Fisheye · 70%"`, `hasBigLensCard: false`), zero overflow (`docOverflow: false, dockOverflow: false`), `hand_l` selection (`368, 338`) + `Peace` gesture inside docked Bottom Tray (`popHeight: 131`, `upperClearFraction: 0.79`, `overlapsDock: false`, `overlapsStage: false`). Visually inspected all 7 Phase 12 PNG screenshots (`p12_desktop_rings.png`, `p12_desktop_arc_gizmo.png`, `p12_desktop_arc_dragging.png`, `p12_desktop_fisheye_gizmo.png`, `p12_desktop_zen.png`, `p12_mobile_fisheye_clean.png`, `p12_mobile_hand_tray.png`, `p12_mobile_zen.png`).
 - **Phase 11 & Phase 10 Regression Suites (`verify_phase11_cdp.mjs`, `verify_phase10_cdp.mjs`):** Both exited `0` (`"status": "PASS"`, `consoleErrorCount: 0`, `pageExceptionCount: 0`, `networkFailureCount: 0`) covering all 5 `.glb` models, offline model switching, Skeleton Mode, FK/IK/gestures, Fisheye HDR/PNG export (`2880×1800`, `cornerAlpha: 0`), and 5-viewport zero-overlap layout audits. Production server stopped cleanly afterward (`0` background tasks remaining).
+
+---
+
+## 11. Phase 13: Studio IK Mode Overhaul (Reticles, Custom Move Gizmo, Direct Drag, Limb Swivel & Pelvis Squat)
+
+### 11.1 Delivered Systems & UX Refinements
+
+- **Billboarded Precision IK Reticles & 1-Gesture Direct Drag (`src/components/IKHandleMarkers.tsx`, `src/data/studioThemes.ts`):**
+  - Replaced bulky 3D octahedron and horizontal-torus handles with camera-facing GLSL SDF billboarded target reticles (`uShape=0` hollow circle + 4 cardinal ticks for hands/feet, `uShape=1` hollow L1 diamond ring for pelvis, plus outer contrast hairline and idle/hover/selected uniforms) inside `mortal-mesh-ik-handles` for clean snapshot exclusion.
+  - Added distance scaling in `useFrame`, calm focus dimming of non-selected handles, synchronous `CameraControls` locking (`enabled=false; cancel(); stop()`), Fisheye warp pointer mapping (`screenNdcToSourceNdc`), and 1-gesture screen-plane dragging (`>= 4px` pointer travel drags immediately without pre-selecting; `< 4px` tap selects).
+- **Custom Studio IK Move Gizmo (`src/components/IKMoveGizmo.tsx`, `src/components/AnatomyModel.tsx`):**
+  - Replaced stock Three.js `<TransformControls mode="translate" />` on IK handles with a custom `IKMoveGizmo` matching `JointArcGizmo`: muted architectural `+X/+Y/+Z` translation rails, edge-on/foreshortened collider hiding (scaling down AND swapping `raycast` to `NOOP_RAYCAST` because Three.js `Raycaster` ignores `visible = false`), conditional horizontal `XZ` floor-glide arc pad when viewing above horizon, slender center screen-plane drag ring (`[0.198, 0.222]`), frosted live delta pill (`[data-testid="ik-gizmo-readout"]`), live 2-bone limb chain beams (`ikChainColor`), terracotta elastic reach tether + ghost target ring when exceeding reach, and Fisheye inverse warp support.
+  - Kept `<TransformControls>` for `Move` body mode and `<JointArcGizmo>` for FK mode untouched.
+- **Stable Limb IK Refinement, Swivel & Pelvis Squat (`src/physics/runtimeIK.ts`, `src/types/poseIO.ts`):**
+  - Upgraded `solveLimbIK` with continuous drag pole blending (`poleHintOverride`), smooth Hermite bend-plane blending, fine `[8, 2, 0.5]` float coordinate-descent refinement, symmetric elbow/knee swivel (`swivelDeg`), and extended metadata (`upperPos`, `lowerPos`, `achievedPos`, `reachRatio`, `isMaxReach`, `isClamped`, `resolvedPole`).
+  - Added `solvePelvisSquatIK` for hip-led squatting/crouching with planted feet (`pinFeet`) and flat-floor ankle dorsiflexion leveling (`levelX`), plus floor-penetration-only guard mid-drag with single `recomputeGroundOffset(0)` settle on release to stop foot bounce.
+  - Exposed `applyIKSwivel`, `resetIKLimb`, and `plantFootIK` on `PoseBridge`.
+- **Practical Desktop & Mobile IK Contextual Controls (`src/components/JointControlPopover.tsx`, `src/app/page.tsx`, `src/components/StudioCanvas.tsx`):**
+  - Added `ikPinFeet` (default `true`) and per-handle `ikSwivelByHandle` state in `page.tsx`, resetting swivels cleanly across preset/reset/scene/figure switches.
+  - Upgraded desktop popovers and Galaxy S25 Ultra (`412×915`) docked Bottom Control Tray: Hand IK features `Gestures | Limb` tabs (preserving 1-tap `Gestures` default + `Mirror L → R` and adding `Elbow Swivel` + `Reset IK limb`), Foot IK adds `Knee Swivel` + `Plant` (`[data-testid="ik-plant-foot"]`) + `Reset IK limb`, and Pelvis IK adds `Pin Feet (Squat)` (`[data-testid="ik-pin-feet-toggle"]`) + `Drop` + `Reset`.
+  - Memoized `StudioLighting`, `canvasBgArgs`, `canvasFogArgs`, and `StageReference` in `StudioCanvas.tsx` so unrelated UI toast timers trigger `0` idle WebGL draw calls under `frameloop="demand"`.
+
+### 11.2 Phase 13 Final Verification Outputs
+
+- **TypeScript (`npx tsc --noEmit`):** Exited `0` (`0` errors).
+- **Pose & Hand Gesture Validation (`node scripts/validatePoses.mjs`):** Exited `0` — `VALIDATED 50 POSES (categories={"foundation":5,"classical":10,"action":10,"combat":8,"dance":8,"gesture":9}) + 12x2 HAND GESTURES (0 ROM/bone violations)`.
+- **Log Audit (`grep -rn "console\.log" src/`):** Zero matches.
+- **Production Build (`rm -rf .next && npm run build`):** Exited `0` (`/` `334 kB`, First Load JS `421 kB`, `0` TypeScript/ESLint errors), generated `public/sw-precache.json` (`version=37b05d559a6e`, `27` core URLs, `4` optional models).
+- **Phase 13 Headless Chrome QA (`verify_phase13_cdp.mjs`):** Exited `0` (`"status": "PASS"`, `consoleErrorCount: 0`, `pageExceptionCount: 0`):
+  - **Direct 1-Gesture Drag & Readout:** Grabbed unselected `hand_l` reticle (`x: 885, y: 336`), dragged smoothly with frosted readout `"Left Hand · Δ66cm"`, verified `idleAfterDirectDrag: 0` draw calls, adjusted Elbow Swivel & `Reset IK limb`, and lifted + `Plant`ed `foot_l` (`x: 736, y: 638`).
+  - **Pelvis Squat & Ankle Leveling:** Dragged `pelvis` center screen-plane ring (`x: 716, y: 452`) downward with `Pin Feet` ON (`"Pelvis · Squat -33cm"`, `idleAfterSquat: 0`), visually verified natural bent knees + flat planted feet in `p13_desktop_ik_pelvis_squat.png`.
+  - **Fisheye 70% & Clean Transparent PNG Cutout:** Dragged `hand_l` (`x: 995, y: 235`) under `Fisheye` Dome `70%`, exported Transparent PNG (`cornerAlpha: 0, centerAlpha: 255`), and visually verified `p13_desktop_fisheye_ik.png`.
+  - **Galaxy S25 Ultra (`412×915`) Compact IK Tray:** Verified `hand_l` tray (`popHeight: 101`, `upperClearFraction: 0.82`, `dockOverflow: false`, `overlapsDock: false`, `overlapsStage: false`) and `foot_l` tray (`popHeight: 98.75`, `upperClearFraction: 0.82`, `hasPlantBtn: true`, `hasSwivelSlider: true`), visually verified in `p13_mobile_ik_hand_tray.png` and `p13_mobile_ik_foot_tray.png`.
+- **Phase 12, Phase 11 & Phase 10 Regression Suites (`verify_phase12_cdp.mjs`, `verify_phase11_cdp.mjs`, `verify_phase10_cdp.mjs`):** All three exited `0` (`"status": "PASS"`, `consoleErrorCount: 0`, `pageExceptionCount: 0`, `networkFailureCount: 0`). Production server stopped cleanly afterward (`0` background tasks running).

@@ -69,15 +69,47 @@ export interface SolveLimbIKParams {
   restQuaternions: ReadonlyMap<string, THREE.Quaternion>;
   rigAdapter?: RigAdapter;
   jointLimitsEnabled: boolean;
+  swivelDeg?: number;
+  poleHintOverride?: THREE.Vector3;
 }
 
 export interface SolveLimbIKResult {
   upperBoneName: string;
   lowerBoneName: string;
   endBoneName: string;
+  upperPos: THREE.Vector3;
+  lowerPos: THREE.Vector3;
   upperAngles: JointAngles;
   lowerAngles: JointAngles;
   achievedPos: THREE.Vector3;
+  reachRatio: number;
+  isMaxReach: boolean;
+  isClamped: boolean;
+  resolvedPole: THREE.Vector3;
+}
+
+export interface SolvePelvisSquatIKParams {
+  startRootPos: THREE.Vector3;
+  deltaWorld: THREE.Vector3;
+  anchoredFootL: THREE.Vector3 | null;
+  anchoredFootR: THREE.Vector3 | null;
+  pinFeet: boolean;
+  swivelFootL?: number;
+  swivelFootR?: number;
+  rootGroup: THREE.Group;
+  bonesByName: Map<string, THREE.Bone>;
+  restQuaternions: ReadonlyMap<string, THREE.Quaternion>;
+  rigAdapter?: RigAdapter;
+  jointLimitsEnabled: boolean;
+  groundEnabled: boolean;
+  computeSkinnedMinY: () => number;
+}
+
+export interface SolvePelvisSquatIKResult {
+  minY: number;
+  pelvisPos: THREE.Vector3;
+  footLResult: SolveLimbIKResult | null;
+  footRResult: SolveLimbIKResult | null;
 }
 
 const _wp = new THREE.Vector3();
@@ -99,6 +131,11 @@ function safeNorm(
   const len = vec.length();
   if (len < 1e-6) return fallback.clone();
   return vec.clone().divideScalar(len);
+}
+
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = THREE.MathUtils.clamp((x - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
 }
 
 function wrap180(deg: number): number {
@@ -189,7 +226,7 @@ function quatToIKAngles(
     }
   }
 
-  if (jointLimitsEnabled && bestAngErr > 0.07) {
+  if (jointLimitsEnabled && bestAngErr > 0.04) {
     const evalErr = (x: number, y: number, z: number): number => {
       eCand.set(
         THREE.MathUtils.degToRad(x),
@@ -201,17 +238,12 @@ function quatToIKAngles(
       return qCand.angleTo(deltaQuat);
     };
 
-    let cur: JointAngles = {
-      x: Math.round(best.x),
-      y: Math.round(best.y),
-      z: Math.round(best.z),
-    };
-    cur = clampJointAngles(cur, spec, true);
+    let cur: JointAngles = clampJointAngles(best, spec, true);
     let curErr = evalErr(cur.x, cur.y, cur.z);
 
     for (const [radius, step] of [
-      [12, 4],
-      [3, 1],
+      [8, 2],
+      [2, 0.5],
     ] as const) {
       let improved = true;
       let iter = 0;
@@ -226,12 +258,13 @@ function quatToIKAngles(
 
           const lo = Math.max(lim.min, cur[axis] - radius);
           const hi = Math.min(lim.max, cur[axis] + radius);
-          for (let val = lo; val <= hi; val += step) {
-            const nx = axis === 'x' ? val : cur.x;
-            const ny = axis === 'y' ? val : cur.y;
-            const nz = axis === 'z' ? val : cur.z;
+          for (let val = lo; val <= hi + 1e-6; val += step) {
+            const clampedVal = Math.min(hi, val);
+            const nx = axis === 'x' ? clampedVal : cur.x;
+            const ny = axis === 'y' ? clampedVal : cur.y;
+            const nz = axis === 'z' ? clampedVal : cur.z;
             const err = evalErr(nx, ny, nz);
-            if (err + 1e-5 < curErr) {
+            if (err + 1e-6 < curErr) {
               curErr = err;
               cur = { x: nx, y: ny, z: nz };
               improved = true;
@@ -307,7 +340,7 @@ function computeNaturalPoleHint(
       .normalize();
   }
 
-  // Blend gently with current anatomical bend plane to prevent popping mid-drag
+  // Blend smoothly with current anatomical bend plane (Hermite taper prevents popping)
   const curSE = endPos.clone().sub(upperPos);
   if (curSE.lengthSq() > 1e-4) {
     const dir1 = lowerPos.clone().sub(upperPos);
@@ -322,13 +355,17 @@ function computeNaturalPoleHint(
         lowerPos.clone().sub(upperPos),
         curSE.clone().normalize()
       );
-      if (curBendDeg > 10 && curPerp.length() > 0.015) {
+      if (curPerp.length() > 0.01) {
         curPerp.normalize();
-        if (curPerp.dot(naturalPole) > 0) {
+        const blend =
+          smoothstep(6, 22, curBendDeg) *
+          smoothstep(0.05, 0.35, curPerp.dot(naturalPole)) *
+          0.3;
+        if (blend > 0.001) {
           naturalPole = naturalPole
             .clone()
-            .multiplyScalar(0.65)
-            .addScaledVector(curPerp, 0.35)
+            .multiplyScalar(1 - blend)
+            .addScaledVector(curPerp, blend)
             .normalize();
         }
       }
@@ -346,6 +383,8 @@ export function solveLimbIK({
   restQuaternions,
   rigAdapter,
   jointLimitsEnabled,
+  swivelDeg = 0,
+  poleHintOverride,
 }: SolveLimbIKParams): SolveLimbIKResult | null {
   const chain = IK_CHAINS[handleId];
   const upperBone = bonesByName.get(chain.upperBone);
@@ -375,13 +414,20 @@ export function solveLimbIK({
   const L2 = lowerPos.distanceTo(endPos);
   if (L1 < 1e-4 || L2 < 1e-4) return null;
 
-  const poleHint = computeNaturalPoleHint(
+  const naturalPole = computeNaturalPoleHint(
     chain,
     bonesByName,
     upperPos,
     lowerPos,
     endPos
   );
+  const basePole =
+    poleHintOverride && poleHintOverride.lengthSq() > 1e-6
+      ? safeNorm(
+          poleHintOverride.clone().normalize().multiplyScalar(0.8).addScaledVector(naturalPole, 0.2),
+          naturalPole
+        )
+      : naturalPole;
 
   const specUpper = getJointSpec(chain.upperBone);
   const specLower = getJointSpec(chain.lowerBone);
@@ -420,7 +466,7 @@ export function solveLimbIK({
   const a = L1 * cosA;
   const h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
 
-  let pPerp = projPerp(poleHint, dHat);
+  let pPerp = projPerp(basePole, dHat);
   if (pPerp.length() < 1e-4) {
     const fallbackAxis =
       Math.abs(dHat.z) < 0.8
@@ -429,6 +475,19 @@ export function solveLimbIK({
     pPerp = projPerp(fallbackAxis, dHat);
   }
   pPerp.normalize();
+
+  const resolvedPole = pPerp.clone();
+  if (Math.abs(swivelDeg) > 0.05) {
+    const sideSign = chain.side === 'l' ? 1 : -1;
+    const swivelSign = chain.limb === 'arm' ? sideSign : -sideSign;
+    pPerp.applyAxisAngle(dHat, THREE.MathUtils.degToRad(swivelDeg * swivelSign));
+    pPerp = projPerp(pPerp, dHat);
+    if (pPerp.lengthSq() > 1e-6) {
+      pPerp.normalize();
+    } else {
+      pPerp.copy(resolvedPole);
+    }
+  }
 
   const M = upperPos.clone().addScaledVector(dHat, a).addScaledVector(pPerp, h);
 
@@ -489,7 +548,7 @@ export function solveLimbIK({
 
   let bestErrSq = testLower(bestBx);
 
-  // Micro-refine hinge bend when upper ROM clamping shifts the optimal flexion slightly
+  // Smooth refinement when upper ROM clamping shifts optimal flexion
   if (bestErrSq > 0.0001) {
     const coarseLo = Math.max(minBx, bestBx - 16);
     const coarseHi = Math.min(maxBx, bestBx + 16);
@@ -502,7 +561,7 @@ export function solveLimbIK({
     }
     const fineLo = Math.max(minBx, bestBx - 3);
     const fineHi = Math.min(maxBx, bestBx + 3);
-    for (let bx = fineLo; bx <= fineHi; bx += 1) {
+    for (let bx = fineLo; bx <= fineHi; bx += 0.5) {
       const errSq = testLower(bx);
       if (errSq < bestErrSq) {
         bestErrSq = errSq;
@@ -519,10 +578,15 @@ export function solveLimbIK({
   applyJoint(chain.lowerBone, lowerBone, restLower, finalLowerAngles, specLower.order);
   rootGroup.updateMatrixWorld(true);
 
+  const achievedPos = getBoneWorldPos(endBone);
+  const reachRatio = maxDist > 1e-4 ? rawDist / maxDist : 1;
+
   return {
     upperBoneName: chain.upperBone,
     lowerBoneName: chain.lowerBone,
     endBoneName: chain.endBone,
+    upperPos: getBoneWorldPos(upperBone),
+    lowerPos: getBoneWorldPos(lowerBone),
     upperAngles: {
       x: Math.round(upperAngles.x),
       y: Math.round(upperAngles.y),
@@ -533,6 +597,110 @@ export function solveLimbIK({
       y: Math.round(finalLowerAngles.y),
       z: Math.round(finalLowerAngles.z),
     },
-    achievedPos: getBoneWorldPos(endBone),
+    achievedPos,
+    reachRatio,
+    isMaxReach: rawDist >= maxDist - 0.004,
+    isClamped: achievedPos.distanceTo(targetWorldPos) > 0.018,
+    resolvedPole,
+  };
+}
+
+/**
+ * Translates the figure pelvis while optionally keeping left/right feet
+ * planted at their world anchors via dual leg IK (squat, crouch, hip sway).
+ */
+export function solvePelvisSquatIK({
+  startRootPos,
+  deltaWorld,
+  anchoredFootL,
+  anchoredFootR,
+  pinFeet,
+  swivelFootL = 0,
+  swivelFootR = 0,
+  rootGroup,
+  bonesByName,
+  restQuaternions,
+  rigAdapter,
+  jointLimitsEnabled,
+  groundEnabled,
+  computeSkinnedMinY,
+}: SolvePelvisSquatIKParams): SolvePelvisSquatIKResult {
+  rootGroup.position.copy(startRootPos).add(deltaWorld);
+  rootGroup.updateMatrixWorld(true);
+
+  const solveFeet = () => {
+    let footLResult: SolveLimbIKResult | null = null;
+    let footRResult: SolveLimbIKResult | null = null;
+    if (pinFeet) {
+      let pelvisPitch = 0;
+      if (rigAdapter?.hasJoint('pelvis')) {
+        const pelvSpec = getJointSpec('pelvis');
+        pelvisPitch = rigAdapter.readCanonicalAngles('pelvis', pelvSpec, false).x;
+      }
+      const levelFoot = (footName: 'foot_l' | 'foot_r', res: SolveLimbIKResult | null) => {
+        if (!res || !rigAdapter?.hasJoint(footName)) return;
+        const fSpec = getJointSpec(footName);
+        const curFoot = rigAdapter.readCanonicalAngles(footName, fSpec, false);
+        const levelX = -(pelvisPitch + res.upperAngles.x + res.lowerAngles.x);
+        const nextFoot = clampJointAngles(
+          { x: levelX, y: curFoot.y, z: curFoot.z },
+          fSpec,
+          jointLimitsEnabled
+        );
+        rigAdapter.applyCanonicalAngles(footName, nextFoot, fSpec.order);
+      };
+
+      if (anchoredFootL) {
+        footLResult = solveLimbIK({
+          handleId: 'foot_l',
+          targetWorldPos: anchoredFootL,
+          rootGroup,
+          bonesByName,
+          restQuaternions,
+          rigAdapter,
+          jointLimitsEnabled,
+          swivelDeg: swivelFootL,
+        });
+        levelFoot('foot_l', footLResult);
+      }
+      if (anchoredFootR) {
+        footRResult = solveLimbIK({
+          handleId: 'foot_r',
+          targetWorldPos: anchoredFootR,
+          rootGroup,
+          bonesByName,
+          restQuaternions,
+          rigAdapter,
+          jointLimitsEnabled,
+          swivelDeg: swivelFootR,
+        });
+        levelFoot('foot_r', footRResult);
+      }
+      rootGroup.updateMatrixWorld(true);
+    }
+    return { footLResult, footRResult };
+  };
+
+  let { footLResult, footRResult } = solveFeet();
+  let minY = computeSkinnedMinY();
+  if (groundEnabled && minY < 0) {
+    rootGroup.position.y += -minY;
+    rootGroup.updateMatrixWorld(true);
+    const reSolved = solveFeet();
+    footLResult = reSolved.footLResult;
+    footRResult = reSolved.footRResult;
+    minY = computeSkinnedMinY();
+  }
+
+  const pelvis = bonesByName.get('pelvis');
+  const pelvisPos = pelvis
+    ? getBoneWorldPos(pelvis)
+    : rootGroup.position.clone();
+
+  return {
+    minY,
+    pelvisPos,
+    footLResult,
+    footRResult,
   };
 }

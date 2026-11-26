@@ -49,6 +49,8 @@ interface JointControlPopoverProps {
   hasFingerBones?: boolean;
   selectedProp: StudioProp | null;
   propTransformMode: PropTransformMode;
+  ikPinFeet: boolean;
+  ikSwivelDeg: number;
   onChangeAxisAngle: (axis: AxisKey, value: number) => void;
   onCommitSliderHistory: () => void;
   onTogglePinSelectedJoint: () => void;
@@ -57,6 +59,11 @@ interface JointControlPopoverProps {
   onDropToFloor: () => void;
   onApplyHandGesture: (side: HandSide, gestureId: HandGestureId) => void;
   onMirrorHandGesture: (fromSide: HandSide) => void;
+  onToggleIKPinFeet: () => void;
+  onChangeIKSwivel: (deg: number) => void;
+  onCommitIKSwivel: () => void;
+  onResetIKLimb: () => void;
+  onPlantFootIK: () => void;
   onChangePropTransformMode: (mode: PropTransformMode) => void;
   onDropPropToFloor: (id: string) => void;
   onResetPropScale: (id: string) => void;
@@ -73,6 +80,11 @@ const GIZMO_MODE_OPTIONS: ReadonlyArray<SegmentedOption<'rotate' | 'move'>> = [
 const HAND_TAB_OPTIONS: ReadonlyArray<SegmentedOption<'gestures' | 'wrist'>> = [
   { id: 'gestures', label: 'Gestures' },
   { id: 'wrist', label: 'Wrist' },
+];
+
+const IK_HAND_TAB_OPTIONS: ReadonlyArray<SegmentedOption<'gestures' | 'limb'>> = [
+  { id: 'gestures', label: 'Gestures' },
+  { id: 'limb', label: 'Limb' },
 ];
 
 const PROP_TRANSFORM_OPTIONS: ReadonlyArray<SegmentedOption<PropTransformMode>> =
@@ -117,6 +129,8 @@ export function JointControlPopover({
   hasFingerBones = true,
   selectedProp,
   propTransformMode,
+  ikPinFeet,
+  ikSwivelDeg,
   onChangeAxisAngle,
   onCommitSliderHistory,
   onTogglePinSelectedJoint,
@@ -125,6 +139,11 @@ export function JointControlPopover({
   onDropToFloor,
   onApplyHandGesture,
   onMirrorHandGesture,
+  onToggleIKPinFeet,
+  onChangeIKSwivel,
+  onCommitIKSwivel,
+  onResetIKLimb,
+  onPlantFootIK,
   onChangePropTransformMode,
   onDropPropToFloor,
   onResetPropScale,
@@ -133,11 +152,13 @@ export function JointControlPopover({
   onClose,
 }: JointControlPopoverProps) {
   const [handTab, setHandTab] = useState<'gestures' | 'wrist'>('gestures');
+  const [ikHandTab, setIkHandTab] = useState<'gestures' | 'limb'>('gestures');
   const [mobileAxis, setMobileAxis] = useState<AxisKey>('x');
 
   const anchorIdentity = anchor ? `${anchor.kind}:${anchor.id}` : null;
   useEffect(() => {
     setHandTab('gestures');
+    setIkHandTab('gestures');
     setMobileAxis('x');
   }, [anchorIdentity]);
 
@@ -157,8 +178,12 @@ export function JointControlPopover({
   const isHandJoint = anchor.id === 'hand_l' || anchor.id === 'hand_r';
   const handSide: HandSide | null =
     anchor.id === 'hand_l' ? 'l' : anchor.id === 'hand_r' ? 'r' : null;
+  const isIKHand = isIKMode && isHandJoint;
+  const isIKFoot =
+    isIKMode && (selectedIKHandle === 'foot_l' || selectedIKHandle === 'foot_r');
+  const isIKPelvis = isIKMode && selectedIKHandle === 'pelvis';
   const showHandUnified =
-    (isBoneMode || isIKMode) && jointsDisplay === 'core' && isHandJoint;
+    (isBoneMode && jointsDisplay === 'core' && isHandJoint) || isIKHand;
 
   const selectedSpec = activeBoneId ? getJointSpec(activeBoneId) : null;
   const selectedIsCore = activeBoneId ? isCoreBoneName(activeBoneId) : false;
@@ -312,30 +337,49 @@ export function JointControlPopover({
             >
               {headerTitle}
             </span>
-            {showHandUnified && !isIKMode && (
+            {showHandUnified && (
               <div
                 role="tablist"
                 aria-label="Hand control mode"
                 className={`inline-flex shrink-0 items-center gap-0.5 rounded-md p-0.5 ${ui.segmentedTrack}`}
               >
-                {HAND_TAB_OPTIONS.map((tab) => {
-                  const active = handTab === tab.id;
-                  return (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      role="tab"
-                      data-testid={`hand-tab-${tab.id}`}
-                      aria-selected={active}
-                      onClick={() => setHandTab(tab.id)}
-                      className={`rounded px-1.5 py-0.5 text-[9.5px] font-medium transition-colors ${
-                        active ? ui.segmentedItemActive : ui.segmentedItem
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  );
-                })}
+                {isIKMode
+                  ? IK_HAND_TAB_OPTIONS.map((tab) => {
+                      const active = ikHandTab === tab.id;
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          role="tab"
+                          data-testid={`ik-hand-tab-${tab.id}`}
+                          aria-selected={active}
+                          onClick={() => setIkHandTab(tab.id)}
+                          className={`rounded px-1.5 py-0.5 text-[9.5px] font-medium transition-colors ${
+                            active ? ui.segmentedItemActive : ui.segmentedItem
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      );
+                    })
+                  : HAND_TAB_OPTIONS.map((tab) => {
+                      const active = handTab === tab.id;
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          role="tab"
+                          data-testid={`hand-tab-${tab.id}`}
+                          aria-selected={active}
+                          onClick={() => setHandTab(tab.id)}
+                          className={`rounded px-1.5 py-0.5 text-[9.5px] font-medium transition-colors ${
+                            active ? ui.segmentedItemActive : ui.segmentedItem
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      );
+                    })}
               </div>
             )}
           </div>
@@ -344,7 +388,8 @@ export function JointControlPopover({
             {showHandUnified &&
               handSide &&
               hasFingerBones &&
-              (isIKMode || handTab === 'gestures') && (
+              ((isIKMode && ikHandTab === 'gestures') ||
+                (!isIKMode && handTab === 'gestures')) && (
                 <button
                   type="button"
                   title={mirrorTitle}
@@ -357,6 +402,47 @@ export function JointControlPopover({
                   <span>{mirrorLabel}</span>
                 </button>
               )}
+
+            {isIKFoot && (
+              <button
+                type="button"
+                data-testid="ik-plant-foot"
+                title="Plant foot onto studio floor"
+                onClick={onPlantFootIK}
+                className={`inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[9.5px] font-medium transition-colors ${ui.pillButton}`}
+              >
+                <ArrowDownToLineIcon className="h-3 w-3 shrink-0" />
+                <span>Plant</span>
+              </button>
+            )}
+
+            {isIKPelvis && (
+              <button
+                type="button"
+                title="Drop figure cleanly to floor"
+                onClick={onDropToFloor}
+                className={`inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[9.5px] font-medium transition-colors ${ui.pillButton}`}
+              >
+                <ArrowDownToLineIcon className="h-3 w-3 shrink-0" />
+                <span>Drop</span>
+              </button>
+            )}
+
+            {isIKMode && (
+              <button
+                type="button"
+                title={
+                  isIKPelvis
+                    ? 'Stand figure upright from squat'
+                    : 'Reset limb to rest pose'
+                }
+                aria-label="Reset IK limb"
+                onClick={onResetIKLimb}
+                className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${ui.iconButton}`}
+              >
+                <RotateCcwIcon className="h-3 w-3" />
+              </button>
+            )}
 
             {isBoneMode && selectedIsCore && (
               <button
@@ -426,7 +512,20 @@ export function JointControlPopover({
 
         {/* Mobile Body */}
         {showHandUnified && handSide ? (
-          isIKMode || handTab === 'gestures' ? (
+          isIKMode && ikHandTab === 'limb' ? (
+            <PrecisionSlider
+              id="ik-swivel-slider"
+              label="Elbow Swivel"
+              value={ikSwivelDeg}
+              min={-90}
+              max={90}
+              step={1}
+              displayValue={`${ikSwivelDeg >= 0 ? '+' : ''}${ikSwivelDeg}°`}
+              onChange={onChangeIKSwivel}
+              onCommit={onCommitIKSwivel}
+              theme={STUDIO_THEMES[studioTheme]}
+            />
+          ) : isIKMode || handTab === 'gestures' ? (
             hasFingerBones ? (
               <div className="grid grid-cols-4 gap-1">
                 {HAND_GESTURES.map((gesture) => {
@@ -524,21 +623,38 @@ export function JointControlPopover({
             </button>
           </div>
         ) : isIKMode ? (
-          <div className="flex items-center justify-between gap-2">
-            <p className={`text-[10px] leading-snug ${ui.textMuted}`}>
-              Drag handles to pose live.
-            </p>
-            {selectedIKHandle === 'pelvis' && (
+          isIKFoot ? (
+            <PrecisionSlider
+              id="ik-swivel-slider"
+              label="Knee Swivel"
+              value={ikSwivelDeg}
+              min={-75}
+              max={75}
+              step={1}
+              displayValue={`${ikSwivelDeg >= 0 ? '+' : ''}${ikSwivelDeg}°`}
+              onChange={onChangeIKSwivel}
+              onCommit={onCommitIKSwivel}
+              theme={STUDIO_THEMES[studioTheme]}
+            />
+          ) : (
+            <div className="flex items-center justify-between gap-2">
               <button
                 type="button"
-                onClick={onDropToFloor}
-                className={`flex h-7 items-center gap-1 rounded-md px-2 text-[10px] font-medium transition-colors ${ui.pillButton}`}
+                data-testid="ik-pin-feet-toggle"
+                aria-pressed={ikPinFeet}
+                onClick={onToggleIKPinFeet}
+                className={`inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[10px] font-medium transition-colors ${
+                  ikPinFeet ? ui.pillButtonActive : ui.pillButton
+                }`}
               >
-                <ArrowDownToLineIcon className="h-3 w-3 shrink-0" />
-                <span>Drop</span>
+                <PinIcon className="h-3 w-3 shrink-0" />
+                <span>{ikPinFeet ? 'Pin Feet: Squat' : 'Pin Feet: Off'}</span>
               </button>
-            )}
-          </div>
+              <span className={`text-[9.5px] truncate ${ui.textMuted}`}>
+                {ikPinFeet ? 'Knees bend naturally' : 'Move whole body'}
+              </span>
+            </div>
+          )
         ) : (
           <div className="space-y-1.5">
             <div className="flex items-center gap-1">
@@ -683,6 +799,22 @@ export function JointControlPopover({
             </button>
           )}
 
+          {isIKMode && (
+            <button
+              type="button"
+              title={
+                isIKPelvis
+                  ? 'Stand figure upright from squat'
+                  : 'Reset limb to rest pose'
+              }
+              aria-label="Reset IK limb"
+              onClick={onResetIKLimb}
+              className={`flex h-6 w-6 items-center justify-center rounded-lg transition-colors ${ui.iconButton}`}
+            >
+              <RotateCcwIcon className="h-3 w-3" />
+            </button>
+          )}
+
           {isPropMode && (
             <>
               <button
@@ -723,37 +855,72 @@ export function JointControlPopover({
         </div>
       </div>
 
-      {/* Unified Hand Gestures + Wrist Mode (Core Mode) */}
+      {/* Unified Hand Gestures + Wrist/Limb Mode */}
       {showHandUnified && handSide ? (
         <div className="space-y-2">
-          {!isIKMode && (
-            <div
-              role="tablist"
-              aria-label="Hand control mode"
-              className={`grid grid-cols-2 gap-0.5 rounded-lg p-0.5 ${ui.segmentedTrack}`}
-            >
-              {HAND_TAB_OPTIONS.map((tab) => {
-                const active = handTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    role="tab"
-                    data-testid={`hand-tab-${tab.id}`}
-                    aria-selected={active}
-                    onClick={() => setHandTab(tab.id)}
-                    className={`rounded-md py-1 text-[10.5px] font-medium transition-colors ${
-                      active ? ui.segmentedItemActive : ui.segmentedItem
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          <div
+            role="tablist"
+            aria-label="Hand control mode"
+            className={`grid grid-cols-2 gap-0.5 rounded-lg p-0.5 ${ui.segmentedTrack}`}
+          >
+            {isIKMode
+              ? IK_HAND_TAB_OPTIONS.map((tab) => {
+                  const active = ikHandTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      role="tab"
+                      data-testid={`ik-hand-tab-${tab.id}`}
+                      aria-selected={active}
+                      onClick={() => setIkHandTab(tab.id)}
+                      className={`rounded-md py-1 text-[10.5px] font-medium transition-colors ${
+                        active ? ui.segmentedItemActive : ui.segmentedItem
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  );
+                })
+              : HAND_TAB_OPTIONS.map((tab) => {
+                  const active = handTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      role="tab"
+                      data-testid={`hand-tab-${tab.id}`}
+                      aria-selected={active}
+                      onClick={() => setHandTab(tab.id)}
+                      className={`rounded-md py-1 text-[10.5px] font-medium transition-colors ${
+                        active ? ui.segmentedItemActive : ui.segmentedItem
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  );
+                })}
+          </div>
 
-          {isIKMode || handTab === 'gestures' ? (
+          {isIKMode && ikHandTab === 'limb' ? (
+            <div className="space-y-2">
+              <PrecisionSlider
+                id="ik-swivel-slider"
+                label="Elbow Swivel"
+                value={ikSwivelDeg}
+                min={-90}
+                max={90}
+                step={1}
+                displayValue={`${ikSwivelDeg >= 0 ? '+' : ''}${ikSwivelDeg}°`}
+                onChange={onChangeIKSwivel}
+                onCommit={onCommitIKSwivel}
+                theme={STUDIO_THEMES[studioTheme]}
+              />
+              <p className={`text-[10px] leading-snug ${ui.textMuted}`}>
+                Drag reticle, axis arrows, or center ring to pose live.
+              </p>
+            </div>
+          ) : isIKMode || handTab === 'gestures' ? (
             hasFingerBones ? (
               <div className="space-y-1.5">
                 <button
@@ -853,11 +1020,46 @@ export function JointControlPopover({
           </div>
         </div>
       ) : isIKMode ? (
-        <div className="space-y-2">
-          <p className={`text-[10.5px] leading-snug ${ui.textMuted}`}>
-            Drag translation arrows to pose live.
-          </p>
-          {selectedIKHandle === 'pelvis' && (
+        isIKFoot ? (
+          <div className="space-y-2">
+            <PrecisionSlider
+              id="ik-swivel-slider"
+              label="Knee Swivel"
+              value={ikSwivelDeg}
+              min={-75}
+              max={75}
+              step={1}
+              displayValue={`${ikSwivelDeg >= 0 ? '+' : ''}${ikSwivelDeg}°`}
+              onChange={onChangeIKSwivel}
+              onCommit={onCommitIKSwivel}
+              theme={STUDIO_THEMES[studioTheme]}
+            />
+            <button
+              type="button"
+              data-testid="ik-plant-foot"
+              onClick={onPlantFootIK}
+              className={`w-full flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10.5px] font-medium transition-colors ${ui.pillButton}`}
+            >
+              <ArrowDownToLineIcon className="h-3.5 w-3.5 shrink-0" />
+              <span>Plant Foot to Floor</span>
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <button
+              type="button"
+              data-testid="ik-pin-feet-toggle"
+              aria-pressed={ikPinFeet}
+              onClick={onToggleIKPinFeet}
+              className={`w-full flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10.5px] font-medium transition-colors ${
+                ikPinFeet ? ui.pillButtonActive : ui.pillButton
+              }`}
+            >
+              <PinIcon className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                {ikPinFeet ? 'Pin Feet (Squat)' : 'Pin Feet: Off (Free Move)'}
+              </span>
+            </button>
             <button
               type="button"
               onClick={onDropToFloor}
@@ -866,8 +1068,8 @@ export function JointControlPopover({
               <ArrowDownToLineIcon className="h-3.5 w-3.5 shrink-0" />
               <span>Drop to Floor</span>
             </button>
-          )}
-        </div>
+          </div>
+        )
       ) : (
         <div className="space-y-2">
           {activeBoneId === 'pelvis' && (

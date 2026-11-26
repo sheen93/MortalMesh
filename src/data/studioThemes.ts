@@ -43,6 +43,7 @@ export interface StudioThemeHitboxColors {
   ikCoreColor: string;
   ikSelectedColor: string;
   ikRingColor: string;
+  ikChainColor: string;
 }
 
 export interface StudioThemePropStyle {
@@ -160,6 +161,7 @@ export const STUDIO_THEMES: Record<StudioThemeId, StudioThemeSpec> = {
       ikCoreColor: '#18181B',
       ikSelectedColor: '#09090B',
       ikRingColor: '#3F3F46',
+      ikChainColor: '#18181B',
     },
     prop: {
       color: '#D4D6DC',
@@ -263,6 +265,7 @@ export const STUDIO_THEMES: Record<StudioThemeId, StudioThemeSpec> = {
       ikCoreColor: '#F4F4F5',
       ikSelectedColor: '#09090B',
       ikRingColor: '#FFFFFF',
+      ikChainColor: '#F4F4F5',
     },
     prop: {
       color: '#9EA4B0',
@@ -366,6 +369,7 @@ export const STUDIO_THEMES: Record<StudioThemeId, StudioThemeSpec> = {
       ikCoreColor: '#F4F4F5',
       ikSelectedColor: '#09090B',
       ikRingColor: '#D4D4D8',
+      ikChainColor: '#F4F4F5',
     },
     prop: {
       color: '#5A606D',

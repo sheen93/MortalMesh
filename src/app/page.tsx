@@ -103,6 +103,13 @@ import {
   DEFAULT_LENS_CURVATURE,
 } from '@/utils/lensWarp';
 
+const ZERO_IK_SWIVEL: Record<Exclude<IKHandleId, 'pelvis'>, number> = {
+  hand_l: 0,
+  hand_r: 0,
+  foot_l: 0,
+  foot_r: 0,
+};
+
 const TOAST_DURATION_MS = 2500;
 const AUTOSAVE_DEBOUNCE_MS = 600;
 
@@ -135,6 +142,9 @@ export default function HomePage() {
   const [selectedIKHandle, setSelectedIKHandle] = useState<IKHandleId | null>(
     null
   );
+  const [ikPinFeet, setIkPinFeet] = useState(true);
+  const [ikSwivelByHandle, setIkSwivelByHandle] =
+    useState<Record<Exclude<IKHandleId, 'pelvis'>, number>>(ZERO_IK_SWIVEL);
   const [contextualAnchor, setContextualAnchor] =
     useState<ContextualAnchor | null>(null);
   const [cameraRestSeq, setCameraRestSeq] = useState(0);
@@ -565,6 +575,7 @@ export default function HomePage() {
       setSelectedBoneName(null);
       setSelectedBoneAngles(ZERO_JOINT_ANGLES);
       setSelectedIKHandle(null);
+      setIkSwivelByHandle(ZERO_IK_SWIVEL);
       setContextualAnchor(null);
       setActiveHandGestureId(null);
       setMoveBodyEnabled(false);
@@ -665,6 +676,7 @@ export default function HomePage() {
         setSelectedBoneName(null);
         setSelectedBoneAngles(ZERO_JOINT_ANGLES);
         setSelectedIKHandle(null);
+        setIkSwivelByHandle(ZERO_IK_SWIVEL);
         setContextualAnchor(null);
         setActiveHandGestureId(null);
         setMoveBodyEnabled(false);
@@ -692,6 +704,7 @@ export default function HomePage() {
         setSelectedBoneName(null);
         setSelectedBoneAngles(ZERO_JOINT_ANGLES);
         setSelectedIKHandle(null);
+        setIkSwivelByHandle(ZERO_IK_SWIVEL);
         setContextualAnchor(null);
         setActiveHandGestureId(null);
         setMoveBodyEnabled(false);
@@ -758,6 +771,7 @@ export default function HomePage() {
         setSelectedBoneName(null);
         setSelectedBoneAngles(ZERO_JOINT_ANGLES);
         setSelectedIKHandle(null);
+        setIkSwivelByHandle(ZERO_IK_SWIVEL);
         setContextualAnchor(null);
         setActiveHandGestureId(null);
         setMoveBodyEnabled(false);
@@ -807,6 +821,7 @@ export default function HomePage() {
         setSelectedBoneName(null);
         setSelectedBoneAngles(ZERO_JOINT_ANGLES);
         setSelectedIKHandle(null);
+        setIkSwivelByHandle(ZERO_IK_SWIVEL);
         setContextualAnchor(null);
         setActiveHandGestureId(null);
         setMoveBodyEnabled(false);
@@ -997,6 +1012,7 @@ export default function HomePage() {
     setSelectedBoneName(null);
     setSelectedBoneAngles(ZERO_JOINT_ANGLES);
     setSelectedIKHandle(null);
+    setIkSwivelByHandle(ZERO_IK_SWIVEL);
     setControlMode('fk');
     setGroundEnabled(true);
     setGravityEnabled(false);
@@ -1358,6 +1374,73 @@ export default function HomePage() {
     [activeLocked, activeMannequin.id, handleCommitPoseSnapshot, showToast]
   );
 
+  const handleChangeIKSwivel = useCallback(
+    (deg: number) => {
+      if (activeLocked || !selectedIKHandle || selectedIKHandle === 'pelvis') {
+        return;
+      }
+      setIkSwivelByHandle((prev) => ({ ...prev, [selectedIKHandle]: deg }));
+      setMannequins((prev) =>
+        prev.map((m) =>
+          m.id === activeMannequin.id ? { ...m, activePosePresetId: null } : m
+        )
+      );
+      bridgesRef.current
+        .get(activeMannequin.id)
+        ?.applyIKSwivel(selectedIKHandle, deg, false);
+    },
+    [activeLocked, activeMannequin.id, selectedIKHandle]
+  );
+
+  const handleCommitIKSwivel = useCallback(() => {
+    if (activeLocked || !selectedIKHandle || selectedIKHandle === 'pelvis') {
+      return;
+    }
+    const deg = ikSwivelByHandle[selectedIKHandle] ?? 0;
+    bridgesRef.current
+      .get(activeMannequin.id)
+      ?.applyIKSwivel(selectedIKHandle, deg, true);
+  }, [activeLocked, activeMannequin.id, selectedIKHandle, ikSwivelByHandle]);
+
+  const handleResetIKLimb = useCallback(() => {
+    if (activeLocked || !selectedIKHandle) return;
+    if (selectedIKHandle !== 'pelvis') {
+      setIkSwivelByHandle((prev) => ({ ...prev, [selectedIKHandle]: 0 }));
+    }
+    const updated = bridgesRef.current
+      .get(activeMannequin.id)
+      ?.resetIKLimb(selectedIKHandle);
+    if (!updated) return;
+    setMannequins((prev) =>
+      prev.map((m) =>
+        m.id === activeMannequin.id ? { ...m, activePosePresetId: null } : m
+      )
+    );
+    showToast(
+      selectedIKHandle === 'pelvis' ? 'Standing pose restored' : 'Limb reset',
+      'success'
+    );
+  }, [activeLocked, activeMannequin.id, selectedIKHandle, showToast]);
+
+  const handlePlantFootIK = useCallback(() => {
+    if (
+      activeLocked ||
+      (selectedIKHandle !== 'foot_l' && selectedIKHandle !== 'foot_r')
+    ) {
+      return;
+    }
+    const updated = bridgesRef.current
+      .get(activeMannequin.id)
+      ?.plantFootIK(selectedIKHandle);
+    if (!updated) return;
+    setMannequins((prev) =>
+      prev.map((m) =>
+        m.id === activeMannequin.id ? { ...m, activePosePresetId: null } : m
+      )
+    );
+    showToast('Planted foot to floor', 'success');
+  }, [activeLocked, activeMannequin.id, selectedIKHandle, showToast]);
+
   const handleCloseContextualPopover = useCallback(() => {
     setContextualAnchor(null);
     setActiveHandGestureId(null);
@@ -1570,6 +1653,7 @@ export default function HomePage() {
         )
       );
       setMoveBodyEnabled(false);
+      setIkSwivelByHandle(ZERO_IK_SWIVEL);
       posePresetSeqRef.current += 1;
       setPosePresetCommand({
         presetId: preset.id,
@@ -1583,6 +1667,7 @@ export default function HomePage() {
     if (activeLocked) return;
 
     setMoveBodyEnabled(false);
+    setIkSwivelByHandle(ZERO_IK_SWIVEL);
     setMannequins((prev) =>
       prev.map((m) =>
         m.id === activeMannequin.id
@@ -1917,6 +2002,12 @@ export default function HomePage() {
         hasFingerBones={MODEL_CATALOG[activeMannequin.modelId].hasFingerBones}
         selectedProp={selectedProp}
         propTransformMode={propTransformMode}
+        ikPinFeet={ikPinFeet}
+        ikSwivelDeg={
+          selectedIKHandle && selectedIKHandle !== 'pelvis'
+            ? ikSwivelByHandle[selectedIKHandle]
+            : 0
+        }
         onChangeAxisAngle={handleChangeAxisAngle}
         onCommitSliderHistory={handleCommitSliderHistory}
         onTogglePinSelectedJoint={handleTogglePinSelectedJoint}
@@ -1925,6 +2016,11 @@ export default function HomePage() {
         onDropToFloor={handleDropToFloor}
         onApplyHandGesture={handleApplyHandGesture}
         onMirrorHandGesture={handleMirrorHandGesture}
+        onToggleIKPinFeet={() => setIkPinFeet((prev) => !prev)}
+        onChangeIKSwivel={handleChangeIKSwivel}
+        onCommitIKSwivel={handleCommitIKSwivel}
+        onResetIKLimb={handleResetIKLimb}
+        onPlantFootIK={handlePlantFootIK}
         onChangePropTransformMode={setPropTransformMode}
         onDropPropToFloor={handleDropPropToFloor}
         onResetPropScale={handleResetPropScale}
@@ -1969,6 +2065,8 @@ export default function HomePage() {
         isHudMinimized={isHudMinimized}
         onCanvasBackgroundTap={handleCanvasBackgroundTap}
         cameraRestSeq={cameraRestSeq}
+        ikPinFeet={ikPinFeet}
+        ikSwivelByHandle={ikSwivelByHandle}
         onSelectMannequin={handleSelectMannequin}
         onSelectBoneChange={handleSelectBoneChange}
         onSelectIKHandleChange={handleSelectIKHandleChange}

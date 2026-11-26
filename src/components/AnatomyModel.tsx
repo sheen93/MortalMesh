@@ -16,6 +16,14 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
+import {
+  IKHandleMarkers,
+  type IKDragMode,
+} from '@/components/IKHandleMarkers';
+import {
+  IKMoveGizmo,
+  type IKDragFeedback,
+} from '@/components/IKMoveGizmo';
 import { JointArcGizmo } from '@/components/JointArcGizmo';
 import { JointRingMarkers } from '@/components/JointRingMarkers';
 import {
@@ -51,7 +59,12 @@ import {
   getInitialGravityWakeBones,
   JointSpaceGravitySolver,
 } from '@/physics/gravitySolver';
-import { solveLimbIK } from '@/physics/runtimeIK';
+import {
+  getIKHandleLabel,
+  IK_CHAINS,
+  solveLimbIK,
+  solvePelvisSquatIK,
+} from '@/physics/runtimeIK';
 import { createRigAdapter, type RigAdapter } from '@/rig/rigAdapter';
 import {
   attachCurvilinearPointerWarp,
@@ -121,6 +134,8 @@ interface AnatomyModelProps {
   activePreset: CameraPreset;
   lensCurvature: number;
   cameraRestSeq: number;
+  ikPinFeet: boolean;
+  ikSwivelByHandle: Record<Exclude<IKHandleId, 'pelvis'>, number>;
   onSelectMannequin: (id: string) => void;
   onDraggingChange: (isDragging: boolean) => void;
   onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
@@ -159,6 +174,8 @@ interface MannequinInstanceProps {
   activePreset: CameraPreset;
   lensCurvature: number;
   cameraRestSeq: number;
+  ikPinFeet: boolean;
+  ikSwivelByHandle: Record<Exclude<IKHandleId, 'pelvis'>, number>;
   onSelectMannequin: (id: string) => void;
   onDraggingChange: (isDragging: boolean) => void;
   onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
@@ -242,6 +259,8 @@ function MannequinInstance({
   activePreset,
   lensCurvature,
   cameraRestSeq,
+  ikPinFeet,
+  ikSwivelByHandle,
   onSelectMannequin,
   onDraggingChange,
   onSelectBoneChange,
@@ -277,8 +296,15 @@ function MannequinInstance({
   const localDraggingRef = useRef(false);
   const ikDraggingRef = useRef(false);
   const [isDraggingFK, setIsDraggingFK] = useState(false);
-  const ikDragStartProxyRef = useRef<THREE.Vector3 | null>(null);
+  const [isDraggingIK, setIsDraggingIK] = useState(false);
+  const [ikDragFeedback, setIkDragFeedback] = useState<IKDragFeedback | null>(
+    null
+  );
+  const ikDragStartWorldRef = useRef<THREE.Vector3 | null>(null);
   const ikDragStartRootRef = useRef<THREE.Vector3 | null>(null);
+  const ikDragAnchoredFootLRef = useRef<THREE.Vector3 | null>(null);
+  const ikDragAnchoredFootRRef = useRef<THREE.Vector3 | null>(null);
+  const ikDragPoleRef = useRef<THREE.Vector3 | null>(null);
 
   const lastHandledSeqRef = useRef(jointAngleCommand?.seq ?? 0);
   const lastElevationSeqRef = useRef(elevationCommand?.seq ?? 0);
@@ -297,6 +323,7 @@ function MannequinInstance({
 
   const groundEnabledRef = useRef(groundEnabled);
   const groundSnapEnabledRef = useRef(record.groundSnapEnabled);
+  const gravityEnabledRef = useRef(gravityEnabled);
   const pinnedBonesRef = useRef<readonly string[]>(record.pinnedBones);
   const lockedRef = useRef(record.locked);
   const jointLimitsEnabledRef = useRef(jointLimitsEnabled);
@@ -305,6 +332,8 @@ function MannequinInstance({
   const selectedIKHandleRef = useRef<IKHandleId | null>(selectedIKHandle);
   const activePresetRef = useRef<CameraPreset>(activePreset);
   const lensCurvatureRef = useRef<number>(lensCurvature);
+  const ikPinFeetRef = useRef<boolean>(ikPinFeet);
+  const ikSwivelByHandleRef = useRef(ikSwivelByHandle);
 
   const onSelectBoneChangeRef = useRef(onSelectBoneChange);
   const onSelectIKHandleChangeRef = useRef(onSelectIKHandleChange);
@@ -324,6 +353,7 @@ function MannequinInstance({
 
   groundEnabledRef.current = groundEnabled;
   groundSnapEnabledRef.current = record.groundSnapEnabled;
+  gravityEnabledRef.current = gravityEnabled;
   pinnedBonesRef.current = record.pinnedBones;
   lockedRef.current = record.locked;
   jointLimitsEnabledRef.current = jointLimitsEnabled;
@@ -332,6 +362,8 @@ function MannequinInstance({
   selectedIKHandleRef.current = selectedIKHandle;
   activePresetRef.current = activePreset;
   lensCurvatureRef.current = lensCurvature;
+  ikPinFeetRef.current = ikPinFeet;
+  ikSwivelByHandleRef.current = ikSwivelByHandle;
   onSelectBoneChangeRef.current = onSelectBoneChange;
   onSelectIKHandleChangeRef.current = onSelectIKHandleChange;
   onElevationSyncRef.current = onElevationSync;
@@ -717,6 +749,212 @@ function MannequinInstance({
     [instance]
   );
 
+  const applyIKSwivel = useCallback(
+    (
+      handleId: Exclude<IKHandleId, 'pelvis'>,
+      swivelDeg: number,
+      commitHistory = false
+    ): PoseSnapshot | null => {
+      if (lockedRef.current) return null;
+      const endBone = instance.bonesByName.get(handleId);
+      if (!endBone) return null;
+
+      instance.rootGroup.updateMatrixWorld(true);
+      const targetWorldPos = new THREE.Vector3();
+      endBone.getWorldPosition(targetWorldPos);
+
+      const res = solveLimbIK({
+        handleId,
+        targetWorldPos,
+        rootGroup: instance.rootGroup,
+        bonesByName: instance.bonesByName,
+        restQuaternions: instance.restQuaternions,
+        rigAdapter: instance.rigAdapter,
+        jointLimitsEnabled: jointLimitsEnabledRef.current,
+        swivelDeg,
+      });
+
+      if (!res) return null;
+      solverRef.current.zeroBoneVelocity(res.upperBoneName);
+      solverRef.current.zeroBoneVelocity(res.lowerBoneName);
+
+      let minY = computeSkinnedMinY();
+      if (groundEnabledRef.current && minY < 0) {
+        instance.rootGroup.position.y += -minY;
+        instance.rootGroup.updateMatrixWorld(true);
+        minY = 0;
+      }
+
+      if (record.groundSnapEnabled) {
+        recomputeGroundOffset(0);
+      } else {
+        syncHitboxPositions();
+        onElevationSyncRef.current(record.id, round2(minY));
+      }
+
+      const endPos = new THREE.Vector3();
+      endBone.getWorldPosition(endPos);
+      ikProxyRef.current.position.copy(endPos);
+      ikProxyRef.current.updateMatrixWorld(true);
+      invalidate();
+
+      const snap = captureSnapshot();
+      if (commitHistory) {
+        onCommitPoseSnapshotRef.current(record.id, snap);
+      }
+      return snap;
+    },
+    [
+      instance,
+      record.id,
+      record.groundSnapEnabled,
+      computeSkinnedMinY,
+      recomputeGroundOffset,
+      syncHitboxPositions,
+      captureSnapshot,
+      invalidate,
+    ]
+  );
+
+  const resetIKLimb = useCallback(
+    (handleId: IKHandleId): PoseSnapshot | null => {
+      if (lockedRef.current) return null;
+      if (handleId === 'pelvis') {
+        for (const legBone of [
+          'thigh_l',
+          'calf_l',
+          'foot_l',
+          'thigh_r',
+          'calf_r',
+          'foot_r',
+        ]) {
+          if (instance.rigAdapter.hasJoint(legBone)) {
+            const spec = getJointSpec(legBone);
+            instance.rigAdapter.applyCanonicalAngles(
+              legBone,
+              ZERO_JOINT_ANGLES,
+              spec.order
+            );
+            solverRef.current.zeroBoneVelocity(legBone);
+          }
+        }
+        recomputeGroundOffset(0);
+      } else {
+        const chain = IK_CHAINS[handleId];
+        for (const boneName of [chain.upperBone, chain.lowerBone]) {
+          if (instance.rigAdapter.hasJoint(boneName)) {
+            const spec = getJointSpec(boneName);
+            instance.rigAdapter.applyCanonicalAngles(
+              boneName,
+              ZERO_JOINT_ANGLES,
+              spec.order
+            );
+            solverRef.current.zeroBoneVelocity(boneName);
+          }
+        }
+        if (record.groundSnapEnabled) {
+          recomputeGroundOffset(0);
+        } else {
+          syncHitboxPositions();
+          onElevationSyncRef.current(record.id, round2(computeSkinnedMinY()));
+        }
+      }
+
+      const endBone = instance.bonesByName.get(handleId);
+      if (endBone) {
+        instance.rootGroup.updateMatrixWorld(true);
+        endBone.getWorldPosition(ikProxyRef.current.position);
+        ikProxyRef.current.updateMatrixWorld(true);
+      }
+
+      invalidate();
+      const snap = captureSnapshot();
+      onCommitPoseSnapshotRef.current(record.id, snap);
+      return snap;
+    },
+    [
+      instance,
+      record.id,
+      record.groundSnapEnabled,
+      recomputeGroundOffset,
+      syncHitboxPositions,
+      computeSkinnedMinY,
+      captureSnapshot,
+      invalidate,
+    ]
+  );
+
+  const plantFootIK = useCallback(
+    (handleId: 'foot_l' | 'foot_r'): PoseSnapshot | null => {
+      if (lockedRef.current) return null;
+      const footBone = instance.bonesByName.get(handleId);
+      if (!footBone) return null;
+
+      instance.rootGroup.updateMatrixWorld(true);
+      const curPos = new THREE.Vector3();
+      footBone.getWorldPosition(curPos);
+
+      const swivelDeg = ikSwivelByHandleRef.current[handleId] ?? 0;
+      const targetPos = new THREE.Vector3(curPos.x, 0.06, curPos.z);
+
+      let res = solveLimbIK({
+        handleId,
+        targetWorldPos: targetPos,
+        rootGroup: instance.rootGroup,
+        bonesByName: instance.bonesByName,
+        restQuaternions: instance.restQuaternions,
+        rigAdapter: instance.rigAdapter,
+        jointLimitsEnabled: jointLimitsEnabledRef.current,
+        swivelDeg,
+      });
+
+      const minY = computeSkinnedMinY();
+      if (minY < -0.002) {
+        targetPos.y += -minY + 0.002;
+        res = solveLimbIK({
+          handleId,
+          targetWorldPos: targetPos,
+          rootGroup: instance.rootGroup,
+          bonesByName: instance.bonesByName,
+          restQuaternions: instance.restQuaternions,
+          rigAdapter: instance.rigAdapter,
+          jointLimitsEnabled: jointLimitsEnabledRef.current,
+          swivelDeg,
+        });
+      }
+
+      if (!res) return null;
+      solverRef.current.zeroBoneVelocity(res.upperBoneName);
+      solverRef.current.zeroBoneVelocity(res.lowerBoneName);
+
+      if (record.groundSnapEnabled) {
+        recomputeGroundOffset(0);
+      } else {
+        syncHitboxPositions();
+        onElevationSyncRef.current(record.id, round2(computeSkinnedMinY()));
+      }
+
+      instance.rootGroup.updateMatrixWorld(true);
+      footBone.getWorldPosition(ikProxyRef.current.position);
+      ikProxyRef.current.updateMatrixWorld(true);
+      invalidate();
+
+      const snap = captureSnapshot();
+      onCommitPoseSnapshotRef.current(record.id, snap);
+      return snap;
+    },
+    [
+      instance,
+      record.id,
+      record.groundSnapEnabled,
+      computeSkinnedMinY,
+      recomputeGroundOffset,
+      syncHitboxPositions,
+      captureSnapshot,
+      invalidate,
+    ]
+  );
+
   useEffect(() => {
     onMannequinBridgeChange(record.id, {
       captureSnapshot,
@@ -725,6 +963,9 @@ function MannequinInstance({
       applyHandGesture,
       mirrorHandGesture,
       getHandGestureId,
+      applyIKSwivel,
+      resetIKLimb,
+      plantFootIK,
     });
     return () => onMannequinBridgeChange(record.id, null);
   }, [
@@ -735,6 +976,9 @@ function MannequinInstance({
     applyHandGesture,
     mirrorHandGesture,
     getHandGestureId,
+    applyIKSwivel,
+    resetIKLimb,
+    plantFootIK,
     onMannequinBridgeChange,
   ]);
 
@@ -845,8 +1089,11 @@ function MannequinInstance({
   }, [record.locked, onDraggingChange, onMoveBodyChange, invalidate]);
 
   useEffect(() => {
-    document.body.style.cursor =
-      hoveredBoneName || hoveredIKHandle ? 'pointer' : 'auto';
+    document.body.style.cursor = hoveredBoneName
+      ? 'pointer'
+      : hoveredIKHandle
+        ? 'grab'
+        : 'auto';
     return () => {
       document.body.style.cursor = 'auto';
     };
@@ -893,14 +1140,12 @@ function MannequinInstance({
   useEffect(() => {
     const controls =
       transformRef.current as unknown as DraggingChangedDispatcher | null;
-    const hasIKGizmo =
-      controlMode === 'ik' && selectedIKHandle !== null && !moveBodyEnabled;
     if (
       !controls ||
       !isActive ||
       record.locked ||
       !record.visible ||
-      (!hasIKGizmo && !moveBodyEnabled)
+      !moveBodyEnabled
     ) {
       return;
     }
@@ -910,25 +1155,9 @@ function MannequinInstance({
       const dragging = Boolean(event.value);
       localDraggingRef.current = dragging;
       dragGuardRef.current.isDragging = dragging;
-      ikDraggingRef.current = dragging && hasIKGizmo;
-
-      if (dragging && hasIKGizmo) {
-        ikDragStartProxyRef.current = ikProxyRef.current.position.clone();
-        ikDragStartRootRef.current = instance.rootGroup.position.clone();
-      }
 
       if (!dragging) {
         dragGuardRef.current.lastDragEndTime = performance.now();
-        ikDragStartProxyRef.current = null;
-        ikDragStartRootRef.current = null;
-        if (hasIKGizmo && selectedIKHandle) {
-          const bone = instance.bonesByName.get(selectedIKHandle);
-          if (bone) {
-            instance.rootGroup.updateMatrixWorld(true);
-            bone.getWorldPosition(ikProxyRef.current.position);
-            ikProxyRef.current.updateMatrixWorld(true);
-          }
-        }
         if (wasDragging) {
           onCommitPoseSnapshotRef.current(record.id, captureSnapshot());
         }
@@ -949,9 +1178,6 @@ function MannequinInstance({
       detachPointerWarp();
       controls.removeEventListener('dragging-changed', handleDraggingChanged);
       localDraggingRef.current = false;
-      ikDraggingRef.current = false;
-      ikDragStartProxyRef.current = null;
-      ikDragStartRootRef.current = null;
       dragGuardRef.current.isDragging = false;
       onDraggingChange(false);
     };
@@ -961,8 +1187,6 @@ function MannequinInstance({
     record.id,
     record.locked,
     record.visible,
-    controlMode,
-    selectedIKHandle,
     moveBodyEnabled,
     activePreset,
     dragGuardRef,
@@ -1068,6 +1292,7 @@ function MannequinInstance({
     moveBodyEnabled,
     selectedBoneName,
     selectedIKHandle,
+    isDraggingIK,
     activePreset,
     lensCurvature,
     cameraRestSeq,
@@ -1618,91 +1843,265 @@ function MannequinInstance({
     invalidate,
   ]);
 
-  const handleIKObjectChange = useCallback(() => {
-    if (lockedRef.current || !selectedIKHandle) {
-      syncHitboxPositions();
-      return;
-    }
+  const setIKHandleRef = useCallback(
+    (handleId: IKHandleId, group: THREE.Group | null) => {
+      if (group) {
+        ikHandleRefs.current.set(handleId, group);
+      } else {
+        ikHandleRefs.current.delete(handleId);
+      }
+    },
+    []
+  );
 
-    if (selectedIKHandle === 'pelvis') {
-      const startProxy = ikDragStartProxyRef.current;
-      const startRoot = ikDragStartRootRef.current;
-      if (startProxy && startRoot) {
-        const delta = ikProxyRef.current.position.clone().sub(startProxy);
-        instance.rootGroup.position.copy(startRoot).add(delta);
-        instance.rootGroup.updateMatrixWorld(true);
+  const handleIKSelect = useCallback(
+    (handleId: IKHandleId) => {
+      const bone = instance.bonesByName.get(handleId);
+      if (!bone) return;
+      onClearPropSelection();
+      onMoveBodyChange(false);
+      setSelectedBoneName(null);
+      onSelectBoneChangeRef.current(null, ZERO_JOINT_ANGLES);
+      instance.rootGroup.updateMatrixWorld(true);
+      bone.getWorldPosition(ikProxyRef.current.position);
+      ikProxyRef.current.updateMatrixWorld(true);
+      setSelectedIKHandle(handleId);
+      onSelectIKHandleChangeRef.current(handleId);
+      invalidate();
+    },
+    [instance, onClearPropSelection, onMoveBodyChange, invalidate]
+  );
+
+  const handleIKDragStart = useCallback(
+    (handleId: IKHandleId, startWorldPos: THREE.Vector3) => {
+      if (lockedRef.current) return;
+      instance.rootGroup.updateMatrixWorld(true);
+      ikDragStartWorldRef.current = startWorldPos.clone();
+      ikDragStartRootRef.current = instance.rootGroup.position.clone();
+      ikProxyRef.current.position.copy(startWorldPos);
+      ikProxyRef.current.updateMatrixWorld(true);
+
+      const footLBone = instance.bonesByName.get('foot_l');
+      const footRBone = instance.bonesByName.get('foot_r');
+      ikDragAnchoredFootLRef.current = footLBone
+        ? footLBone.getWorldPosition(new THREE.Vector3())
+        : null;
+      ikDragAnchoredFootRRef.current = footRBone
+        ? footRBone.getWorldPosition(new THREE.Vector3())
+        : null;
+      ikDragPoleRef.current = null;
+
+      ikDraggingRef.current = true;
+      localDraggingRef.current = true;
+      dragGuardRef.current.isDragging = true;
+      setIsDraggingIK(true);
+      onDraggingChange(true);
+      void handleId;
+      invalidate();
+    },
+    [instance, dragGuardRef, onDraggingChange, invalidate]
+  );
+
+  const handleIKDragMove = useCallback(
+    (handleId: IKHandleId, nextWorldPos: THREE.Vector3, mode: IKDragMode) => {
+      if (lockedRef.current) {
+        syncHitboxPositions();
+        return;
       }
 
-      let minY = computeSkinnedMinY();
-      if (groundEnabled && minY < 0) {
-        instance.rootGroup.position.y += -minY;
-        ikProxyRef.current.position.y += -minY;
-        instance.rootGroup.updateMatrixWorld(true);
-        minY = 0;
-      }
+      const startPos = ikDragStartWorldRef.current ?? nextWorldPos;
+      const deltaVec = nextWorldPos.clone().sub(startPos);
+      const shortName = getIKHandleLabel(handleId).replace(' IK', '').replace(' / Hips', '');
+      const fmtCm = (m: number) => `${m >= 0 ? '+' : ''}${Math.round(m * 100)}cm`;
 
-      syncHitboxPositions();
-      onElevationSyncRef.current(record.id, round2(minY));
+      if (handleId === 'pelvis') {
+        const startRoot =
+          ikDragStartRootRef.current ?? instance.rootGroup.position.clone();
+        const isSquat =
+          ikPinFeetRef.current &&
+          Boolean(ikDragAnchoredFootLRef.current || ikDragAnchoredFootRRef.current);
 
-      if (gravityEnabled && (!groundEnabled || minY > 0.03)) {
-        solverRef.current.wakeBones(getInitialGravityWakeBones(true));
-        solverAwakeRef.current = true;
+        const res = solvePelvisSquatIK({
+          startRootPos: startRoot,
+          deltaWorld: deltaVec,
+          anchoredFootL: ikDragAnchoredFootLRef.current,
+          anchoredFootR: ikDragAnchoredFootRRef.current,
+          pinFeet: ikPinFeetRef.current,
+          swivelFootL: ikSwivelByHandleRef.current.foot_l ?? 0,
+          swivelFootR: ikSwivelByHandleRef.current.foot_r ?? 0,
+          rootGroup: instance.rootGroup,
+          bonesByName: instance.bonesByName,
+          restQuaternions: instance.restQuaternions,
+          rigAdapter: instance.rigAdapter,
+          jointLimitsEnabled,
+          groundEnabled,
+          computeSkinnedMinY,
+        });
+
+        ikProxyRef.current.position.copy(res.pelvisPos);
+        ikProxyRef.current.updateMatrixWorld(true);
+        syncHitboxPositions();
+        onElevationSyncRef.current(record.id, round2(res.minY));
+
+        if (gravityEnabled && (!groundEnabled || res.minY > 0.03)) {
+          solverRef.current.wakeBones(getInitialGravityWakeBones(true));
+          solverAwakeRef.current = true;
+        }
+
+        const label = isSquat
+          ? `${shortName} · Squat ${fmtCm(deltaVec.y)}`
+          : mode === 'x' || mode === 'y' || mode === 'z'
+            ? `${shortName} · ${mode.toUpperCase()} ${fmtCm(deltaVec[mode])}`
+            : mode === 'xz'
+              ? `${shortName} · Floor ${Math.round(Math.hypot(deltaVec.x, deltaVec.z) * 100)}cm`
+              : `${shortName} · Δ${Math.round(deltaVec.length() * 100)}cm`;
+
+        setIkDragFeedback({
+          active: true,
+          mode,
+          label,
+          deltaVec,
+          isSquat,
+        });
         invalidate();
+        return;
       }
-      return;
-    }
 
-    const target = ikProxyRef.current.position.clone();
-    if (groundEnabled && !record.groundSnapEnabled && target.y < 0.04) {
-      target.y = 0.04;
-      ikProxyRef.current.position.y = 0.04;
-    }
+      const target = nextWorldPos.clone();
+      if (groundEnabled && !record.groundSnapEnabled && target.y < 0.03) {
+        target.y = 0.03;
+      }
+      ikProxyRef.current.position.copy(target);
+      ikProxyRef.current.updateMatrixWorld(true);
 
-    const res = solveLimbIK({
-      handleId: selectedIKHandle,
-      targetWorldPos: target,
-      rootGroup: instance.rootGroup,
-      bonesByName: instance.bonesByName,
-      restQuaternions: instance.restQuaternions,
-      rigAdapter: instance.rigAdapter,
+      const swivelDeg = ikSwivelByHandleRef.current[handleId] ?? 0;
+      const res = solveLimbIK({
+        handleId,
+        targetWorldPos: target,
+        rootGroup: instance.rootGroup,
+        bonesByName: instance.bonesByName,
+        restQuaternions: instance.restQuaternions,
+        rigAdapter: instance.rigAdapter,
+        jointLimitsEnabled,
+        swivelDeg,
+        poleHintOverride: ikDragPoleRef.current ?? undefined,
+      });
+
+      if (res) {
+        ikDragPoleRef.current = res.resolvedPole.clone();
+        solverRef.current.zeroBoneVelocity(res.upperBoneName);
+        solverRef.current.zeroBoneVelocity(res.lowerBoneName);
+
+        // Guard only floor penetration mid-drag to prevent foot/hip bouncing
+        let minY = computeSkinnedMinY();
+        if (groundEnabled && minY < 0) {
+          instance.rootGroup.position.y += -minY;
+          instance.rootGroup.updateMatrixWorld(true);
+          minY = 0;
+        }
+
+        syncHitboxPositions();
+        onElevationSyncRef.current(record.id, round2(minY));
+
+        if (gravityEnabled) {
+          solverRef.current.wakeDownstream(
+            res.endBoneName,
+            !groundEnabled || minY > 0.03
+          );
+          solverAwakeRef.current = true;
+        }
+
+        const clamped = res.isClamped || res.isMaxReach;
+        const label = clamped
+          ? `${shortName} · Max Reach`
+          : mode === 'x' || mode === 'y' || mode === 'z'
+            ? `${shortName} · ${mode.toUpperCase()} ${fmtCm(deltaVec[mode])}`
+            : mode === 'xz'
+              ? `${shortName} · Floor ${Math.round(Math.hypot(deltaVec.x, deltaVec.z) * 100)}cm`
+              : `${shortName} · Δ${Math.round(deltaVec.length() * 100)}cm`;
+
+        setIkDragFeedback({
+          active: true,
+          mode,
+          label,
+          deltaVec,
+          chainPoints: [
+            res.upperPos.clone(),
+            res.lowerPos.clone(),
+            res.achievedPos.clone(),
+          ],
+          targetPos: target.clone(),
+          achievedPos: res.achievedPos.clone(),
+          isMaxReach: clamped,
+        });
+        invalidate();
+      } else {
+        syncHitboxPositions();
+      }
+    },
+    [
+      instance,
+      record.id,
+      record.groundSnapEnabled,
       jointLimitsEnabled,
-    });
+      groundEnabled,
+      gravityEnabled,
+      computeSkinnedMinY,
+      syncHitboxPositions,
+      invalidate,
+    ]
+  );
 
-    if (res) {
-      solverRef.current.zeroBoneVelocity(res.upperBoneName);
-      solverRef.current.zeroBoneVelocity(res.lowerBoneName);
+  const handleIKDragEnd = useCallback(
+    (handleId: IKHandleId) => {
+      const wasDragging = ikDraggingRef.current;
+      ikDraggingRef.current = false;
+      localDraggingRef.current = false;
+      dragGuardRef.current.isDragging = false;
+      dragGuardRef.current.lastDragEndTime = performance.now();
 
-      if (record.groundSnapEnabled) {
+      ikDragStartWorldRef.current = null;
+      ikDragStartRootRef.current = null;
+      ikDragAnchoredFootLRef.current = null;
+      ikDragAnchoredFootRRef.current = null;
+      ikDragPoleRef.current = null;
+
+      setIsDraggingIK(false);
+      setIkDragFeedback(null);
+
+      if (record.groundSnapEnabled && handleId !== 'pelvis') {
         recomputeGroundOffset(0);
       } else {
         syncHitboxPositions();
         onElevationSyncRef.current(record.id, round2(computeSkinnedMinY()));
       }
 
-      if (gravityEnabled) {
-        solverRef.current.wakeDownstream(
-          res.endBoneName,
-          !groundEnabled || computeSkinnedMinY() > 0.03
-        );
-        solverAwakeRef.current = true;
+      const bone = instance.bonesByName.get(handleId);
+      if (bone) {
+        instance.rootGroup.updateMatrixWorld(true);
+        bone.getWorldPosition(ikProxyRef.current.position);
+        ikProxyRef.current.updateMatrixWorld(true);
       }
+
+      if (wasDragging) {
+        onCommitPoseSnapshotRef.current(record.id, captureSnapshot());
+      }
+      onDraggingChange(false);
       invalidate();
-    } else {
-      syncHitboxPositions();
-    }
-  }, [
-    instance,
-    record.id,
-    record.groundSnapEnabled,
-    selectedIKHandle,
-    jointLimitsEnabled,
-    groundEnabled,
-    gravityEnabled,
-    computeSkinnedMinY,
-    recomputeGroundOffset,
-    syncHitboxPositions,
-    invalidate,
-  ]);
+    },
+    [
+      instance,
+      record.id,
+      record.groundSnapEnabled,
+      dragGuardRef,
+      recomputeGroundOffset,
+      syncHitboxPositions,
+      computeSkinnedMinY,
+      captureSnapshot,
+      onDraggingChange,
+      invalidate,
+    ]
+  );
 
   const hitboxColors = STUDIO_THEMES[studioTheme].hitbox;
   const showInteractive = isActive && !record.locked && record.visible;
@@ -1772,92 +2171,24 @@ function MannequinInstance({
           />
 
           {showIKHandles && (
-            <group name="mortal-mesh-ik-handles">
-              {IK_HANDLE_ORDER.map((handleId) => {
-                const isSelected =
-                  !moveBodyEnabled && selectedIKHandle === handleId;
-                const isHovered = hoveredIKHandle === handleId;
-                const isPelvis = handleId === 'pelvis';
-                const diamondRadius = isPelvis ? 0.028 : 0.022;
-                const ringRadius = isPelvis ? 0.046 : 0.038;
-                const colliderRadius = isCoarsePointer ? 0.088 : 0.056;
-                const scale = isSelected ? 1.24 : isHovered ? 1.12 : 1;
-
-                return (
-                  <group
-                    key={handleId}
-                    ref={(group) => {
-                      if (group) {
-                        ikHandleRefs.current.set(handleId, group);
-                      } else {
-                        ikHandleRefs.current.delete(handleId);
-                      }
-                    }}
-                    scale={scale}
-                  >
-                    <mesh renderOrder={11}>
-                      <octahedronGeometry args={[diamondRadius, 0]} />
-                      <meshBasicMaterial
-                        color={
-                          isSelected
-                            ? hitboxColors.ikSelectedColor
-                            : hitboxColors.ikCoreColor
-                        }
-                        transparent
-                        opacity={isSelected ? 0.92 : isHovered ? 0.85 : 0.65}
-                        depthTest={false}
-                      />
-                    </mesh>
-                    <mesh rotation={[Math.PI / 2, 0, 0]} renderOrder={11}>
-                      <torusGeometry args={[ringRadius, 0.004, 8, 28]} />
-                      <meshBasicMaterial
-                        color={hitboxColors.ikRingColor}
-                        transparent
-                        opacity={isSelected ? 0.92 : isHovered ? 0.82 : 0.48}
-                        depthTest={false}
-                      />
-                    </mesh>
-                    <mesh
-                      renderOrder={12}
-                      onPointerOver={(event) => {
-                        event.stopPropagation();
-                        setHoveredIKHandle(handleId);
-                        invalidate();
-                      }}
-                      onPointerOut={(event) => {
-                        event.stopPropagation();
-                        setHoveredIKHandle((prev) =>
-                          prev === handleId ? null : prev
-                        );
-                        invalidate();
-                      }}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        const bone = instance.bonesByName.get(handleId);
-                        if (!bone) return;
-                        onClearPropSelection();
-                        onMoveBodyChange(false);
-                        setSelectedBoneName(null);
-                        onSelectBoneChangeRef.current(null, ZERO_JOINT_ANGLES);
-                        instance.rootGroup.updateMatrixWorld(true);
-                        bone.getWorldPosition(ikProxyRef.current.position);
-                        ikProxyRef.current.updateMatrixWorld(true);
-                        setSelectedIKHandle(handleId);
-                        onSelectIKHandleChangeRef.current(handleId);
-                        invalidate();
-                      }}
-                    >
-                      <sphereGeometry args={[colliderRadius, 10, 10]} />
-                      <meshBasicMaterial
-                        transparent
-                        opacity={0}
-                        depthWrite={false}
-                      />
-                    </mesh>
-                  </group>
-                );
-              })}
-            </group>
+            <IKHandleMarkers
+              selectedHandle={selectedIKHandle}
+              hoveredHandle={hoveredIKHandle}
+              moveBodyEnabled={moveBodyEnabled}
+              isDraggingIK={isDraggingIK}
+              isCoarsePointer={isCoarsePointer}
+              hitboxColors={hitboxColors}
+              activePreset={activePreset}
+              lensCurvature={lensCurvature}
+              bonesByName={instance.bonesByName}
+              dragGuardRef={dragGuardRef}
+              setIKHandleRef={setIKHandleRef}
+              onHoverChange={setHoveredIKHandle}
+              onSelectHandle={handleIKSelect}
+              onDirectDragStart={handleIKDragStart}
+              onDirectDragMove={handleIKDragMove}
+              onDirectDragEnd={handleIKDragEnd}
+            />
           )}
 
           <group name="mortal-mesh-gizmo">
@@ -1873,15 +2204,19 @@ function MannequinInstance({
                 onChange={() => invalidate()}
               />
             ) : controlMode === 'ik' && selectedIKHandle ? (
-              <TransformControls
-                key={`gizmo-ik-${record.id}-${selectedIKHandle}`}
-                ref={transformRef}
-                object={ikProxyRef.current}
-                mode="translate"
-                space="world"
-                size={isCoarsePointer ? 0.82 : 0.62}
-                onObjectChange={handleIKObjectChange}
-                onChange={() => invalidate()}
+              <IKMoveGizmo
+                key={`ik-move-gizmo-${record.id}-${selectedIKHandle}`}
+                handleId={selectedIKHandle}
+                anchorObj={ikProxyRef.current}
+                studioTheme={studioTheme}
+                activePreset={activePreset}
+                lensCurvature={lensCurvature}
+                isCoarsePointer={isCoarsePointer}
+                dragGuardRef={dragGuardRef}
+                dragFeedback={ikDragFeedback}
+                onDragStart={handleIKDragStart}
+                onDragMove={handleIKDragMove}
+                onDragEnd={handleIKDragEnd}
               />
             ) : (
               controlMode === 'fk' &&
@@ -1935,6 +2270,8 @@ export function AnatomyModel({
   activePreset,
   lensCurvature,
   cameraRestSeq,
+  ikPinFeet,
+  ikSwivelByHandle,
   onSelectMannequin,
   onDraggingChange,
   onSelectBoneChange,
@@ -2111,6 +2448,8 @@ export function AnatomyModel({
             activePreset={activePreset}
             lensCurvature={lensCurvature}
             cameraRestSeq={cameraRestSeq}
+            ikPinFeet={ikPinFeet}
+            ikSwivelByHandle={ikSwivelByHandle}
             onSelectMannequin={onSelectMannequin}
             onDraggingChange={onDraggingChange}
             onSelectBoneChange={onSelectBoneChange}

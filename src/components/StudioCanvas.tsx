@@ -117,6 +117,8 @@ interface StudioCanvasProps {
   onSelectBookmark: (bookmark: CameraBookmark) => void;
   onDeleteBookmark: (id: string) => void;
   cameraRestSeq: number;
+  ikPinFeet: boolean;
+  ikSwivelByHandle: Record<Exclude<IKHandleId, 'pelvis'>, number>;
   onMannequinBridgeChange: (id: string, bridge: PoseBridge | null) => void;
   onInitialPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onCommitPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
@@ -133,7 +135,10 @@ function formatMatrixNum(value: number): string {
   return Math.abs(value) < 1e-6 ? '0' : value.toFixed(6);
 }
 
-function StudioLighting({
+const FILL_LIGHT_POS: [number, number, number] = [-5, 4, 3];
+const RIM_LIGHT_POS: [number, number, number] = [0, 6, -6];
+
+const StudioLighting = memo(function StudioLighting({
   theme,
   keyLight,
 }: {
@@ -149,14 +154,29 @@ function StudioLighting({
     return targetObj;
   }, []);
 
-  const azRad = THREE.MathUtils.degToRad(keyLight.azimuth);
-  const elRad = THREE.MathUtils.degToRad(keyLight.elevation);
-  const horiz = KEY_LIGHT_RADIUS * Math.cos(elRad);
-  const keyPosition: [number, number, number] = [
-    horiz * Math.sin(azRad),
-    1 + KEY_LIGHT_RADIUS * Math.sin(elRad),
-    horiz * Math.cos(azRad),
-  ];
+  const keyPosition = useMemo<[number, number, number]>(() => {
+    const azRad = THREE.MathUtils.degToRad(keyLight.azimuth);
+    const elRad = THREE.MathUtils.degToRad(keyLight.elevation);
+    const horiz = KEY_LIGHT_RADIUS * Math.cos(elRad);
+    return [
+      horiz * Math.sin(azRad),
+      1 + KEY_LIGHT_RADIUS * Math.sin(elRad),
+      horiz * Math.cos(azRad),
+    ];
+  }, [keyLight.azimuth, keyLight.elevation]);
+
+  const hemisphereArgs = useMemo<[string, string, number]>(
+    () => [
+      lighting.hemisphereSky,
+      lighting.hemisphereGround,
+      lighting.hemisphereIntensity,
+    ],
+    [
+      lighting.hemisphereSky,
+      lighting.hemisphereGround,
+      lighting.hemisphereIntensity,
+    ]
+  );
 
   useEffect(() => {
     keyLightTarget.updateMatrixWorld();
@@ -173,13 +193,7 @@ function StudioLighting({
   return (
     <>
       <ambientLight intensity={lighting.ambient} color="#ffffff" />
-      <hemisphereLight
-        args={[
-          lighting.hemisphereSky,
-          lighting.hemisphereGround,
-          lighting.hemisphereIntensity,
-        ]}
-      />
+      <hemisphereLight args={hemisphereArgs} />
       <primitive object={keyLightTarget} />
       <directionalLight
         position={keyPosition}
@@ -200,18 +214,18 @@ function StudioLighting({
         shadow-camera-far={25}
       />
       <directionalLight
-        position={[-5, 4, 3]}
+        position={FILL_LIGHT_POS}
         intensity={lighting.fill}
         color="#ffffff"
       />
       <directionalLight
-        position={[0, 6, -6]}
+        position={RIM_LIGHT_POS}
         intensity={lighting.rim}
         color="#ffffff"
       />
     </>
   );
-}
+});
 
 interface SnapshotExporterProps {
   floorGroupRef: RefObject<THREE.Group>;
@@ -707,6 +721,8 @@ interface StageReferenceProps {
   activePreset: CameraPreset;
   lensCurvature: number;
   cameraRestSeq: number;
+  ikPinFeet: boolean;
+  ikSwivelByHandle: Record<Exclude<IKHandleId, 'pelvis'>, number>;
   onSelectMannequin: (id: string) => void;
   onDraggingChange: (isDragging: boolean) => void;
   onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
@@ -730,7 +746,7 @@ interface StageReferenceProps {
   onPropAnchorChange: (anchor: ContextualAnchor | null) => void;
 }
 
-function StageReference({
+const StageReference = memo(function StageReference({
   mannequins,
   activeMannequinId,
   sceneLoadId,
@@ -759,6 +775,8 @@ function StageReference({
   activePreset,
   lensCurvature,
   cameraRestSeq,
+  ikPinFeet,
+  ikSwivelByHandle,
   onSelectMannequin,
   onDraggingChange,
   onSelectBoneChange,
@@ -774,6 +792,15 @@ function StageReference({
   onMannequinAnchorChange,
   onPropAnchorChange,
 }: StageReferenceProps) {
+  const handleClearPropSelection = useCallback(
+    () => onSelectProp(null),
+    [onSelectProp]
+  );
+  const handleSelectPropForward = useCallback(
+    (id: string | null) => onSelectProp(id),
+    [onSelectProp]
+  );
+
   return (
     <group>
       <AnatomyModel
@@ -799,6 +826,8 @@ function StageReference({
         activePreset={activePreset}
         lensCurvature={lensCurvature}
         cameraRestSeq={cameraRestSeq}
+        ikPinFeet={ikPinFeet}
+        ikSwivelByHandle={ikSwivelByHandle}
         onSelectMannequin={onSelectMannequin}
         onDraggingChange={onDraggingChange}
         onSelectBoneChange={onSelectBoneChange}
@@ -806,7 +835,7 @@ function StageReference({
         onBoneAnglesChange={onBoneAnglesChange}
         onElevationSync={onElevationSync}
         onMoveBodyChange={onMoveBodyChange}
-        onClearPropSelection={() => onSelectProp(null)}
+        onClearPropSelection={handleClearPropSelection}
         onMannequinBridgeChange={onMannequinBridgeChange}
         onInitialPoseSnapshot={onInitialPoseSnapshot}
         onCommitPoseSnapshot={onCommitPoseSnapshot}
@@ -824,7 +853,7 @@ function StageReference({
         activePreset={activePreset}
         lensCurvature={lensCurvature}
         cameraRestSeq={cameraRestSeq}
-        onSelectProp={(id) => onSelectProp(id)}
+        onSelectProp={handleSelectPropForward}
         onUpdatePropTransform={onUpdatePropTransform}
         onDraggingChange={onDraggingChange}
         onPropAnchorChange={onPropAnchorChange}
@@ -837,7 +866,7 @@ function StageReference({
       />
     </group>
   );
-}
+});
 
 export function StudioCanvas({
   mannequins,
@@ -887,6 +916,8 @@ export function StudioCanvas({
   onSelectBookmark,
   onDeleteBookmark,
   cameraRestSeq,
+  ikPinFeet,
+  ikSwivelByHandle,
   onMannequinBridgeChange,
   onInitialPoseSnapshot,
   onCommitPoseSnapshot,
@@ -919,6 +950,11 @@ export function StudioCanvas({
     multiTouch: false,
   });
   const theme = STUDIO_THEMES[studioTheme];
+  const canvasBgArgs = useMemo<[string]>(() => [theme.bg], [theme.bg]);
+  const canvasFogArgs = useMemo<[string, number, number]>(
+    () => [theme.bg, theme.fogNear, theme.fogFar],
+    [theme.bg, theme.fogNear, theme.fogFar]
+  );
 
   const handleSelectViewCubeFace = useCallback(
     (direction: [number, number, number]) => {
@@ -1029,8 +1065,8 @@ export function StudioCanvas({
           }
         }}
       >
-        <color attach="background" args={[theme.bg]} />
-        <fog attach="fog" args={[theme.bg, theme.fogNear, theme.fogFar]} />
+        <color attach="background" args={canvasBgArgs} />
+        <fog attach="fog" args={canvasFogArgs} />
         <StudioLighting theme={theme} keyLight={keyLight} />
         <CameraRig
           controlsRef={controlsRef}
@@ -1072,6 +1108,8 @@ export function StudioCanvas({
           activePreset={activePreset}
           lensCurvature={lensCurvature}
           cameraRestSeq={cameraRestSeq}
+          ikPinFeet={ikPinFeet}
+          ikSwivelByHandle={ikSwivelByHandle}
           onSelectMannequin={onSelectMannequin}
           onDraggingChange={onDraggingChange}
           onSelectBoneChange={onSelectBoneChange}

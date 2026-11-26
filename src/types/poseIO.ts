@@ -1,4 +1,4 @@
-import type { HandGestureId, HandSide } from '@/types/anatomy';
+import type { HandGestureId, HandSide, IKHandleId } from '@/types/anatomy';
 
 export type QuaternionTuple = [number, number, number, number];
 
@@ -38,4 +38,11 @@ export interface PoseBridge {
   ) => PoseSnapshot | null;
   mirrorHandGesture: (fromSide: HandSide) => PoseSnapshot | null;
   getHandGestureId: (side: HandSide) => HandGestureId | null;
+  applyIKSwivel: (
+    handleId: Exclude<IKHandleId, 'pelvis'>,
+    swivelDeg: number,
+    commitHistory?: boolean
+  ) => PoseSnapshot | null;
+  resetIKLimb: (handleId: IKHandleId) => PoseSnapshot | null;
+  plantFootIK: (handleId: 'foot_l' | 'foot_r') => PoseSnapshot | null;
 }
