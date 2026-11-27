@@ -59,6 +59,7 @@ interface StudioDockProps {
   onToggleShortcuts: () => void;
   viewport: ViewportProfile;
   isHudMinimized?: boolean;
+  containInPane?: boolean;
 }
 
 const SNAPSHOT_BG_OPTIONS: ReadonlyArray<
@@ -128,6 +129,7 @@ export function StudioDock({
   onToggleShortcuts,
   viewport,
   isHudMinimized = false,
+  containInPane = false,
 }: StudioDockProps) {
   const [snapshotBg, setSnapshotBg] = useState<'transparent' | 'studio'>(
     'transparent'
@@ -141,12 +143,13 @@ export function StudioDock({
   const { ui } = theme;
   const jointsVisible = jointsDisplay !== 'hidden';
   const touchSized = viewport.isMobile || viewport.isCoarsePointer;
+  const tightPaneDock = viewport.isMobile || containInPane;
   const dockBtnHeight = viewport.isMobile
     ? 'h-8'
     : touchSized
       ? 'min-h-[36px]'
       : '';
-  const dockBtnPad = viewport.isMobile ? 'px-1.5 py-1' : 'px-2.5 py-1.5';
+  const dockBtnPad = tightPaneDock ? 'px-1.5 py-1' : 'px-2.5 py-1.5';
   const dockIconBox = viewport.isMobile
     ? 'h-8 w-7'
     : touchSized
@@ -159,7 +162,9 @@ export function StudioDock({
   return (
     <div
       aria-hidden={isHudMinimized}
-      className={`fixed left-1/2 -translate-x-1/2 z-20 flex max-w-[calc(100vw-env(safe-area-inset-left,0px)-env(safe-area-inset-right,0px)-1rem)] flex-col items-center gap-2 pointer-events-none select-none transition-all duration-200 ${
+      className={`${
+        containInPane ? 'absolute max-w-[calc(100%-1rem)]' : 'fixed max-w-[calc(100vw-env(safe-area-inset-left,0px)-env(safe-area-inset-right,0px)-1rem)]'
+      } left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2 pointer-events-none select-none transition-all duration-200 ${
         isHudMinimized ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'
       }`}
       style={{
@@ -349,7 +354,7 @@ export function StudioDock({
         aria-label="Studio quick dock"
         onPointerDown={(event) => event.stopPropagation()}
         className={`studio-scroll ${dockPointerClass} flex max-w-full items-center overflow-x-auto rounded-2xl transition-colors duration-200 ${
-          viewport.isMobile ? 'gap-0.5 px-1.5 py-1' : 'gap-1.5 px-2 py-1.5'
+          tightPaneDock ? 'gap-0.5 px-1.5 py-1' : 'gap-1.5 px-2 py-1.5'
         } ${ui.dock}`}
       >
         {/* FK / IK Mode Segmented Pill */}
@@ -368,7 +373,7 @@ export function StudioDock({
                 title={modeOpt.title}
                 onClick={() => onChangeControlMode(modeOpt.id)}
                 className={`flex ${dockBtnHeight} items-center justify-center rounded-[9px] py-1 font-mono text-[10.5px] font-semibold whitespace-nowrap transition-all duration-150 ${
-                  viewport.isMobile ? 'px-1.5' : 'px-2.5'
+                  tightPaneDock ? 'px-1.5' : 'px-2.5'
                 } ${
                   isSelected ? ui.segmentedItemActive : ui.segmentedItem
                 }`}
@@ -408,7 +413,7 @@ export function StudioDock({
               }`}
             >
               <JointNodesIcon className="h-3.5 w-3.5 shrink-0" />
-              <span className="hidden lg:inline">
+              <span className={containInPane ? 'hidden' : 'hidden lg:inline'}>
                 {jointsDisplay === 'all' ? 'Joints (All)' : 'Joints'}
               </span>
             </button>
@@ -449,7 +454,7 @@ export function StudioDock({
             }`}
           >
             <Move3dIcon className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden lg:inline">Move</span>
+            <span className={containInPane ? 'hidden' : 'hidden lg:inline'}>Move</span>
           </button>
 
           <button
@@ -470,7 +475,7 @@ export function StudioDock({
             ) : (
               <UnlockIcon className="h-3.5 w-3.5 shrink-0" />
             )}
-            <span className="hidden lg:inline">
+            <span className={containInPane ? 'hidden' : 'hidden lg:inline'}>
               {activeMannequinLocked ? 'Locked' : 'Lock'}
             </span>
           </button>
@@ -531,7 +536,7 @@ export function StudioDock({
             }`}
           >
             <RotateCcwIcon className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden md:inline">Reset</span>
+            <span className={containInPane ? 'hidden' : 'hidden md:inline'}>Reset</span>
           </button>
         </div>
 
@@ -556,7 +561,7 @@ export function StudioDock({
             }`}
           >
             <CameraIcon className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden md:inline">Snapshot</span>
+            <span className={containInPane ? 'hidden' : 'hidden md:inline'}>Snapshot</span>
           </button>
 
           <button

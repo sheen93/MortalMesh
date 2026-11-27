@@ -1,7 +1,7 @@
 # Mortal Mesh — Project Progress & Handoff Guide
 
-**Last Updated:** 2026-11-26  
-**Status:** Phase 17 Complete — Interactive 6-Module Anatomy Academy ("The Kinetic Atelier" with Live Landmark Pins), 3D Timed Gesture Drawing Gym (0 Idle WebGL Draws), Shareable 3D Pose URL Codec & 65+ Static Programmatic SEO Pages Built & Verified  
+**Last Updated:** 2026-11-27  
+**Status:** Phase 18 Complete — Atelier 2D Study Pad (S-Pen / Stylus Engine, 3-Layer Cache, Tab S8 50/50 Split & Phone Vellum/Stacked, X-Ray Slide Check, Layered PSD/SVG/PNG/WebP/WebM Exports, IndexedDB Offline Persistence & Phase 19 PadBridge) Built & Verified  
 **Local Server:** Stopped cleanly (start preview via `rm -rf .next && npm run build && npm run start`, or dev via `npm run dev`)
 
 ---
@@ -505,5 +505,36 @@ All four new GLB assets from `/home/sheen/Documents/Mortal Mesh/models/` were cl
   - **Anatomy Academy:** Verified 6-module catalog, Module 3 `skeleton-rig.glb` clickable landmark pins + tooltip bounds (`Pins read: 3/3`), Module 1 immediate live plumb-line offset (`25 cm from foot`), Module 6 Notan azimuth + split auto-completion persisted to `mortal-mesh:academy:v1`, and non-destructive `Exit Academy` restore.
   - **Gesture Gym:** Verified `30s` session hid studio chrome & Zen pill, ticked `00:29 -> 00:27` with **`0` idle WebGL draw calls** across `1600ms`, toggled `Loomis` + `Skeleton` + `Skip` cleanly, and restored the user's pre-gym studio scene on `Exit`.
   - **True Offline Proof & 5-Viewport Audit:** Reloaded `/` under `Network.emulateNetworkConditions({ offline: true })`, launched both Anatomy Academy and Gesture Gym offline with `0` errors; verified zero horizontal overflow, zero Academy/dock collision, and fully visible action buttons across `1440×900`, `412×915`, `915×412`, `1280×800`, and `800×1280`; confirmed Phase 12–16 smoke regressions and visually inspected all captured screenshots (`p17_*.png`). Temporary test server stopped cleanly (`0` background tasks running).
+
+---
+
+## 16. Phase 18: Atelier 2D Study Pad, Responsive Split & Vellum Layouts, X-Ray Check & Layered Exports
+
+### 16.1 Delivered Systems & Architecture
+
+- **Milestone 42 — Stylus-First HTML5 Canvas 2D Engine, Atelier 8 Toolset, 3-Layer Cache, IndexedDB & Phase 19 `PadBridge` (`src/types/pad.ts`, `src/types/padBridge.ts`, `src/utils/padRenderer.ts`, `src/utils/padStorage.ts`, `src/components/pad/PadCanvas.tsx`):**
+  - Built a high-DPI HTML5 Canvas 2D sketching engine powered by `perfect-freehand` with 3 offscreen layer caches (`construction`, `ink`, `value`) and 1 live display canvas (`{ alpha: false, desynchronized: true }` in Split/Stacked; `{ alpha: true }` in Vellum Overlay), S-Pen `getCoalescedEvents?.()` sampling, automatic palm rejection during stylus contact, barrel-button eraser (`e.buttons === 32` / `button === 5`), 2-finger Undo / 3-finger Redo touch taps, and zero idle `requestAnimationFrame` loops (`0` WebGL draw calls during active 2D drawing).
+  - Implemented the Atelier 8 drawing toolset (`Col-Erase Pencil` + Blueprint/Crimson/Charcoal swatches, tilt-responsive `Charcoal / Value`, tapered `Fineliner Ink`, `Smart Eraser` with `destination-out` compositing, `Lasso Move`, `Hold-to-Snap Straight Line` after `320ms` stationary hold, `Flip Horizontal` (`H`), and `50`-step Undo/Redo).
+  - Implemented local IndexedDB sketchbook persistence (`mortal-mesh-sketchbook-v1` object stores `autosave` and `studies`, `800ms` debounced autosave) plus the typed `PadBridge` (`window.__padBridge` for Phase 19 live telemetry, clear/flip/pin placement hooks).
+- **Milestone 43 — 3-Tier Workspace Switcher, Responsive Split / Vellum / Stacked Layouts, Studio Containment & `X-Ray Slide Check` (`src/components/WorkspaceModeBar.tsx`, `src/components/SchoolWorkspaceSlot.tsx`, `src/components/pad/PadWorkspace.tsx`, `src/components/StudioCanvas.tsx`, `src/components/ViewportGizmo.tsx`, `src/components/FloatingSidebar.tsx`, `src/components/StudioRightRail.tsx`, `src/components/StudioDock.tsx`, `src/components/StudioToast.tsx`, `src/types/anatomy.ts`, `src/app/page.tsx`):**
+  - Added the compact top switcher (`Studio | Pad | School`) alongside `SchoolWorkspaceSlot.tsx` linking Phase 17 Anatomy Academy & Gesture Gym and reserving Phase 19 (`KINETIC-5`).
+  - Configured Tab S8 / Desktop (`>= 768px`) default **`50/50 Split`** (`30%–70%` draggable split divider + `Swap` left-handed toggle) and phone (`< 768px`) default **`Vellum Overlay`** (`3D Opacity`, `Draw | Pose 3D` interaction toggle, `Vellum | Stacked 42%/58%` toggle).
+  - Added `containInPane` Studio chrome containment (`ViewportGizmo`, `FloatingSidebar`, `StudioDock` compact labels in split/stacked panes, `StudioRightRail` `2x2` compact cluster at `bottom-[68px]` on compact landscape / stacked mobile) and `flipHorizontal` canvas mirror without inverting UI controls.
+  - Built signature **`X-Ray Slide Check`** (`Surface | Skeleton | Loomis | Notan` live ghost reference underlays with opacity, scale, align drag in Split/Stacked, and `X-Ray Flash` peek in Vellum) plus `captureDataUrl` and `generateBlueprintSvgData` on `SnapshotBridge`.
+- **Milestone 44 — Client-Side Multi-Format Exporter & Dynamic Code Splitting (`src/utils/padExporter.ts`, `src/components/pad/PadExportPopover.tsx`):**
+  - Built offline-capable client exporters for **`.PNG`** (`Transparent Sketch Only` vs `Composite + 3D`), **Layered `.SVG`** (Inkscape `<g>` groups + optional merged `studio-3d-blueprint` `<g>`), **`.PSD`** (dynamically loaded `await import('ag-psd')` `writePsdUint8Array`, `8BPS` layered file), **`.WEBP`/`.JPG`**, and **`5s` `.WEBM`** stroke-replay timelapse.
+
+### 16.2 Phase 18 Final Verification Outputs
+
+- **TypeScript (`npx tsc --noEmit`):** Exited `0` (`0` errors).
+- **Pose & Hand Gesture Validation (`node scripts/validatePoses.mjs`):** Exited `0` — `VALIDATED 50 POSES (categories={"foundation":5,"classical":10,"action":10,"combat":8,"dance":8,"gesture":9}) + 12x2 HAND GESTURES (0 ROM/bone violations)`.
+- **Log Audit (`grep -rn "console\.log" src/`):** Zero matches.
+- **Production Build & Code-Split Check (`rm -rf .next && npm run build`):** Exited `0` (`71/71` static routes, `/` `420 kB` / `508 kB` First Load JS); generated `public/sw-precache.json` (`version=1dc098da380a`, `33` core URLs, `3` optional models, `4` lazy AI assets). `grep -l "8BPS"` confirmed `ag-psd` is isolated inside async chunk `.next/static/chunks/271.837c6a8e7bea36b7.js` (excluded from `app/page-19548a3b10e6cab9.js` and included in `public/sw-precache.json` for offline export).
+- **Phase 18 Headless Chrome QA (`verify_phase18_cdp.mjs` against `npx next start -p 3018`):** Exited `0` (`ALL PHASE 18 PRODUCTION CHROME QA CHECKS PASSED`, `0` console/page/network errors):
+  - **Responsive Viewports & Zero Overlap:** Verified Tab S8 Landscape (`1280×800`, `studioW: 640`, `padW: 640`, `overlap: false`), Tab S8 Portrait (`800×1280`), Compact Landscape (`915×412`), S25 Ultra (`412×915`) Vellum Overlay + Stacked (`studioH: 42%` / `padH: 58%`, zero rail/cam or rail/dock overlap), and Desktop (`1440×900`) draggable split resize.
+  - **Zero WebGL Contention & Stylus/Bridge Telemetry:** Recorded **`0` Three.js WebGL draw calls** during active 2D drawing (`Col-Erase`, `Charcoal`, `Fineliner`, `Hold-to-Snap`, `Lasso Move`, `Undo`/`Redo`) and verified live `PadBridge` metrics (`totalStrokes: 4`, `straightLineCount: 1`).
+  - **X-Ray & Multi-Format Exports:** Verified `X-Ray Slide Check` (`Surface` + `Loomis`), Transparent `.PNG` (`825×856`, `cornerAlpha: 0`, `nonTransparent: 6846`), Layered `.SVG` (`49,459` bytes), Layered `.PSD` (`8BPS` header, `447,259` bytes), and `.WEBP` (`10,142` bytes).
+  - **True Offline Proof & Regressions:** Reloaded `/` under `offline: true`, verified IndexedDB autosave stroke restoration and offline `8BPS` `.PSD` generation, and verified `School` slot + Phase 12–17 Studio regressions. Visually inspected `p18_s25_412x915_stacked.png`, `p18_desktop_split_sketch.png`, and `p18_landscape_915x412_pad.png`; stopped temporary port `3018` server cleanly (`0` background tasks remaining).
+
 
 

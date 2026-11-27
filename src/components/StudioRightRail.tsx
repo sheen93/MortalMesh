@@ -58,6 +58,7 @@ interface StudioRightRailProps {
   activeTab: RightRailTab | null;
   viewport: ViewportProfile;
   isHudMinimized?: boolean;
+  containInPane?: boolean;
   isLocked: boolean;
   gravityEnabled: boolean;
   dampingPreset: DampingPreset;
@@ -146,6 +147,7 @@ export function StudioRightRail({
   activeTab,
   viewport,
   isHudMinimized = false,
+  containInPane = false,
   isLocked,
   gravityEnabled,
   dampingPreset,
@@ -203,13 +205,18 @@ export function StudioRightRail({
     compositionGrid !== 'off' ||
     referenceImage !== null;
 
-  const railWrapperClass = viewport.isCompactLandscape
-    ? 'fixed z-30 right-2.5 bottom-[70px] flex items-end'
-    : 'fixed z-30 right-3 sm:right-4 top-1/2 -translate-y-1/2 flex items-center';
+  const posType = containInPane ? 'absolute' : 'fixed';
+  const compactStackRail =
+    viewport.isCompactLandscape || (containInPane && viewport.isMobile);
+  const railWrapperClass = compactStackRail
+    ? `${posType} z-30 right-2 bottom-[68px] flex items-end`
+    : `${posType} z-30 right-3 sm:right-4 top-1/2 -translate-y-1/2 flex items-center`;
 
   const asidePositionClass = viewport.isCompactLandscape
     ? 'relative mr-2.5 w-[248px] max-w-[calc(100vw-4.5rem)] max-h-[calc(100dvh-232px)]'
-    : 'relative mr-2.5 w-[248px] max-w-[calc(100vw-4.5rem)] max-h-[min(470px,calc(100dvh-8.5rem))]';
+    : containInPane && viewport.isMobile
+      ? 'relative mr-2 w-[236px] max-w-[calc(100vw-6.5rem)] max-h-[calc(100%-3.75rem)]'
+      : 'relative mr-2.5 w-[248px] max-w-[calc(100vw-4.5rem)] max-h-[min(470px,calc(100dvh-8.5rem))]';
 
   const dialogTitle =
     activeTab === 'physics'
@@ -950,7 +957,11 @@ export function StudioRightRail({
       )}
 
       <div
-        className={`flex flex-col items-center gap-1 rounded-2xl border p-1 backdrop-blur-xl transition-colors duration-200 ${ui.dock}`}
+        className={`${
+          compactStackRail
+            ? 'grid grid-cols-2 place-items-center'
+            : 'flex flex-col items-center'
+        } gap-1 rounded-2xl border p-1 backdrop-blur-xl transition-colors duration-200 ${ui.dock}`}
       >
         <button
           type="button"
@@ -959,7 +970,7 @@ export function StudioRightRail({
           aria-label="Physics & Floor"
           aria-expanded={activeTab === 'physics'}
           className={`relative flex items-center justify-center rounded-xl transition-colors ${
-            viewport.isCompactLandscape ? 'h-8 w-8' : 'h-9 w-9'
+            compactStackRail ? 'h-8 w-8' : 'h-9 w-9'
           } ${activeTab === 'physics' ? ui.dockButtonActive : ui.dockButton}`}
         >
           <GridFloorIcon className="w-4 h-4" />
@@ -978,7 +989,7 @@ export function StudioRightRail({
           aria-label="Studio Lighting"
           aria-expanded={activeTab === 'lighting'}
           className={`relative flex items-center justify-center rounded-xl transition-colors ${
-            viewport.isCompactLandscape ? 'h-8 w-8' : 'h-9 w-9'
+            compactStackRail ? 'h-8 w-8' : 'h-9 w-9'
           } ${activeTab === 'lighting' ? ui.dockButtonActive : ui.dockButton}`}
         >
           <LightbulbIcon className="w-4 h-4" />
@@ -997,7 +1008,7 @@ export function StudioRightRail({
           aria-label="Guides & Ref"
           aria-expanded={activeTab === 'guides'}
           className={`relative flex items-center justify-center rounded-xl transition-colors ${
-            viewport.isCompactLandscape ? 'h-8 w-8' : 'h-9 w-9'
+            compactStackRail ? 'h-8 w-8' : 'h-9 w-9'
           } ${activeTab === 'guides' ? ui.dockButtonActive : ui.dockButton}`}
         >
           <FrameGuidesIcon className="w-4 h-4" />
@@ -1016,7 +1027,7 @@ export function StudioRightRail({
           aria-label="Studio Theme"
           aria-expanded={activeTab === 'theme'}
           className={`flex items-center justify-center rounded-xl transition-colors ${
-            viewport.isCompactLandscape ? 'h-8 w-8' : 'h-9 w-9'
+            compactStackRail ? 'h-8 w-8' : 'h-9 w-9'
           } ${activeTab === 'theme' ? ui.dockButtonActive : ui.dockButton}`}
         >
           <ThemeIcon id={studioTheme} className="w-4 h-4" />

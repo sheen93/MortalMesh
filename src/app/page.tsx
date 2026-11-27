@@ -28,12 +28,14 @@ import {
   type PhotoToPoseStageAllPayload,
 } from '@/components/PhotoToPoseModal';
 import { PoseLibraryModal } from '@/components/PoseLibraryModal';
+import { PadWorkspace } from '@/components/pad/PadWorkspace';
 import { usePwaState } from '@/components/PwaManager';
 import {
   buildMatchedCameraView,
   retargetDetectedPersonToPose,
 } from '@/ai/poseRetargeting';
 import { ReferenceOverlay } from '@/components/ReferenceOverlay';
+import { SchoolWorkspaceSlot } from '@/components/SchoolWorkspaceSlot';
 import { ShortcutsModal } from '@/components/ShortcutsModal';
 import { StudioCanvas } from '@/components/StudioCanvas';
 import { StudioDock } from '@/components/StudioDock';
@@ -43,6 +45,7 @@ import {
 } from '@/components/StudioRightRail';
 import { StudioToast, type StudioToastData } from '@/components/StudioToast';
 import { EyeIcon } from '@/components/StudioPrimitives';
+import { WorkspaceModeBar } from '@/components/WorkspaceModeBar';
 import {
   ACADEMY_MODULES,
   getAcademyModule,
@@ -110,6 +113,12 @@ import {
   isDrawingActive,
   type StudioDrawingConfig,
 } from '@/types/drawing';
+import type {
+  PadLayoutMode,
+  PadXRaySource,
+  WorkspaceTier,
+} from '@/types/pad';
+import type { PadBridge } from '@/types/padBridge';
 import type { PoseBridge, PoseSnapshot } from '@/types/poseIO';
 import {
   createStudioProp,
@@ -295,6 +304,18 @@ export default function HomePage() {
   const [gymInitialInterval, setGymInitialInterval] =
     useState<GymDurationOption | null>(null);
 
+  const [workspaceTier, setWorkspaceTier] = useState<WorkspaceTier>('studio');
+  const [padLayoutOverride, setPadLayoutOverride] =
+    useState<PadLayoutMode | null>(null);
+  const [splitRatio, setSplitRatio] = useState(0.5);
+  const [leftHandedFlip, setLeftHandedFlip] = useState(false);
+  const [padFlipHorizontal, setPadFlipHorizontal] = useState(false);
+  const [vellumOpacity, setVellumOpacity] = useState(0.35);
+  const [vellumInteraction, setVellumInteraction] = useState<'draw' | 'pose'>(
+    'draw'
+  );
+  const [vellumXRayActive, setVellumXRayActive] = useState(false);
+
   const [historyById, setHistoryById] = useState<
     Record<string, PoseHistoryState>
   >({});
@@ -305,6 +326,13 @@ export default function HomePage() {
   const bridgesRef = useRef<Map<string, PoseBridge>>(new Map());
   const snapshotBridgeRef = useRef<SnapshotBridge | null>(null);
   const cameraBridgeRef = useRef<CameraBridge | null>(null);
+  const padBridgeRef = useRef<PadBridge | null>(null);
+  const vellumXRayBackupRef = useRef<{
+    mannequinId: string;
+    modelId: MannequinModelId;
+    drawing: StudioDrawingConfig;
+    snapshot: PoseSnapshot | null;
+  } | null>(null);
   const poseByIdRef = useRef<Map<string, PoseSnapshot>>(new Map());
   const pendingCameraRestoreRef = useRef<CameraViewState | null>(null);
   const isHydratedRef = useRef(false);
@@ -2975,7 +3003,7 @@ export default function HomePage() {
   ]);
 
   const handleCanvasBackgroundTap = useCallback(() => {
-    if (isGestureGymActive) return;
+    if (isGestureGymActive || workspaceTier === 'pad') return;
     if (selectedLandmarkGroup !== null) {
       setSelectedLandmarkGroup(null);
       return;
@@ -3000,6 +3028,7 @@ export default function HomePage() {
     setIsHudMinimized(true);
   }, [
     isGestureGymActive,
+    workspaceTier,
     selectedLandmarkGroup,
     isHudMinimized,
     viewport.isMobile,
@@ -3014,32 +3043,359 @@ export default function HomePage() {
     }
   }, [pwa, showToast]);
 
+  const effectivePadLayout: PadLayoutMode = useMemo(() => {
+    if (viewport.isMobile) {
+      return padLayoutOverride === 'stacked' ? 'stacked' : 'vellum';
+    }
+    return padLayoutOverride === 'vellum' ? 'vellum' : 'split';
+  }, [viewport.isMobile, padLayoutOverride]);
+
+  const handlePadBridgeReady = useCallback((bridge: PadBridge | null) => {
+    padBridgeRef.current = bridge;
+  }, []);
+
+  const handleSelectWorkspaceTier = useCallback(
+    (nextTier: WorkspaceTier) => {
+      if (nextTier === 'pad') {
+        if (isGestureGymActive) {
+          exitSandboxAndRestore();
+        }
+        setActiveAcademyModuleId(null);
+        setIsAcademyCatalogOpen(false);
+        setIsGestureGymSetupOpen(false);
+        setIsPoseLibraryOpen(false);
+        setIsPhotoToPoseOpen(false);
+        setIsSnapshotOpen(false);
+        setIsShortcutsOpen(false);
+        setIsJointsPopoverOpen(false);
+        setActiveRightRailTab(null);
+        setIsHudMinimized(false);
+        setIsSidebarOpen(false);
+        handleCloseContextualPopover();
+        setWorkspaceTier('pad');
+        return;
+      }
+
+      if (vellumXRayActive && vellumXRayBackupRef.current) {
+        const bk = vellumXRayBackupRef.current;
+        vellumXRayBackupRef.current = null;
+        setVellumXRayActive(false);
+        setDrawing(bk.drawing);
+        skipNextAutosaveRef.current = true;
+        setMannequins((prev) =>
+          prev.map((m) =>
+            m.id === bk.mannequinId
+              ? {
+                  ...m,
+                  modelId: bk.modelId,
+                  initialSnapshot: bk.snapshot ?? m.initialSnapshot,
+                  preserveExactRootPosition: true,
+                }
+              : m
+          )
+        );
+      }
+
+      setWorkspaceTier(nextTier);
+      if (nextTier === 'studio' && !shouldAutoCollapseSidebar) {
+        setIsSidebarOpen(true);
+      }
+    },
+    [
+      isGestureGymActive,
+      exitSandboxAndRestore,
+      handleCloseContextualPopover,
+      vellumXRayActive,
+      shouldAutoCollapseSidebar,
+    ]
+  );
+
+  // Recompute Three.js viewport camera cleanly on split/stacked resize
+  useEffect(() => {
+    const id1 = requestAnimationFrame(() => {
+      cameraBridgeRef.current?.invalidateView();
+    });
+    const id2 = setTimeout(() => {
+      cameraBridgeRef.current?.invalidateView();
+    }, 90);
+    return () => {
+      cancelAnimationFrame(id1);
+      clearTimeout(id2);
+    };
+  }, [workspaceTier, effectivePadLayout, splitRatio, leftHandedFlip]);
+
+  const captureXRaySnapshot = useCallback(
+    async (source: PadXRaySource): Promise<string | null> => {
+      const bridge = snapshotBridgeRef.current;
+      if (!bridge) return null;
+
+      if (source === 'surface') {
+        return bridge.captureDataUrl({ transparent: true, scale: 1 })?.dataUrl ?? null;
+      }
+
+      const targetFig = activeMannequin;
+      const waitFrames = () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        );
+
+      if (source === 'notan') {
+        const prevLight = keyLight;
+        skipNextAutosaveRef.current = true;
+        setKeyLight(
+          clampStudioLighting({
+            ...prevLight,
+            notanEnabled: true,
+            notanSplit: 0.5,
+          })
+        );
+        await waitFrames();
+        const res = bridge.captureDataUrl({ transparent: true, scale: 1 });
+        skipNextAutosaveRef.current = true;
+        setKeyLight(prevLight);
+        return res?.dataUrl ?? null;
+      }
+
+      if (source === 'loomis') {
+        const prevDrawing = drawing;
+        skipNextAutosaveRef.current = true;
+        setDrawing(
+          clampStudioDrawing({
+            ...DEFAULT_STUDIO_DRAWING,
+            constructiveMode: 'overlay',
+            drawingStyle: 'blue-pencil',
+            showLineOfAction: true,
+            showPlumbLine: true,
+            showCrossContours: true,
+          })
+        );
+        await waitFrames();
+        const res = bridge.captureDataUrl({ transparent: true, scale: 1 });
+        skipNextAutosaveRef.current = true;
+        setDrawing(prevDrawing);
+        return res?.dataUrl ?? null;
+      }
+
+      // source === 'skeleton'
+      const prevModelId = targetFig.modelId;
+      const prevDrawing = drawing;
+      const snap = bridgesRef.current.get(targetFig.id)?.captureSnapshot() ?? null;
+      const clonedSnap = snap ? clonePoseSnapshot(snap) : undefined;
+      if (prevModelId === 'skeleton') {
+        return bridge.captureDataUrl({ transparent: true, scale: 1 })?.dataUrl ?? null;
+      }
+
+      skipNextAutosaveRef.current = true;
+      bridgesRef.current.delete(targetFig.id);
+      setMannequins((prev) =>
+        prev.map((m) =>
+          m.id === targetFig.id
+            ? {
+                ...m,
+                modelId: 'skeleton',
+                initialSnapshot: clonedSnap,
+                preserveExactRootPosition: true,
+              }
+            : m
+        )
+      );
+
+      const start = Date.now();
+      while (
+        !bridgesRef.current.has(targetFig.id) &&
+        Date.now() - start < 4000
+      ) {
+        await new Promise((r) => setTimeout(r, 60));
+      }
+      await waitFrames();
+      const res = snapshotBridgeRef.current?.captureDataUrl({
+        transparent: true,
+        scale: 1,
+      });
+
+      const restoredSnap = bridgesRef.current.get(targetFig.id)?.captureSnapshot() ?? clonedSnap;
+      skipNextAutosaveRef.current = true;
+      bridgesRef.current.delete(targetFig.id);
+      setMannequins((prev) =>
+        prev.map((m) =>
+          m.id === targetFig.id
+            ? {
+                ...m,
+                modelId: prevModelId,
+                initialSnapshot: restoredSnap ? clonePoseSnapshot(restoredSnap) : undefined,
+                preserveExactRootPosition: true,
+              }
+            : m
+        )
+      );
+      setDrawing(prevDrawing);
+      return res?.dataUrl ?? null;
+    },
+    [activeMannequin, keyLight, drawing]
+  );
+
+  const toggleVellumXRayFlash = useCallback(
+    (active: boolean) => {
+      if (active) {
+        if (vellumXRayBackupRef.current) return;
+        const fig = activeMannequin;
+        const snap = bridgesRef.current.get(fig.id)?.captureSnapshot() ?? null;
+        vellumXRayBackupRef.current = {
+          mannequinId: fig.id,
+          modelId: fig.modelId,
+          drawing,
+          snapshot: snap ? clonePoseSnapshot(snap) : null,
+        };
+        setVellumXRayActive(true);
+        setDrawing(
+          clampStudioDrawing({
+            ...DEFAULT_STUDIO_DRAWING,
+            constructiveMode: 'overlay',
+            showLineOfAction: true,
+            showPlumbLine: true,
+          })
+        );
+        if (fig.modelId !== 'skeleton') {
+          skipNextAutosaveRef.current = true;
+          bridgesRef.current.delete(fig.id);
+          setMannequins((prev) =>
+            prev.map((m) =>
+              m.id === fig.id
+                ? {
+                    ...m,
+                    modelId: 'skeleton',
+                    initialSnapshot: snap ? clonePoseSnapshot(snap) : undefined,
+                    preserveExactRootPosition: true,
+                  }
+                : m
+            )
+          );
+        }
+        return;
+      }
+
+      const bk = vellumXRayBackupRef.current;
+      vellumXRayBackupRef.current = null;
+      setVellumXRayActive(false);
+      if (!bk) return;
+      setDrawing(bk.drawing);
+      if (bk.modelId !== 'skeleton') {
+        const snap = bridgesRef.current.get(bk.mannequinId)?.captureSnapshot() ?? bk.snapshot;
+        skipNextAutosaveRef.current = true;
+        bridgesRef.current.delete(bk.mannequinId);
+        setMannequins((prev) =>
+          prev.map((m) =>
+            m.id === bk.mannequinId
+              ? {
+                  ...m,
+                  modelId: bk.modelId,
+                  initialSnapshot: snap ? clonePoseSnapshot(snap) : undefined,
+                  preserveExactRootPosition: true,
+                }
+              : m
+          )
+        );
+      }
+    },
+    [activeMannequin, drawing]
+  );
+
   useStudioShortcuts({
-    onUndo: handleUndo,
-    onRedo: handleRedo,
+    onUndo: () => {
+      if (workspaceTier === 'pad') {
+        padBridgeRef.current?.undo();
+      } else {
+        handleUndo();
+      }
+    },
+    onRedo: () => {
+      if (workspaceTier === 'pad') {
+        padBridgeRef.current?.redo();
+      } else {
+        handleRedo();
+      }
+    },
     onRotateMode: () => {
-      if (!activeLocked) {
+      if (!activeLocked && workspaceTier !== 'pad') {
         setControlMode('fk');
         handleSetMoveBody(false);
       }
     },
-    onToggleControlMode: () =>
-      handleChangeControlMode(controlMode === 'fk' ? 'ik' : 'fk'),
-    onToggleMoveBody: () => {
-      if (!activeLocked) handleSetMoveBody(!moveBodyEnabled);
+    onToggleControlMode: () => {
+      if (workspaceTier !== 'pad') {
+        handleChangeControlMode(controlMode === 'fk' ? 'ik' : 'fk');
+      }
     },
-    onToggleJointsVisibility: () =>
-      setJointsDisplay((prev) => (prev === 'hidden' ? 'core' : 'hidden')),
+    onToggleMoveBody: () => {
+      if (!activeLocked && workspaceTier !== 'pad') {
+        handleSetMoveBody(!moveBodyEnabled);
+      }
+    },
+    onToggleJointsVisibility: () => {
+      if (workspaceTier === 'pad') {
+        setPadFlipHorizontal((prev) => !prev);
+      } else {
+        setJointsDisplay((prev) => (prev === 'hidden' ? 'core' : 'hidden'));
+      }
+    },
     onResetCameraHome: () => handleSelectCameraPreset('1-point'),
-    onEscape: handleEscape,
+    onEscape: () => {
+      if (workspaceTier === 'school') {
+        handleSelectWorkspaceTier('studio');
+        return;
+      }
+      handleEscape();
+    },
     onToggleShortcuts: handleToggleShortcuts,
   });
 
   const activeTheme = STUDIO_THEMES[studioTheme];
-  const effectiveHudMinimized = isHudMinimized || isGestureGymActive;
+  const inPadMode = workspaceTier === 'pad';
+  const inPadVellum = inPadMode && effectivePadLayout === 'vellum';
+  const containStudioInPane =
+    inPadMode &&
+    (effectivePadLayout === 'split' || effectivePadLayout === 'stacked');
+  const padHeaderHeightPx = viewport.isMobile ? 76 : 44;
+  const vellumDrawLocked3D = inPadVellum && vellumInteraction === 'draw';
+  const effectiveHudMinimized =
+    isHudMinimized || isGestureGymActive || vellumDrawLocked3D;
   const activeModule = activeAcademyModuleId
     ? getAcademyModule(activeAcademyModuleId)
     : null;
+  const studioPaneWidth =
+    inPadMode && effectivePadLayout === 'split'
+      ? Math.max(120, Math.round(viewport.width * splitRatio))
+      : viewport.width;
+  const studioPaneHeight =
+    inPadMode && effectivePadLayout === 'stacked'
+      ? Math.max(120, Math.round((viewport.height - padHeaderHeightPx) * 0.42))
+      : inPadMode
+        ? Math.max(120, viewport.height - padHeaderHeightPx)
+        : viewport.height;
+
+  let studioPaneStyle: CSSProperties = { inset: 0 };
+  if (inPadMode) {
+    if (effectivePadLayout === 'split') {
+      const pct = `${(splitRatio * 100).toFixed(3)}%`;
+      studioPaneStyle = leftHandedFlip
+        ? { top: padHeaderHeightPx, bottom: 0, right: 0, width: pct }
+        : { top: padHeaderHeightPx, bottom: 0, left: 0, width: pct };
+    } else if (effectivePadLayout === 'stacked') {
+      studioPaneStyle = {
+        top: padHeaderHeightPx,
+        left: 0,
+        right: 0,
+        height: `calc((100dvh - ${padHeaderHeightPx}px) * 0.42)`,
+      };
+    } else {
+      studioPaneStyle = {
+        top: padHeaderHeightPx,
+        bottom: 0,
+        left: 0,
+        right: 0,
+      };
+    }
+  }
   const themeVars = {
     backgroundColor: activeTheme.bg,
     '--studio-track': activeTheme.rangeVars.track,
@@ -3070,7 +3426,15 @@ export default function HomePage() {
       }}
     >
       <StudioToast toast={toast} studioTheme={studioTheme} />
-      {isHudMinimized && !isGestureGymActive && !contextualAnchor && (
+      {workspaceTier !== 'pad' && (
+        <WorkspaceModeBar
+          tier={workspaceTier}
+          onSelectTier={handleSelectWorkspaceTier}
+          studioTheme={studioTheme}
+          isHudMinimized={effectiveHudMinimized || activeAcademyModuleId !== null}
+        />
+      )}
+      {isHudMinimized && !isGestureGymActive && !inPadMode && !contextualAnchor && (
         <button
           type="button"
           data-testid="restore-hud-pill"
@@ -3087,68 +3451,6 @@ export default function HomePage() {
           <span>Controls</span>
         </button>
       )}
-      <FloatingSidebar
-        studioTheme={studioTheme}
-        viewport={viewport}
-        isHudMinimized={effectiveHudMinimized}
-        isOpen={isSidebarOpen}
-        onToggleOpen={setIsSidebarOpen}
-        mannequins={mannequins}
-        activeMannequinId={activeMannequin.id}
-        onSelectMannequin={handleSelectMannequin}
-        onAddMannequin={handleAddMannequin}
-        onDuplicateMannequin={handleDuplicateMannequin}
-        onToggleLockMannequin={handleToggleLockMannequin}
-        onToggleVisibleMannequin={handleToggleVisibleMannequin}
-        onChangeMannequinFinish={handleChangeMannequinFinish}
-        onChangeMannequinModel={handleChangeMannequinModel}
-        onChangeMannequinProportions={handleChangeMannequinProportions}
-        onApplyProportionPreset={handleApplyProportionPreset}
-        onCommitSliderHistory={handleCommitSliderHistory}
-        onToggleSkeletonMode={handleToggleSkeletonMode}
-        onDeleteMannequin={handleDeleteMannequin}
-        layers={layers}
-        onToggleLayer={handleToggleLayer}
-        activePosePresetId={activeMannequin.activePosePresetId}
-        onSelectPosePreset={handleSelectPosePreset}
-        onOpenPoseLibrary={() => {
-          setActiveRightRailTab(null);
-          setIsJointsPopoverOpen(false);
-          setIsSnapshotOpen(false);
-          setIsShortcutsOpen(false);
-          setIsPoseLibraryOpen(true);
-        }}
-        onOpenPhotoToPose={() => handleOpenPhotoToPose(null)}
-        aiCacheReady={pwa.aiCacheReady}
-        onMirrorPose={handleMirrorPose}
-        onExportPoseJson={handleExportPoseJson}
-        onImportSceneOrPoseJson={handleImportSceneOrPoseJson}
-        onExportSceneJson={handleExportSceneJson}
-        onSharePoseLink={handleSharePoseLink}
-        onNewBlankScene={handleNewBlankScene}
-        academyCompletedCount={completedAcademyIds.length}
-        totalAcademyModules={ACADEMY_MODULES.length}
-        onOpenAcademy={() => {
-          setActiveRightRailTab(null);
-          setIsJointsPopoverOpen(false);
-          setIsSnapshotOpen(false);
-          setIsShortcutsOpen(false);
-          setIsPoseLibraryOpen(false);
-          setIsPhotoToPoseOpen(false);
-          setIsGestureGymSetupOpen(false);
-          setIsAcademyCatalogOpen(true);
-        }}
-        onOpenGestureGym={handleOpenGestureGymSetup}
-        studioProps={studioProps}
-        selectedPropId={selectedPropId}
-        onSelectProp={handleSelectProp}
-        onAddProp={handleAddProp}
-        onToggleLockProp={handleToggleLockProp}
-        onToggleVisibleProp={handleToggleVisibleProp}
-        onDeleteProp={handleDeleteProp}
-        pwa={pwa}
-        onInstallApp={handleInstallApp}
-      />
       <PoseLibraryModal
         isOpen={isPoseLibraryOpen}
         onClose={() => setIsPoseLibraryOpen(false)}
@@ -3194,6 +3496,22 @@ export default function HomePage() {
         activeModuleId={activeAcademyModuleId}
         onSelectModule={applyAcademyModuleSetup}
       />
+      {workspaceTier === 'school' && (
+        <SchoolWorkspaceSlot
+          studioTheme={studioTheme}
+          completedAcademyIds={completedAcademyIds}
+          onCloseToStudio={() => handleSelectWorkspaceTier('studio')}
+          onJumpToPad={() => handleSelectWorkspaceTier('pad')}
+          onOpenAcademy={() => {
+            handleSelectWorkspaceTier('studio');
+            setIsAcademyCatalogOpen(true);
+          }}
+          onOpenGestureGym={() => {
+            handleSelectWorkspaceTier('studio');
+            handleOpenGestureGymSetup();
+          }}
+        />
+      )}
       {activeModule && academyValidation && (
         <AcademyLessonHudCard
           module={activeModule}
@@ -3218,92 +3536,6 @@ export default function HomePage() {
         onStartSession={handleStartGymSession}
         onApplySlide={applyGymSlideToStudio}
         onExitGym={handleExitGestureGym}
-      />
-      <StudioRightRail
-        studioTheme={studioTheme}
-        activeTab={activeRightRailTab}
-        viewport={viewport}
-        isHudMinimized={effectiveHudMinimized}
-        isLocked={activeLocked}
-        gravityEnabled={gravityEnabled}
-        dampingPreset={dampingPreset}
-        pinnedBonesCount={activeMannequin.pinnedBones.length}
-        groundEnabled={groundEnabled}
-        groundSnapEnabled={activeMannequin.groundSnapEnabled}
-        elevationY={activeMannequin.elevationY}
-        keyLight={keyLight}
-        drawing={drawing}
-        showHeadRuler={showHeadRuler}
-        compositionCrop={compositionCrop}
-        compositionGrid={compositionGrid}
-        goldenSpiralFlip={goldenSpiralFlip}
-        referenceImage={referenceImage}
-        onToggleTab={handleToggleRightRailTab}
-        onCloseTab={() => setActiveRightRailTab(null)}
-        onSelectStudioTheme={handleChangeStudioTheme}
-        onToggleGravity={handleToggleGravity}
-        onChangeDampingPreset={setDampingPreset}
-        onClearAllPins={handleClearAllPins}
-        onToggleGround={handleToggleGround}
-        onToggleGroundSnap={handleToggleGroundSnap}
-        onChangeElevation={handleChangeElevation}
-        onCommitSliderHistory={handleCommitSliderHistory}
-        onDropToFloor={handleDropToFloor}
-        onChangeKeyLight={handleChangeKeyLight}
-        onSelectLightingPreset={handleSelectLightingPreset}
-        onResetKeyLight={handleResetKeyLight}
-        onChangeDrawing={handleChangeDrawing}
-        onResetDrawing={handleResetDrawing}
-        onOpenSnapshotSvg={handleOpenSnapshotSvg}
-        onToggleHeadRuler={() => setShowHeadRuler((prev) => !prev)}
-        onChangeCompositionCrop={setCompositionCrop}
-        onChangeCompositionGrid={setCompositionGrid}
-        onToggleGoldenSpiralFlip={() =>
-          setGoldenSpiralFlip((prev) => !prev)
-        }
-        onImportReferenceImage={handleImportReferenceImage}
-        onUpdateReferenceImage={handleUpdateReferenceImage}
-        onRemoveReferenceImage={handleRemoveReferenceImage}
-        canExtractPoseFromReference={referenceFileRef.current !== null}
-        onExtractPoseFromReference={() => {
-          if (referenceFileRef.current) {
-            handleOpenPhotoToPose(referenceFileRef.current);
-          }
-        }}
-      />
-      <StudioDock
-        studioTheme={studioTheme}
-        jointsDisplay={jointsDisplay}
-        onChangeJointsDisplay={setJointsDisplay}
-        jointLimitsEnabled={jointLimitsEnabled}
-        onToggleJointLimits={() => {
-          if (!activeLocked) setJointLimitsEnabled((prev) => !prev);
-        }}
-        isJointsPopoverOpen={isJointsPopoverOpen}
-        onToggleJointsPopover={handleToggleJointsPopover}
-        onCloseJointsPopover={() => setIsJointsPopoverOpen(false)}
-        controlMode={controlMode}
-        onChangeControlMode={handleChangeControlMode}
-        moveBodyEnabled={moveBodyEnabled}
-        onSetMoveBody={handleSetMoveBody}
-        activeMannequinLocked={activeLocked}
-        onToggleLockActive={() => handleToggleLockMannequin(activeMannequin.id)}
-        onResetPose={handleResetPose}
-        canUndo={!activeLocked && activeHistory.past.length > 0}
-        canRedo={!activeLocked && activeHistory.future.length > 0}
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-        isSnapshotOpen={isSnapshotOpen}
-        snapshotFormat={snapshotFormat}
-        onChangeSnapshotFormat={setSnapshotFormat}
-        drawingActive={keyLight.notanEnabled || isDrawingActive(drawing)}
-        onToggleSnapshot={handleToggleSnapshot}
-        onCaptureSnapshot={handleCaptureSnapshot}
-        onExportBlueprintSvg={handleExportBlueprintSvg}
-        isShortcutsOpen={isShortcutsOpen}
-        onToggleShortcuts={handleToggleShortcuts}
-        viewport={viewport}
-        isHudMinimized={effectiveHudMinimized}
       />
       <JointControlPopover
         anchor={contextualAnchor}
@@ -3348,70 +3580,6 @@ export default function HomePage() {
         onDeleteProp={handleDeleteProp}
         onClose={handleCloseContextualPopover}
       />
-      <StudioCanvas
-        mannequins={mannequins}
-        activeMannequinId={activeMannequin.id}
-        sceneLoadId={sceneLoadId}
-        studioTheme={studioTheme}
-        activePreset={activePreset}
-        lensCurvature={lensCurvature}
-        showPerspectiveGuides={showPerspectiveGuides}
-        snapTrigger={snapTrigger}
-        onSelectCameraPreset={handleSelectCameraPreset}
-        onChangeLensCurvature={setLensCurvature}
-        onTogglePerspectiveGuides={setShowPerspectiveGuides}
-        isDragging={isDragging}
-        onDraggingChange={setIsDragging}
-        jointsDisplay={isGestureGymActive ? 'hidden' : jointsDisplay}
-        controlMode={controlMode}
-        jointLimitsEnabled={jointLimitsEnabled}
-        jointAngleCommand={jointAngleCommand}
-        groundEnabled={groundEnabled}
-        elevationCommand={elevationCommand}
-        dropToFloorTrigger={dropToFloorTrigger}
-        moveBodyEnabled={moveBodyEnabled}
-        posePresetCommand={posePresetCommand}
-        gravityEnabled={gravityEnabled}
-        dampingPreset={dampingPreset}
-        resetTrigger={resetTrigger}
-        externalDeselectTrigger={externalDeselectTrigger}
-        keyLight={keyLight}
-        studioProps={studioProps}
-        selectedPropId={selectedPropId}
-        propTransformMode={propTransformMode}
-        dropPropToFloorCommand={dropPropToFloorCommand}
-        bookmarks={bookmarks}
-        viewport={viewport}
-        isHudMinimized={effectiveHudMinimized}
-        onCanvasBackgroundTap={handleCanvasBackgroundTap}
-        cameraRestSeq={cameraRestSeq}
-        ikPinFeet={ikPinFeet}
-        ikSwivelByHandle={ikSwivelByHandle}
-        drawing={drawing}
-        showHeadRuler={showHeadRuler}
-        showLandmarkPins={activeModule?.setup.showLandmarkPins ?? false}
-        onSelectMannequin={handleSelectMannequin}
-        onSelectBoneChange={handleSelectBoneChange}
-        onSelectIKHandleChange={handleSelectIKHandleChange}
-        onBoneAnglesChange={handleBoneAnglesChange}
-        onElevationSync={handleElevationSync}
-        onMoveBodyChange={handleSetMoveBody}
-        onSelectProp={handleSelectProp}
-        onUpdatePropTransform={handleUpdatePropTransform}
-        onAddBookmark={handleAddBookmark}
-        onSelectBookmark={handleSelectBookmark}
-        onDeleteBookmark={handleDeleteBookmark}
-        onMannequinBridgeChange={handleMannequinBridgeChange}
-        onInitialPoseSnapshot={handleInitialPoseSnapshot}
-        onCommitPoseSnapshot={handleCommitPoseSnapshot}
-        onMannequinAnchorChange={handleMannequinAnchorChange}
-        onPropAnchorChange={handlePropAnchorChange}
-        onHeadRulerMetricsChange={setHeadRulerMetrics}
-        onLandmarkPinsChange={setProjectedLandmarkPins}
-        onCameraRest={handleCameraRest}
-        onSnapshotBridgeReady={handleSnapshotBridgeReady}
-        onCameraBridgeReady={handleCameraBridgeReady}
-      />
       {activeModule?.setup.showLandmarkPins && !effectiveHudMinimized && (
         <AcademyLandmarkPins
           pins={projectedLandmarkPins}
@@ -3423,29 +3591,294 @@ export default function HomePage() {
           onSelectPin={handleSelectLandmarkPin}
         />
       )}
-      <ReferenceOverlay
-        reference={referenceImage}
+
+      {/* Permanent Live 3D Studio Pane (preserves figures/camera cleanly across Studio, Pad & School) */}
+      <div
+        data-testid="studio-3d-pane"
+        style={studioPaneStyle}
+        className={`fixed overflow-hidden ${
+          vellumDrawLocked3D ? 'pointer-events-none' : 'pointer-events-auto'
+        }`}
+      >
+        <div
+          className="relative h-full w-full transition-opacity duration-150"
+          style={{ opacity: inPadVellum ? vellumOpacity : 1 }}
+        >
+          <StudioCanvas
+            mannequins={mannequins}
+            activeMannequinId={activeMannequin.id}
+            sceneLoadId={sceneLoadId}
+            studioTheme={studioTheme}
+            activePreset={activePreset}
+            lensCurvature={lensCurvature}
+            showPerspectiveGuides={showPerspectiveGuides}
+            snapTrigger={snapTrigger}
+            onSelectCameraPreset={handleSelectCameraPreset}
+            onChangeLensCurvature={setLensCurvature}
+            onTogglePerspectiveGuides={setShowPerspectiveGuides}
+            isDragging={isDragging}
+            onDraggingChange={setIsDragging}
+            jointsDisplay={
+              isGestureGymActive || vellumDrawLocked3D ? 'hidden' : jointsDisplay
+            }
+            controlMode={controlMode}
+            jointLimitsEnabled={jointLimitsEnabled}
+            jointAngleCommand={jointAngleCommand}
+            groundEnabled={groundEnabled}
+            elevationCommand={elevationCommand}
+            dropToFloorTrigger={dropToFloorTrigger}
+            moveBodyEnabled={moveBodyEnabled}
+            posePresetCommand={posePresetCommand}
+            gravityEnabled={gravityEnabled}
+            dampingPreset={dampingPreset}
+            resetTrigger={resetTrigger}
+            externalDeselectTrigger={externalDeselectTrigger}
+            keyLight={keyLight}
+            studioProps={studioProps}
+            selectedPropId={selectedPropId}
+            propTransformMode={propTransformMode}
+            dropPropToFloorCommand={dropPropToFloorCommand}
+            bookmarks={bookmarks}
+            viewport={viewport}
+            isHudMinimized={effectiveHudMinimized}
+            containInPane={containStudioInPane}
+            flipHorizontal={inPadMode && padFlipHorizontal}
+            onCanvasBackgroundTap={handleCanvasBackgroundTap}
+            cameraRestSeq={cameraRestSeq}
+            ikPinFeet={ikPinFeet}
+            ikSwivelByHandle={ikSwivelByHandle}
+            drawing={drawing}
+            showHeadRuler={showHeadRuler}
+            showLandmarkPins={activeModule?.setup.showLandmarkPins ?? false}
+            onSelectMannequin={handleSelectMannequin}
+            onSelectBoneChange={handleSelectBoneChange}
+            onSelectIKHandleChange={handleSelectIKHandleChange}
+            onBoneAnglesChange={handleBoneAnglesChange}
+            onElevationSync={handleElevationSync}
+            onMoveBodyChange={handleSetMoveBody}
+            onSelectProp={handleSelectProp}
+            onUpdatePropTransform={handleUpdatePropTransform}
+            onAddBookmark={handleAddBookmark}
+            onSelectBookmark={handleSelectBookmark}
+            onDeleteBookmark={handleDeleteBookmark}
+            onMannequinBridgeChange={handleMannequinBridgeChange}
+            onInitialPoseSnapshot={handleInitialPoseSnapshot}
+            onCommitPoseSnapshot={handleCommitPoseSnapshot}
+            onMannequinAnchorChange={handleMannequinAnchorChange}
+            onPropAnchorChange={handlePropAnchorChange}
+            onHeadRulerMetricsChange={setHeadRulerMetrics}
+            onLandmarkPinsChange={setProjectedLandmarkPins}
+            onCameraRest={handleCameraRest}
+            onSnapshotBridgeReady={handleSnapshotBridgeReady}
+            onCameraBridgeReady={handleCameraBridgeReady}
+          />
+          <ReferenceOverlay
+            reference={referenceImage}
+            studioTheme={studioTheme}
+            viewport={viewport}
+            isHudMinimized={effectiveHudMinimized}
+            onUpdateOffset={handleUpdateReferenceOffset}
+            onToggleLock={handleToggleReferenceLock}
+            onRemove={handleRemoveReferenceImage}
+          />
+          <HeadUnitRuler
+            metrics={headRulerMetrics}
+            studioTheme={studioTheme}
+            width={studioPaneWidth}
+            height={studioPaneHeight}
+            isHudMinimized={effectiveHudMinimized}
+          />
+          <CompositionOverlay
+            crop={compositionCrop}
+            grid={compositionGrid}
+            goldenSpiralFlip={goldenSpiralFlip}
+            studioTheme={studioTheme}
+            width={studioPaneWidth}
+            height={studioPaneHeight}
+          />
+        </div>
+
+        <FloatingSidebar
+          studioTheme={studioTheme}
+          viewport={viewport}
+          isHudMinimized={effectiveHudMinimized}
+          containInPane={containStudioInPane}
+          isOpen={isSidebarOpen}
+          onToggleOpen={setIsSidebarOpen}
+          mannequins={mannequins}
+          activeMannequinId={activeMannequin.id}
+          onSelectMannequin={handleSelectMannequin}
+          onAddMannequin={handleAddMannequin}
+          onDuplicateMannequin={handleDuplicateMannequin}
+          onToggleLockMannequin={handleToggleLockMannequin}
+          onToggleVisibleMannequin={handleToggleVisibleMannequin}
+          onChangeMannequinFinish={handleChangeMannequinFinish}
+          onChangeMannequinModel={handleChangeMannequinModel}
+          onChangeMannequinProportions={handleChangeMannequinProportions}
+          onApplyProportionPreset={handleApplyProportionPreset}
+          onCommitSliderHistory={handleCommitSliderHistory}
+          onToggleSkeletonMode={handleToggleSkeletonMode}
+          onDeleteMannequin={handleDeleteMannequin}
+          layers={layers}
+          onToggleLayer={handleToggleLayer}
+          activePosePresetId={activeMannequin.activePosePresetId}
+          onSelectPosePreset={handleSelectPosePreset}
+          onOpenPoseLibrary={() => {
+            setActiveRightRailTab(null);
+            setIsJointsPopoverOpen(false);
+            setIsSnapshotOpen(false);
+            setIsShortcutsOpen(false);
+            setIsPoseLibraryOpen(true);
+          }}
+          onOpenPhotoToPose={() => handleOpenPhotoToPose(null)}
+          aiCacheReady={pwa.aiCacheReady}
+          onMirrorPose={handleMirrorPose}
+          onExportPoseJson={handleExportPoseJson}
+          onImportSceneOrPoseJson={handleImportSceneOrPoseJson}
+          onExportSceneJson={handleExportSceneJson}
+          onSharePoseLink={handleSharePoseLink}
+          onNewBlankScene={handleNewBlankScene}
+          academyCompletedCount={completedAcademyIds.length}
+          totalAcademyModules={ACADEMY_MODULES.length}
+          onOpenAcademy={() => {
+            setActiveRightRailTab(null);
+            setIsJointsPopoverOpen(false);
+            setIsSnapshotOpen(false);
+            setIsShortcutsOpen(false);
+            setIsPoseLibraryOpen(false);
+            setIsPhotoToPoseOpen(false);
+            setIsGestureGymSetupOpen(false);
+            setIsAcademyCatalogOpen(true);
+          }}
+          onOpenGestureGym={handleOpenGestureGymSetup}
+          studioProps={studioProps}
+          selectedPropId={selectedPropId}
+          onSelectProp={handleSelectProp}
+          onAddProp={handleAddProp}
+          onToggleLockProp={handleToggleLockProp}
+          onToggleVisibleProp={handleToggleVisibleProp}
+          onDeleteProp={handleDeleteProp}
+          pwa={pwa}
+          onInstallApp={handleInstallApp}
+        />
+        <StudioRightRail
+          studioTheme={studioTheme}
+          activeTab={activeRightRailTab}
+          viewport={viewport}
+          isHudMinimized={effectiveHudMinimized}
+          containInPane={containStudioInPane}
+          isLocked={activeLocked}
+          gravityEnabled={gravityEnabled}
+          dampingPreset={dampingPreset}
+          pinnedBonesCount={activeMannequin.pinnedBones.length}
+          groundEnabled={groundEnabled}
+          groundSnapEnabled={activeMannequin.groundSnapEnabled}
+          elevationY={activeMannequin.elevationY}
+          keyLight={keyLight}
+          drawing={drawing}
+          showHeadRuler={showHeadRuler}
+          compositionCrop={compositionCrop}
+          compositionGrid={compositionGrid}
+          goldenSpiralFlip={goldenSpiralFlip}
+          referenceImage={referenceImage}
+          onToggleTab={handleToggleRightRailTab}
+          onCloseTab={() => setActiveRightRailTab(null)}
+          onSelectStudioTheme={handleChangeStudioTheme}
+          onToggleGravity={handleToggleGravity}
+          onChangeDampingPreset={setDampingPreset}
+          onClearAllPins={handleClearAllPins}
+          onToggleGround={handleToggleGround}
+          onToggleGroundSnap={handleToggleGroundSnap}
+          onChangeElevation={handleChangeElevation}
+          onCommitSliderHistory={handleCommitSliderHistory}
+          onDropToFloor={handleDropToFloor}
+          onChangeKeyLight={handleChangeKeyLight}
+          onSelectLightingPreset={handleSelectLightingPreset}
+          onResetKeyLight={handleResetKeyLight}
+          onChangeDrawing={handleChangeDrawing}
+          onResetDrawing={handleResetDrawing}
+          onOpenSnapshotSvg={handleOpenSnapshotSvg}
+          onToggleHeadRuler={() => setShowHeadRuler((prev) => !prev)}
+          onChangeCompositionCrop={setCompositionCrop}
+          onChangeCompositionGrid={setCompositionGrid}
+          onToggleGoldenSpiralFlip={() =>
+            setGoldenSpiralFlip((prev) => !prev)
+          }
+          onImportReferenceImage={handleImportReferenceImage}
+          onUpdateReferenceImage={handleUpdateReferenceImage}
+          onRemoveReferenceImage={handleRemoveReferenceImage}
+          canExtractPoseFromReference={referenceFileRef.current !== null}
+          onExtractPoseFromReference={() => {
+            if (referenceFileRef.current) {
+              handleOpenPhotoToPose(referenceFileRef.current);
+            }
+          }}
+        />
+        <StudioDock
+          studioTheme={studioTheme}
+          jointsDisplay={jointsDisplay}
+          onChangeJointsDisplay={setJointsDisplay}
+          jointLimitsEnabled={jointLimitsEnabled}
+          onToggleJointLimits={() => {
+            if (!activeLocked) setJointLimitsEnabled((prev) => !prev);
+          }}
+          isJointsPopoverOpen={isJointsPopoverOpen}
+          onToggleJointsPopover={handleToggleJointsPopover}
+          onCloseJointsPopover={() => setIsJointsPopoverOpen(false)}
+          controlMode={controlMode}
+          onChangeControlMode={handleChangeControlMode}
+          moveBodyEnabled={moveBodyEnabled}
+          onSetMoveBody={handleSetMoveBody}
+          activeMannequinLocked={activeLocked}
+          onToggleLockActive={() => handleToggleLockMannequin(activeMannequin.id)}
+          onResetPose={handleResetPose}
+          canUndo={!activeLocked && activeHistory.past.length > 0}
+          canRedo={!activeLocked && activeHistory.future.length > 0}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          isSnapshotOpen={isSnapshotOpen}
+          snapshotFormat={snapshotFormat}
+          onChangeSnapshotFormat={setSnapshotFormat}
+          drawingActive={keyLight.notanEnabled || isDrawingActive(drawing)}
+          onToggleSnapshot={handleToggleSnapshot}
+          onCaptureSnapshot={handleCaptureSnapshot}
+          onExportBlueprintSvg={handleExportBlueprintSvg}
+          isShortcutsOpen={isShortcutsOpen}
+          onToggleShortcuts={handleToggleShortcuts}
+          viewport={viewport}
+          isHudMinimized={effectiveHudMinimized}
+          containInPane={containStudioInPane}
+        />
+      </div>
+
+      {/* Atelier 2D Drawing Pad Workspace */}
+      <PadWorkspace
         studioTheme={studioTheme}
         viewport={viewport}
-        isHudMinimized={effectiveHudMinimized}
-        onUpdateOffset={handleUpdateReferenceOffset}
-        onToggleLock={handleToggleReferenceLock}
-        onRemove={handleRemoveReferenceImage}
-      />
-      <HeadUnitRuler
-        metrics={headRulerMetrics}
-        studioTheme={studioTheme}
-        width={viewport.width}
-        height={viewport.height}
-        isHudMinimized={effectiveHudMinimized}
-      />
-      <CompositionOverlay
-        crop={compositionCrop}
-        grid={compositionGrid}
-        goldenSpiralFlip={goldenSpiralFlip}
-        studioTheme={studioTheme}
-        width={viewport.width}
-        height={viewport.height}
+        workspaceTier={workspaceTier}
+        onSelectTier={handleSelectWorkspaceTier}
+        layoutMode={effectivePadLayout}
+        onChangeLayoutMode={(m) => setPadLayoutOverride(m)}
+        splitRatio={splitRatio}
+        onChangeSplitRatio={setSplitRatio}
+        leftHandedFlip={leftHandedFlip}
+        onToggleLeftHandedFlip={() => setLeftHandedFlip((p) => !p)}
+        flipHorizontal={padFlipHorizontal}
+        onToggleFlipHorizontal={() => setPadFlipHorizontal((p) => !p)}
+        onSetFlipHorizontalDirect={setPadFlipHorizontal}
+        vellumOpacity={vellumOpacity}
+        onChangeVellumOpacity={setVellumOpacity}
+        vellumInteraction={vellumInteraction}
+        onChangeVellumInteraction={setVellumInteraction}
+        vellumXRayActive={vellumXRayActive}
+        onToggleVellumXRay={toggleVellumXRayFlash}
+        isSidebarOpen={isSidebarOpen}
+        onToggleSidebar={setIsSidebarOpen}
+        snapshotBridge={snapshotBridgeRef.current}
+        onCaptureXRaySnapshot={captureXRaySnapshot}
+        onPadBridgeReady={handlePadBridgeReady}
+        onToast={showToast}
+        headerHeightPx={padHeaderHeightPx}
       />
     </main>
   );

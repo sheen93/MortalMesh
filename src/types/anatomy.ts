@@ -381,5 +381,16 @@ export interface SvgExportResult {
 
 export interface SnapshotBridge {
   captureSnapshot: (options: SnapshotOptions) => SnapshotResult | null;
+  captureDataUrl: (
+    options: SnapshotOptions
+  ) => { dataUrl: string; width: number; height: number } | null;
   exportBlueprintSvg: (options: SvgExportOptions) => SvgExportResult | null;
+  generateBlueprintSvgData: (
+    options: SvgExportOptions
+  ) => {
+    svgText: string;
+    width: number;
+    height: number;
+    layerCounts: Record<string, number>;
+  } | null;
 }

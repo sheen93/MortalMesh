@@ -31,6 +31,7 @@ interface ViewportGizmoProps {
   showPerspectiveGuides: boolean;
   viewport: ViewportProfile;
   isHudMinimized?: boolean;
+  containInPane?: boolean;
   bookmarks: readonly CameraBookmark[];
   onSelectCameraPreset: (preset: CameraPreset) => void;
   onChangeLensCurvature: (value: number) => void;
@@ -164,6 +165,7 @@ export function ViewportGizmo({
   showPerspectiveGuides,
   viewport,
   isHudMinimized = false,
+  containInPane = false,
   bookmarks,
   onSelectCameraPreset,
   onChangeLensCurvature,
@@ -185,7 +187,7 @@ export function ViewportGizmo({
   const [compactCameraOpen, setCompactCameraOpen] = useState(false);
   const [desktopLensCardOpen, setDesktopLensCardOpen] = useState(false);
 
-  const compact = viewport.isMobile || viewport.isCompactLandscape;
+  const compact = viewport.isMobile || viewport.isCompactLandscape || containInPane;
   const cubeSize = compact ? 46 : 64;
   const halfDepth = cubeSize / 2;
   const atBookmarkLimit = bookmarks.length >= MAX_CAMERA_BOOKMARKS;
@@ -320,7 +322,9 @@ export function ViewportGizmo({
   return (
     <div
       aria-hidden={isHudMinimized}
-      className={`fixed z-20 flex flex-col items-end gap-1.5 pointer-events-none select-none transition-all duration-200 ${
+      className={`${
+        containInPane ? 'absolute' : 'fixed'
+      } z-20 flex flex-col items-end gap-1.5 pointer-events-none select-none transition-all duration-200 ${
         isHudMinimized ? 'opacity-0 translate-x-4' : 'opacity-100 translate-x-0'
       }`}
       style={{

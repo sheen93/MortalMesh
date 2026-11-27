@@ -79,6 +79,7 @@ interface FloatingSidebarProps {
   studioTheme: StudioThemeId;
   viewport: ViewportProfile;
   isHudMinimized?: boolean;
+  containInPane?: boolean;
   isOpen: boolean;
   onToggleOpen: (open: boolean) => void;
   mannequins: readonly MannequinRecord[];
@@ -130,6 +131,7 @@ export function FloatingSidebar({
   studioTheme,
   viewport,
   isHudMinimized = false,
+  containInPane = false,
   isOpen,
   onToggleOpen,
   mannequins,
@@ -223,7 +225,9 @@ export function FloatingSidebar({
         aria-hidden={isHudMinimized}
         onPointerDown={(event) => event.stopPropagation()}
         style={{ top: safeTopStyle, left: safeLeftStyle }}
-        className={`fixed z-20 flex min-h-[42px] items-center gap-2 rounded-2xl px-3 py-1.5 select-none transition-all duration-200 ${ui.panel} ${
+        className={`${
+          containInPane ? 'absolute' : 'fixed'
+        } z-20 flex min-h-[42px] items-center gap-2 rounded-2xl px-3 py-1.5 select-none transition-all duration-200 ${ui.panel} ${
           isHudMinimized
             ? 'opacity-0 -translate-x-4 pointer-events-none'
             : 'opacity-100 translate-x-0 pointer-events-auto'

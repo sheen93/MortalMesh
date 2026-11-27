@@ -58,7 +58,10 @@ import {
   getFisheyeReferenceDistance,
 } from '@/utils/lensWarp';
 import { getNotanThemePalette } from '@/utils/notanGradient';
-import { exportLayeredBlueprintSVG } from '@/utils/svgBlueprintExporter';
+import {
+  exportLayeredBlueprintSVG,
+  generateLayeredBlueprintSVG,
+} from '@/utils/svgBlueprintExporter';
 import type {
   PropDropCommand,
   PropTransformMode,
@@ -107,6 +110,8 @@ interface StudioCanvasProps {
   bookmarks: readonly CameraBookmark[];
   viewport: ViewportProfile;
   isHudMinimized?: boolean;
+  containInPane?: boolean;
+  flipHorizontal?: boolean;
   onCanvasBackgroundTap?: () => void;
   onSelectMannequin: (id: string) => void;
   onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
@@ -301,8 +306,10 @@ function SnapshotExporter({
 }: SnapshotExporterProps) {
   const { gl, scene, camera, size, invalidate } = useThree();
 
-  const captureSnapshot = useCallback(
-    (options: SnapshotOptions): SnapshotResult | null => {
+  const captureDataUrl = useCallback(
+    (
+      options: SnapshotOptions
+    ): { dataUrl: string; width: number; height: number } | null => {
       const visibilityBackup: Array<{ obj: THREE.Object3D; visible: boolean }> =
         [];
       const seen = new Set<THREE.Object3D>();
@@ -389,6 +396,15 @@ function SnapshotExporter({
       }
 
       if (!dataUrl) return null;
+      return { dataUrl, width, height };
+    },
+    [gl, scene, camera, invalidate, floorGroupRef, curvilinearRenderRef]
+  );
+
+  const captureSnapshot = useCallback(
+    (options: SnapshotOptions): SnapshotResult | null => {
+      const captured = captureDataUrl(options);
+      if (!captured) return null;
 
       const prefix = options.transparent
         ? 'mortal-mesh-cutout'
@@ -396,15 +412,19 @@ function SnapshotExporter({
       const filename = `${prefix}-${formatPoseTimestamp()}.png`;
 
       const anchor = document.createElement('a');
-      anchor.href = dataUrl;
+      anchor.href = captured.dataUrl;
       anchor.download = filename;
       document.body.appendChild(anchor);
       anchor.click();
       document.body.removeChild(anchor);
 
-      return { filename, width, height };
+      return {
+        filename,
+        width: captured.width,
+        height: captured.height,
+      };
     },
-    [gl, scene, camera, invalidate, floorGroupRef, curvilinearRenderRef]
+    [captureDataUrl]
   );
 
   const exportBlueprintSvg = useCallback(
@@ -437,10 +457,54 @@ function SnapshotExporter({
     ]
   );
 
+  const generateBlueprintSvgData = useCallback(
+    (options: SvgExportOptions) => {
+      const out = generateLayeredBlueprintSVG({
+        scene,
+        camera,
+        viewportWidth: size.width,
+        viewportHeight: size.height,
+        perspectiveMode: activePreset,
+        lensCurvature,
+        drawingStyle: drawing.drawingStyle,
+        studioTheme,
+        showLandmarks: effectiveShowLandmarks(drawing),
+        transparent: options.transparent,
+      });
+      return {
+        svgText: out.svgText,
+        width: Math.max(1, Math.round(size.width)),
+        height: Math.max(1, Math.round(size.height)),
+        layerCounts: out.layerCounts,
+      };
+    },
+    [
+      scene,
+      camera,
+      size.width,
+      size.height,
+      activePreset,
+      lensCurvature,
+      drawing,
+      studioTheme,
+    ]
+  );
+
   useEffect(() => {
-    onSnapshotBridgeReady({ captureSnapshot, exportBlueprintSvg });
+    onSnapshotBridgeReady({
+      captureSnapshot,
+      captureDataUrl,
+      exportBlueprintSvg,
+      generateBlueprintSvgData,
+    });
     return () => onSnapshotBridgeReady(null);
-  }, [captureSnapshot, exportBlueprintSvg, onSnapshotBridgeReady]);
+  }, [
+    captureSnapshot,
+    captureDataUrl,
+    exportBlueprintSvg,
+    generateBlueprintSvgData,
+    onSnapshotBridgeReady,
+  ]);
 
   return null;
 }
@@ -1018,6 +1082,8 @@ export function StudioCanvas({
   bookmarks,
   viewport,
   isHudMinimized = false,
+  containInPane = false,
+  flipHorizontal = false,
   onCanvasBackgroundTap,
   onSelectMannequin,
   onSelectBoneChange,
@@ -1158,132 +1224,137 @@ export function StudioCanvas({
         bgTapRef.current.activePointers.delete(e.pointerId);
       }}
     >
-      <Canvas
-        frameloop="demand"
-        shadows
-        dpr={[1, 2]}
-        camera={{ position: [0, 1, 6], fov: 40, near: 0.1, far: 100 }}
-        gl={{ antialias: true, alpha: true }}
-        onPointerMissed={() => {
-          const tap = bgTapRef.current;
-          const isCleanTap =
-            !isDragging &&
-            !propDragGuardRef.current.isDragging &&
-            performance.now() - propDragGuardRef.current.lastDragEndTime >=
-              220 &&
-            !tap.multiTouch &&
-            tap.maxTravel < 8;
-          setDeselectTrigger((prev) => prev + 1);
-          if (
-            !propDragGuardRef.current.isDragging &&
-            performance.now() - propDragGuardRef.current.lastDragEndTime >= 200
-          ) {
-            onSelectProp(null);
-          }
-          if (isCleanTap) {
-            onCanvasBackgroundTap?.();
-          }
-        }}
+      <div
+        className="relative h-full w-full"
+        style={{ transform: flipHorizontal ? 'scaleX(-1)' : undefined }}
       >
-        <color attach="background" args={canvasBgArgs} />
-        <fog attach="fog" args={canvasFogArgs} />
-        <StudioLighting
-          theme={theme}
-          keyLight={keyLight}
-          planarOverride={drawing.drawingStyle === 'planar'}
-        />
-        <CameraRig
-          controlsRef={controlsRef}
-          viewCubeRef={viewCubeRef}
-          invalidateRef={invalidateRef}
-          activePreset={activePreset}
-          lensCurvature={lensCurvature}
-          snapTrigger={snapTrigger}
-          isDragging={isDragging}
-          onCameraRest={onCameraRest}
-          onCameraBridgeReady={onCameraBridgeReady}
-        />
-        <StageReference
-          mannequins={mannequins}
-          activeMannequinId={activeMannequinId}
-          sceneLoadId={sceneLoadId}
-          studioTheme={studioTheme}
-          theme={theme}
-          floorGroupRef={floorGroupRef}
-          jointsDisplay={jointsDisplay}
-          controlMode={controlMode}
-          jointLimitsEnabled={jointLimitsEnabled}
-          jointAngleCommand={jointAngleCommand}
-          groundEnabled={groundEnabled}
-          elevationCommand={elevationCommand}
-          dropToFloorTrigger={dropToFloorTrigger}
-          moveBodyEnabled={moveBodyEnabled}
-          posePresetCommand={posePresetCommand}
-          gravityEnabled={gravityEnabled}
-          dampingPreset={dampingPreset}
-          resetTrigger={resetTrigger}
-          deselectTrigger={deselectTrigger + externalDeselectTrigger}
-          studioProps={studioProps}
-          selectedPropId={selectedPropId}
-          propTransformMode={propTransformMode}
-          dropPropToFloorCommand={dropPropToFloorCommand}
-          propDragGuardRef={propDragGuardRef}
-          isCoarsePointer={viewport.isCoarsePointer}
-          activePreset={activePreset}
-          lensCurvature={lensCurvature}
-          cameraRestSeq={cameraRestSeq}
-          ikPinFeet={ikPinFeet}
-          ikSwivelByHandle={ikSwivelByHandle}
-          notanEnabled={keyLight.notanEnabled}
-          notanSplit={keyLight.notanSplit}
-          drawing={drawing}
-          showHeadRuler={showHeadRuler}
-          showLandmarkPins={showLandmarkPins}
-          onSelectMannequin={onSelectMannequin}
-          onDraggingChange={onDraggingChange}
-          onSelectBoneChange={onSelectBoneChange}
-          onSelectIKHandleChange={onSelectIKHandleChange}
-          onBoneAnglesChange={onBoneAnglesChange}
-          onElevationSync={onElevationSync}
-          onMoveBodyChange={onMoveBodyChange}
-          onSelectProp={onSelectProp}
-          onUpdatePropTransform={onUpdatePropTransform}
-          onMannequinBridgeChange={onMannequinBridgeChange}
-          onInitialPoseSnapshot={onInitialPoseSnapshot}
-          onCommitPoseSnapshot={onCommitPoseSnapshot}
-          onMannequinAnchorChange={onMannequinAnchorChange}
-          onPropAnchorChange={onPropAnchorChange}
-          onHeadRulerMetricsChange={onHeadRulerMetricsChange}
-          onLandmarkPinsChange={onLandmarkPinsChange}
-        />
-        {(isFisheyePreset(activePreset) || drawing.drawingStyle !== 'off') && (
-          <CurvilinearLens
-            preset={activePreset}
-            curvature={lensCurvature}
-            drawing={drawing}
-            studioTheme={studioTheme}
-            renderHookRef={curvilinearRenderRef}
+        <Canvas
+          frameloop="demand"
+          shadows
+          dpr={[1, 2]}
+          camera={{ position: [0, 1, 6], fov: 40, near: 0.1, far: 100 }}
+          gl={{ antialias: true, alpha: true }}
+          onPointerMissed={() => {
+            const tap = bgTapRef.current;
+            const isCleanTap =
+              !isDragging &&
+              !propDragGuardRef.current.isDragging &&
+              performance.now() - propDragGuardRef.current.lastDragEndTime >=
+                220 &&
+              !tap.multiTouch &&
+              tap.maxTravel < 8;
+            setDeselectTrigger((prev) => prev + 1);
+            if (
+              !propDragGuardRef.current.isDragging &&
+              performance.now() - propDragGuardRef.current.lastDragEndTime >= 200
+            ) {
+              onSelectProp(null);
+            }
+            if (isCleanTap) {
+              onCanvasBackgroundTap?.();
+            }
+          }}
+        >
+          <color attach="background" args={canvasBgArgs} />
+          <fog attach="fog" args={canvasFogArgs} />
+          <StudioLighting
+            theme={theme}
+            keyLight={keyLight}
+            planarOverride={drawing.drawingStyle === 'planar'}
           />
-        )}
-        <SnapshotExporter
-          floorGroupRef={floorGroupRef}
-          curvilinearRenderRef={curvilinearRenderRef}
-          studioTheme={studioTheme}
-          activePreset={activePreset}
-          lensCurvature={lensCurvature}
-          drawing={drawing}
-          onSnapshotBridgeReady={onSnapshotBridgeReady}
-        />
-      </Canvas>
+          <CameraRig
+            controlsRef={controlsRef}
+            viewCubeRef={viewCubeRef}
+            invalidateRef={invalidateRef}
+            activePreset={activePreset}
+            lensCurvature={lensCurvature}
+            snapTrigger={snapTrigger}
+            isDragging={isDragging}
+            onCameraRest={onCameraRest}
+            onCameraBridgeReady={onCameraBridgeReady}
+          />
+          <StageReference
+            mannequins={mannequins}
+            activeMannequinId={activeMannequinId}
+            sceneLoadId={sceneLoadId}
+            studioTheme={studioTheme}
+            theme={theme}
+            floorGroupRef={floorGroupRef}
+            jointsDisplay={jointsDisplay}
+            controlMode={controlMode}
+            jointLimitsEnabled={jointLimitsEnabled}
+            jointAngleCommand={jointAngleCommand}
+            groundEnabled={groundEnabled}
+            elevationCommand={elevationCommand}
+            dropToFloorTrigger={dropToFloorTrigger}
+            moveBodyEnabled={moveBodyEnabled}
+            posePresetCommand={posePresetCommand}
+            gravityEnabled={gravityEnabled}
+            dampingPreset={dampingPreset}
+            resetTrigger={resetTrigger}
+            deselectTrigger={deselectTrigger + externalDeselectTrigger}
+            studioProps={studioProps}
+            selectedPropId={selectedPropId}
+            propTransformMode={propTransformMode}
+            dropPropToFloorCommand={dropPropToFloorCommand}
+            propDragGuardRef={propDragGuardRef}
+            isCoarsePointer={viewport.isCoarsePointer}
+            activePreset={activePreset}
+            lensCurvature={lensCurvature}
+            cameraRestSeq={cameraRestSeq}
+            ikPinFeet={ikPinFeet}
+            ikSwivelByHandle={ikSwivelByHandle}
+            notanEnabled={keyLight.notanEnabled}
+            notanSplit={keyLight.notanSplit}
+            drawing={drawing}
+            showHeadRuler={showHeadRuler}
+            showLandmarkPins={showLandmarkPins}
+            onSelectMannequin={onSelectMannequin}
+            onDraggingChange={onDraggingChange}
+            onSelectBoneChange={onSelectBoneChange}
+            onSelectIKHandleChange={onSelectIKHandleChange}
+            onBoneAnglesChange={onBoneAnglesChange}
+            onElevationSync={onElevationSync}
+            onMoveBodyChange={onMoveBodyChange}
+            onSelectProp={onSelectProp}
+            onUpdatePropTransform={onUpdatePropTransform}
+            onMannequinBridgeChange={onMannequinBridgeChange}
+            onInitialPoseSnapshot={onInitialPoseSnapshot}
+            onCommitPoseSnapshot={onCommitPoseSnapshot}
+            onMannequinAnchorChange={onMannequinAnchorChange}
+            onPropAnchorChange={onPropAnchorChange}
+            onHeadRulerMetricsChange={onHeadRulerMetricsChange}
+            onLandmarkPinsChange={onLandmarkPinsChange}
+          />
+          {(isFisheyePreset(activePreset) || drawing.drawingStyle !== 'off') && (
+            <CurvilinearLens
+              preset={activePreset}
+              curvature={lensCurvature}
+              drawing={drawing}
+              studioTheme={studioTheme}
+              renderHookRef={curvilinearRenderRef}
+            />
+          )}
+          <SnapshotExporter
+            floorGroupRef={floorGroupRef}
+            curvilinearRenderRef={curvilinearRenderRef}
+            studioTheme={studioTheme}
+            activePreset={activePreset}
+            lensCurvature={lensCurvature}
+            drawing={drawing}
+            onSnapshotBridgeReady={onSnapshotBridgeReady}
+          />
+        </Canvas>
 
-      <PerspectiveGuides
-        preset={activePreset}
-        curvature={lensCurvature}
-        visible={showPerspectiveGuides}
-        studioTheme={studioTheme}
-        width={viewport.width}
-        height={viewport.height}
-      />
+        <PerspectiveGuides
+          preset={activePreset}
+          curvature={lensCurvature}
+          visible={showPerspectiveGuides}
+          studioTheme={studioTheme}
+          width={viewport.width}
+          height={viewport.height}
+        />
+      </div>
 
       <ViewportGizmo
         cubeRef={viewCubeRef}
@@ -1293,6 +1364,7 @@ export function StudioCanvas({
         showPerspectiveGuides={showPerspectiveGuides}
         viewport={viewport}
         isHudMinimized={isHudMinimized}
+        containInPane={containInPane}
         bookmarks={bookmarks}
         onSelectCameraPreset={onSelectCameraPreset}
         onChangeLensCurvature={onChangeLensCurvature}

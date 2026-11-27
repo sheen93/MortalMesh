@@ -1100,6 +1100,190 @@ export function ChevronRightIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
   );
 }
 
+export function PencilIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M11.3 2.2a1.7 1.7 0 0 1 2.4 2.4L5.2 13.1l-3 .7.7-3 8.4-8.6Z" />
+      <path d="m9.6 3.9 2.5 2.5" />
+    </svg>
+  );
+}
+
+export function BrushIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M13.5 2.5 7.4 8.6" />
+      <path d="M6.6 8.3c-1.5 0-2.5 1-2.5 2.3 0 1-.8 1.9-1.9 2.1.7.7 1.8 1.1 2.9 1.1 2 0 3.4-1.3 3.4-3.1 0-1.3-.9-2.4-1.9-2.4Z" />
+    </svg>
+  );
+}
+
+export function PenNibIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M8 1.75 12.5 8l-2 4.5h-5l-2-4.5L8 1.75Z" />
+      <path d="M8 1.75V7.5" />
+      <circle cx="8" cy="8.25" r="0.9" fill="currentColor" />
+      <path d="M5 14.25h6" />
+    </svg>
+  );
+}
+
+export function EraserIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="m7.2 3.2 5.6 5.6a1.4 1.4 0 0 1 0 2l-2.6 2.6a1.4 1.4 0 0 1-1 .4H5.4L2.2 10.6a1.4 1.4 0 0 1 0-2l3-5.4a1.4 1.4 0 0 1 2 0Z" />
+      <path d="M4.6 7.4 9.5 12.3M7.5 13.8h6" />
+    </svg>
+  );
+}
+
+export function LassoIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <ellipse cx="8" cy="6.75" rx="5.25" ry="3.75" strokeDasharray="2.2 1.8" />
+      <circle cx="5.25" cy="10.25" r="1.25" />
+      <path d="M5.25 11.5c0 1.4 1 2.25 2.5 2.5" />
+    </svg>
+  );
+}
+
+export function ScanEyeIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M2.5 5V3.25A.75.75 0 0 1 3.25 2.5H5M11 2.5h1.75a.75.75 0 0 1 .75.75V5M13.5 11v1.75a.75.75 0 0 1-.75.75H11M5 13.5H3.25a.75.75 0 0 1-.75-.75V11" />
+      <path d="M3.25 8S5 5.25 8 5.25 12.75 8 12.75 8 11 10.75 8 10.75 3.25 8 3.25 8Z" />
+      <circle cx="8" cy="8" r="1.1" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function SplitPaneIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="2" y="2.75" width="12" height="10.5" rx="1.5" />
+      <path d="M8 2.75v10.5" />
+    </svg>
+  );
+}
+
+export function StylusIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M12.75 2.25 4.25 10.75l-1.5 3 3-1.5 8.5-8.5-1.5-1.5Z" />
+      <path d="m10 5 1 1" />
+    </svg>
+  );
+}
+
+export function VideoIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="1.75" y="4" width="8.75" height="8" rx="1.5" />
+      <path d="m10.5 7 3.75-2v6L10.5 9" />
+    </svg>
+  );
+}
+
+export function BookOpenIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M8 4.2C6.8 3.2 4.7 2.75 2.25 2.75v9.5c2.45 0 4.55.45 5.75 1.45 1.2-1 3.3-1.45 5.75-1.45v-9.5C11.3 2.75 9.2 3.2 8 4.2Z" />
+      <path d="M8 4.2v9.5" />
+    </svg>
+  );
+}
+
 interface ToggleSwitchProps {
   id?: string;
   label: string;
