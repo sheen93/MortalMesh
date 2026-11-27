@@ -54,7 +54,6 @@ import {
   FilePlusIcon,
   FlipHorizontalIcon,
   FolderOpenIcon,
-  GraduationCapIcon,
   LayersIcon,
   LockIcon,
   LogoMarkIcon,
@@ -66,7 +65,6 @@ import {
   SearchIcon,
   Share2Icon,
   SparklesIcon,
-  TimerIcon,
   ToggleSwitch,
   TrashIcon,
   UnlockIcon,
@@ -112,10 +110,6 @@ interface FloatingSidebarProps {
   onExportSceneJson: () => void;
   onSharePoseLink: () => void;
   onNewBlankScene: () => void;
-  academyCompletedCount: number;
-  totalAcademyModules: number;
-  onOpenAcademy: () => void;
-  onOpenGestureGym: () => void;
   studioProps: readonly StudioProp[];
   selectedPropId: string | null;
   onSelectProp: (id: string | null) => void;
@@ -161,10 +155,6 @@ export function FloatingSidebar({
   onExportSceneJson,
   onSharePoseLink,
   onNewBlankScene,
-  academyCompletedCount,
-  totalAcademyModules,
-  onOpenAcademy,
-  onOpenGestureGym,
   studioProps,
   selectedPropId,
   onSelectProp,
@@ -311,38 +301,6 @@ export function FloatingSidebar({
             <PanelToggleIcon collapsed={false} className="h-3.5 w-3.5" />
           </button>
         </header>
-
-        {/* Learn Strip: Interactive Academy & Timed Gesture Gym */}
-        <div
-          className={`grid shrink-0 grid-cols-2 gap-1.5 border-b px-3 py-2 ${ui.divider}`}
-        >
-          <button
-            type="button"
-            data-testid="open-academy-btn"
-            onClick={onOpenAcademy}
-            title="Open Anatomy Academy interactive 3D curriculum"
-            className={`flex items-center justify-between gap-1 rounded-lg px-2 py-1.5 text-[10.5px] font-medium transition-colors ${ui.pillButton}`}
-          >
-            <span className="flex min-w-0 items-center gap-1.5">
-              <GraduationCapIcon className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">Academy</span>
-            </span>
-            <span className="shrink-0 rounded px-1 py-0.5 font-mono text-[9.5px] opacity-80">
-              {academyCompletedCount}/{totalAcademyModules}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            data-testid="open-gesture-gym-btn"
-            onClick={onOpenGestureGym}
-            title="Launch 3D Timed Gesture Drawing Gym"
-            className={`flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[10.5px] font-medium transition-colors ${ui.pillButton}`}
-          >
-            <TimerIcon className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">Gesture Gym</span>
-          </button>
-        </div>
 
         {/* Scrollable Accordion Stack */}
         <div

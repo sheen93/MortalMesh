@@ -16,7 +16,10 @@ const SITE_URL = (
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: 'Mortal Mesh — 3D Anatomy Studio',
+  title: {
+    default: 'Mortal Mesh — 3D Anatomy Studio & Drawing Pad',
+    template: '%s | Mortal Mesh',
+  },
   description:
     'Offline-ready 3D rigged mannequin, live two-bone IK, and figure-posing reference studio for artists.',
   manifest: '/manifest.webmanifest',

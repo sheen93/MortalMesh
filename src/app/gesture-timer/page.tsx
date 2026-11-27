@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { SeoShell } from '@/components/SeoShell';
 
 export const metadata: Metadata = {
-  title: 'Free 3D Timed Gesture Drawing Timer (30s, 1m, 2m, 5m, Class) — Mortal Mesh',
+  title: 'Free 3D Timed Gesture Drawing Timer & Sketchpad',
   description:
     'Run timed 3D figure drawing drills offline in your browser with rotating camera angles, 2-Value Notan shadows, Loomis blue-pencil construction, and comic ink outlines.',
   alternates: { canonical: '/gesture-timer' },

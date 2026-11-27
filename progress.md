@@ -1,7 +1,7 @@
 # Mortal Mesh — Project Progress & Handoff Guide
 
 **Last Updated:** 2026-11-27  
-**Status:** Phase 18 Complete — Atelier 2D Study Pad (S-Pen / Stylus Engine, 3-Layer Cache, Tab S8 50/50 Split & Phone Vellum/Stacked, X-Ray Slide Check, Layered PSD/SVG/PNG/WebP/WebM Exports, IndexedDB Offline Persistence & Phase 19 PadBridge) Built & Verified  
+**Status:** Phase 19 Complete — 8-Module KINETIC-5 Interactive Anatomy School, Pad-Integrated 3D Timed Gesture Gym, Local IndexedDB Study Gallery, 5-Format Shareable 3D Pose URL Codec & 67 Static Programmatic SEO Pages Built & Verified  
 **Local Server:** Stopped cleanly (start preview via `rm -rf .next && npm run build && npm run start`, or dev via `npm run dev`)
 
 ---
@@ -535,6 +535,37 @@ All four new GLB assets from `/home/sheen/Documents/Mortal Mesh/models/` were cl
   - **Zero WebGL Contention & Stylus/Bridge Telemetry:** Recorded **`0` Three.js WebGL draw calls** during active 2D drawing (`Col-Erase`, `Charcoal`, `Fineliner`, `Hold-to-Snap`, `Lasso Move`, `Undo`/`Redo`) and verified live `PadBridge` metrics (`totalStrokes: 4`, `straightLineCount: 1`).
   - **X-Ray & Multi-Format Exports:** Verified `X-Ray Slide Check` (`Surface` + `Loomis`), Transparent `.PNG` (`825×856`, `cornerAlpha: 0`, `nonTransparent: 6846`), Layered `.SVG` (`49,459` bytes), Layered `.PSD` (`8BPS` header, `447,259` bytes), and `.WEBP` (`10,142` bytes).
   - **True Offline Proof & Regressions:** Reloaded `/` under `offline: true`, verified IndexedDB autosave stroke restoration and offline `8BPS` `.PSD` generation, and verified `School` slot + Phase 12–17 Studio regressions. Visually inspected `p18_s25_412x915_stacked.png`, `p18_desktop_split_sketch.png`, and `p18_landscape_915x412_pad.png`; stopped temporary port `3018` server cleanly (`0` background tasks remaining).
+
+---
+
+## 17. Phase 19: The KINETIC-5 Interactive Anatomy School (8 Modules), Pad-Integrated 3D Timed Gesture Gym, Shareable Pose URLs & 67 Programmatic SEO Pages
+
+### 17.1 Delivered Systems & Architecture
+
+- **Milestone 45 — 8-Module KINETIC-5 Interactive Anatomy School, Unified `PadBridge`, Dual Sandboxing & Local Study Gallery (`src/data/kineticCurriculum.ts`, `src/components/school/SchoolWorkspace.tsx`, `src/components/school/LessonOverlayBar.tsx`, `src/components/school/LandmarkPinOverlay.tsx`, `src/components/school/StudyGalleryModal.tsx`, `src/types/pad.ts`, `src/types/padBridge.ts`, `src/utils/padRenderer.ts`, `src/components/pad/PadCanvas.tsx`, `src/components/pad/PadWorkspace.tsx`, `src/components/pad/PadExportPopover.tsx`, `src/app/page.tsx`):**
+  - Replaced Phase 17/18 placeholders cleanly (`SchoolWorkspace` with 3 internal tabs: `KINETIC-5 Course (8)`, `Gesture Gym`, `My Studies`) and removed the redundant sidebar `Learn` strip so `Studio | Pad | School` in `WorkspaceModeBar` is the single UI entry point while keeping `StudioRightRail` strictly at `4` icons.
+  - Built all **8 KINETIC-5 interactive missions** synthesizing the `PULSE -> ANCHOR -> BOX -> WRAP -> CARVE` workflow (`pulse-gravity`, `warring-boxes`, `eight-anchor-bones`, `perspective-coils`, `muscle-envelopes`, `hands-as-wedges`, `shadow-thief`, `final-boss-panel`), reading live 3D Studio state alongside `PadBridge.subscribeTelemetry()` (`0` WebGL draw calls while drawing strokes).
+  - Built Module 3 **X-Ray Sight** (`LandmarkPinOverlay.tsx`): artists tap `5+` of the `8` anatomical landmarks (`C7`, `Sternum Pit`, `Acromion`, `ASIS`, `Greater Trochanter`, `Olecranon`, `Patella`, `Malleoli`) over Vellum skin before hitting **`Reveal Skeleton`** (`skeleton-rig.glb` cross-fade + SVG dashed offset vectors, emerald true-bone rings, avg pixel offset badge, and 1-line artist tips).
+  - Implemented **Non-Destructive Dual Sandboxing**: entering any School module or Gesture Gym snapshots BOTH the 3D scene (`MortalMeshSceneFile`) and active Pad sketch (`PadBridge.serializeDocument()`), pauses IndexedDB `autosave`, and restores both cleanly on `Exit` (or saves completed work + PNG thumbnail to IndexedDB `studies` in `My Studies` for offline `.PSD`/`.SVG`/`.WEBM` re-export or reopening onto the Pad).
+- **Milestone 46 — Pad-Integrated 3D Timed Gesture Drawing Gym (`src/components/school/GestureGym.tsx`, `src/utils/studioChime.ts`):**
+  - Added **Sketch Workspace** mode toggle (**`Draw on Pad`** defaulting to Tab S8/Desktop `50/50 Split` & S25 Ultra `Vellum`, vs **`Paper / External App`**) alongside `30s | 1m | 2m | 5m | Class` (`4×30s → 3×1m → 2×2m → 1×5m`), study looks (`Atelier`, `2-Value Notan`, `Loomis Blue-Pencil`, `Comic Ink`), Web Audio chimes (`playStudioChime('warn-10s' | 'pose-done' | 'session-complete')`), and `mortal-mesh:gym:v1` streak tracking.
+  - Encapsulated `1 Hz` countdown ticks strictly inside `GestureGymActiveHud` (`0` idle WebGL draws) and added the post-timer **`Orbit & Check`** inspection phase (`ORBIT` unlock + single-row top bar with `X-Ray Check`, `Save Study`, `5s Timelapse`, and `Next Pose →` with automatic silent Pad reset).
+- **Milestone 47 — 5-Format Shareable 3D Pose URL Codec & 67 Static Programmatic SEO Pages (`src/utils/poseUrlCodec.ts`, `src/app/anatomy-school/page.tsx`, `src/app/layout.tsx`, `src/components/SeoShell.tsx`, `src/app/poses/`, `src/app/hands/`, `src/app/gesture-timer/page.tsx`, `src/app/sitemap.ts`, `scripts/generatePrecache.mjs`):**
+  - Added `/?mode=school` & `/?mode=school&lesson=<id>` deep-link hydration alongside `/?p=...`, `/?pose=<slug>`, `/?hand=<slug>`, and `/?mode=gym&interval=<sec>`, keeping the single `Share 3D Link` button in `Scene & Files`.
+  - Configured root `metadataBase` + `%s | Mortal Mesh` title template and added pure Server Component `/anatomy-school` (`Course` JSON-LD) plus `/sitemap.xml` (`67` canonical URLs), while keeping SEO route chunks excluded from `public/sw-precache.json` `urls`.
+
+### 17.2 Phase 19 Final Verification Outputs
+
+- **TypeScript (`npx tsc --noEmit`):** Exited `0` (`0` errors).
+- **Pose & Hand Gesture Validation (`node scripts/validatePoses.mjs`):** Exited `0` — `VALIDATED 50 POSES (categories={"foundation":5,"classical":10,"action":10,"combat":8,"dance":8,"gesture":9}) + 12x2 HAND GESTURES (0 ROM/bone violations)`.
+- **Log Audit (`grep -rn "console\.log" src/`):** Zero matches.
+- **Production Build & Precache Isolation (`rm -rf .next && npm run build`):** Exited `0`, statically generating `72/72` pages (`/` `426 kB` / `513 kB` First Load JS; `/anatomy-school`, `/gesture-timer`, `/poses`, `/poses/[slug]`, `/hands`, `/hands/[slug]` at `188 B` / `94.3 kB` First Load JS with zero Three.js/MediaPipe/`ag-psd` bloat) and generating `public/sw-precache.json` (`version=3a850ad75195`, `33` core URLs, `3` optional models, `4` lazy AI assets).
+- **Phase 19 HTTP SEO & Production Chrome QA (`verify_phase19_cdp.mjs` against `npx next start -p 3019`):** Exited `0` (`ALL PHASE 19 PRODUCTION CHROME QA CHECKS PASSED (0 console/page/network errors)`):
+  - **SEO & Sitemap HTTP Audit:** Verified HTTP `200`, unique `<title>`, `<link rel="canonical">`, JSON-LD, and studio/school CTA hrefs across `/poses`, `/poses/contrapposto`, `/poses/superhero-landing`, `/hands`, `/hands/fist`, `/gesture-timer`, and `/anatomy-school`; verified `/sitemap.xml` (`67` `<loc>` URLs) and `/robots.txt`.
+  - **KINETIC-5 Interactive School & Dual Sandboxing:** Verified `8` modules in `SchoolWorkspace`, `0` WebGL draw calls during Module 1 Force/Plumb sketching (`2/2`), Module 3 `5/8` surface landmark placement + `skeleton-rig.glb` X-Ray reveal (`2/2`, `Avg Offset 86px`), Module 7 Charcoal on `value` + `2-Value Notan` + `Flip H` + `Save Study`, and full non-destructive restore of WIP `Studio` + WIP `Pad` strokes on exit.
+  - **Pad-Integrated Gesture Gym & Viewports:** Measured **`0` idle WebGL draw calls** over `1600ms` during `30s` `Draw on Pad` countdown (`00:30 -> 00:28`) and `0` WebGL calls during Pad sketching on Tab S8 (`1280×800`, `50/50 Split`, `studioW: 640`, `padW: 640`), verified single-row `ORBIT` inspect bar + `X-Ray Check` (`0` overlap) + `mortal-mesh:gym:v1` streak/count update, and verified zero overflow across `1440×900`, `1280×800`, `800×1280`, `412×915`, and `915×412`.
+  - **All 5 Deep-Links, True Offline Proof & Regressions:** Verified `Share 3D Link` round-trip (`/?p=...`), `/?pose=superhero-landing`, `/?hand=rock`, `/?mode=gym&interval=60`, and `/?mode=school&lesson=eight-anchor-bones`; reloaded `/` under `offline: true` (`Offline`), verified IndexedDB `My Studies` gallery (`2` studies), offline KINETIC-5 drawing + `8BPS` `.PSD` export (`503,571` bytes), and offline Gesture Gym launch, plus Studio IK & Photo-to-Pose regressions. Visually inspected `p19_module1_vellum.png`, `p19_module3_xray_pins.png`, `p19_module7_notan_split.png`, `p19_tab_s8_gym_inspect.png`, `p19_s25_school.png`, and `p19_offline_studies_gallery.png`; stopped temporary port `3019` server cleanly (`0` background tasks remaining).
+
 
 
 

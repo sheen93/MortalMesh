@@ -4,7 +4,7 @@ import { SeoShell } from '@/components/SeoShell';
 import { POSE_CATEGORIES, POSE_PRESETS } from '@/data/poses';
 
 export const metadata: Metadata = {
-  title: '50 Free 3D Pose References for Artists — Mortal Mesh',
+  title: '50 Free 3D Pose References for Artists',
   description:
     'Browse 50 anatomically calibrated 3D figure drawing poses across Classical, Action, Combat, Dance, and Gesture categories. Inspect, orbit, light, and sketch in 3D.',
   alternates: { canonical: '/poses' },

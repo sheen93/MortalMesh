@@ -507,6 +507,26 @@ export function PadCanvas({
   const handlePointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     event.stopPropagation();
 
+    // Phase 19 landmark pin placement hook (supports mouse, pen, and single-finger touch)
+    if (
+      landmarkPinMode.enabled &&
+      landmarkPinMode.onPinPlaced &&
+      event.isPrimary !== false &&
+      (event.button === 0 ||
+        event.pointerType === 'pen' ||
+        event.pointerType === 'touch')
+    ) {
+      const { point } = clientToPoint(
+        event.clientX,
+        event.clientY,
+        event.pressure,
+        event.tiltX,
+        event.tiltY
+      );
+      landmarkPinMode.onPinPlaced(point[0], point[1]);
+      return;
+    }
+
     // Multi-finger touch tracking (for 2-finger Undo / 3-finger Redo & blocking palm strokes)
     if (event.pointerType === 'touch') {
       const tracker = touchTrackRef.current;
@@ -554,12 +574,6 @@ export function PadCanvas({
       event.tiltX,
       event.tiltY
     );
-
-    // Phase 19 landmark pin placement hook
-    if (landmarkPinMode.enabled && landmarkPinMode.onPinPlaced) {
-      landmarkPinMode.onPinPlaced(point[0], point[1]);
-      return;
-    }
 
     // X-Ray Ghost alignment nudge drag
     if (xRayConfig.active && xRayAlignMode) {

@@ -1,9 +1,10 @@
 import getStroke from 'perfect-freehand';
-import type {
-  PadLayerId,
-  PadStroke,
-  PadStrokePoint,
-  PadStrokeTelemetry,
+import {
+  PAD_LAYER_ORDER,
+  type PadLayerId,
+  type PadStroke,
+  type PadStrokePoint,
+  type PadStrokeTelemetry,
 } from '@/types/pad';
 
 function clamp01(v: number): number {
@@ -263,6 +264,7 @@ export function computeStrokeTelemetry(
   };
   let totalStrokes = 0;
   let straightLineCount = 0;
+  let curvedStrokeCount = 0;
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -273,7 +275,11 @@ export function computeStrokeTelemetry(
     if (s.tool === 'eraser') continue;
     totalStrokes += 1;
     countsByLayer[s.layerId] += 1;
-    if (s.isStraightLine) straightLineCount += 1;
+    if (s.isStraightLine) {
+      straightLineCount += 1;
+    } else if (s.points.length >= 2) {
+      curvedStrokeCount += 1;
+    }
     for (const pt of s.points) {
       if (pt[0] < minX) minX = pt[0];
       if (pt[1] < minY) minY = pt[1];
@@ -281,6 +287,10 @@ export function computeStrokeTelemetry(
       if (pt[1] > maxY) maxY = pt[1];
     }
   }
+
+  const activeLayersDrawn = PAD_LAYER_ORDER.filter(
+    (id) => countsByLayer[id] > 0
+  );
 
   const lastNonEraser = [...strokes]
     .reverse()
@@ -295,6 +305,8 @@ export function computeStrokeTelemetry(
     totalStrokes,
     countsByLayer,
     straightLineCount,
+    curvedStrokeCount,
+    activeLayersDrawn,
     boundingBox:
       totalStrokes > 0 && Number.isFinite(minX)
         ? { minX, minY, maxX, maxY }

@@ -133,6 +133,8 @@ export interface PadStudyRecord {
   createdAt: number;
   posePresetId: string | null;
   moduleId?: string | null;
+  sourceKind?: 'pad' | 'school' | 'gym';
+  thumbnailDataUrl?: string | null;
   document: PadDocumentV1;
 }
 
@@ -162,6 +164,8 @@ export interface PadStrokeTelemetry {
   totalStrokes: number;
   countsByLayer: Record<PadLayerId, number>;
   straightLineCount: number;
+  curvedStrokeCount: number;
+  activeLayersDrawn: PadLayerId[];
   boundingBox: { minX: number; minY: number; maxX: number; maxY: number } | null;
   recentPoints: PadStrokePoint[];
   hasDrawn: boolean;

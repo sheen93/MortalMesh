@@ -4,7 +4,7 @@ import { SeoShell } from '@/components/SeoShell';
 import { HAND_GESTURES } from '@/data/handGestures';
 
 export const metadata: Metadata = {
-  title: '12 3D Hand Anatomy & Gesture References for Artists — Mortal Mesh',
+  title: '12 3D Hand Anatomy & Gesture References for Artists',
   description:
     'Study 12 articulated 3D hand poses (Relaxed, Open, Spread, Fist, Grab, Hold, Point, Peace, Rock, Thumb Up, Pinch) with orbit camera, knuckle wedges, and Notan lighting.',
   alternates: { canonical: '/hands' },

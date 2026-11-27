@@ -1,13 +1,15 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 
+type SeoNavKey = 'poses' | 'hands' | 'gesture-timer' | 'anatomy-school';
+
 interface SeoShellProps {
-  activeNav?: 'poses' | 'hands' | 'gesture-timer';
+  activeNav?: SeoNavKey;
   children: ReactNode;
 }
 
 export function SeoShell({ activeNav, children }: SeoShellProps) {
-  const navCls = (id: 'poses' | 'hands' | 'gesture-timer') =>
+  const navCls = (id: SeoNavKey) =>
     activeNav === id
       ? 'rounded-lg bg-zinc-100 px-3 py-1.5 text-xs font-semibold text-zinc-950 transition-colors'
       : 'rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:bg-white/10 transition-colors';
@@ -35,6 +37,9 @@ export function SeoShell({ activeNav, children }: SeoShellProps) {
             </Link>
             <Link href="/gesture-timer" className={navCls('gesture-timer')}>
               Gesture Timer
+            </Link>
+            <Link href="/anatomy-school" className={navCls('anatomy-school')}>
+              Anatomy School
             </Link>
             <Link
               href="/"
@@ -64,6 +69,9 @@ export function SeoShell({ activeNav, children }: SeoShellProps) {
             </Link>
             <Link href="/gesture-timer" className="hover:text-zinc-200">
               Gesture Gym
+            </Link>
+            <Link href="/anatomy-school" className="hover:text-zinc-200">
+              Anatomy School
             </Link>
             <Link href="/sitemap.xml" className="hover:text-zinc-200">
               Sitemap

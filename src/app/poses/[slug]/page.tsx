@@ -18,7 +18,7 @@ export function generateMetadata({ params }: PosePageProps): Metadata {
   if (!preset) {
     return { title: 'Pose Reference — Mortal Mesh' };
   }
-  const title = `${preset.name} — Free 3D Pose Reference for Artists | Mortal Mesh`;
+  const title = `${preset.name} — Free 3D Pose Reference for Artists`;
   const description = `${preset.description}. Rotate 360°, toggle 2-Value Notan lighting, inspect Skeleton landmarks, and draw from ${preset.name} in Mortal Mesh 3D Studio.`;
   return {
     title,
@@ -100,13 +100,19 @@ export default function PoseDetailPage({ params }: PosePageProps) {
               data-testid="seo-open-in-studio-cta"
               className="rounded-xl bg-emerald-400 px-5 py-2.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-300 transition-colors"
             >
-              Open This Pose in Interactive 3D Studio →
+              Pose &amp; Rotate in 3D Studio →
             </Link>
             <Link
-              href="/gesture-timer"
+              href="/?mode=gym&interval=60"
               className="rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-xs font-medium text-zinc-200 hover:bg-white/10 transition-colors"
             >
-              Practice in 3D Gesture Gym
+              Sketch in 3D Gesture Gym →
+            </Link>
+            <Link
+              href="/anatomy-school"
+              className="rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-xs font-medium text-zinc-200 hover:bg-white/10 transition-colors"
+            >
+              KINETIC-5 Anatomy Course
             </Link>
           </div>
         </section>

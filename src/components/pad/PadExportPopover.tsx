@@ -27,6 +27,7 @@ interface PadExportPopoverProps {
   canvasSize: { width: number; height: number };
   snapshotBridge: SnapshotBridge | null;
   onExportDone: (message: string, tone?: 'success' | 'error') => void;
+  onExportCompleted?: (format: PadExportFormat) => void;
 }
 
 const FORMAT_OPTIONS: ReadonlyArray<{
@@ -49,6 +50,7 @@ export function PadExportPopover({
   canvasSize,
   snapshotBridge,
   onExportDone,
+  onExportCompleted,
 }: PadExportPopoverProps) {
   const [format, setFormat] = useState<PadExportFormat>('psd');
   const [include3D, setInclude3D] = useState(true);
@@ -83,6 +85,7 @@ export function PadExportPopover({
       else res = await exportPadTimelapse(ctx);
 
       onExportDone(`Exported ${res.filename}`, 'success');
+      onExportCompleted?.(format);
       onClose();
     } catch (err) {
       const msg =

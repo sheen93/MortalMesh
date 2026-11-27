@@ -1,4 +1,5 @@
 export type ChimeKind = 'tick' | 'complete' | 'session-end';
+export type StudioChimeEvent = 'warn-10s' | 'pose-done' | 'session-complete';
 
 let sharedAudioCtx: AudioContext | null = null;
 
@@ -56,4 +57,10 @@ export function playSoftBell(kind: ChimeKind): void {
   } catch {
     // Gracefully stay silent when Web Audio is restricted
   }
+}
+
+export function playStudioChime(event: StudioChimeEvent): void {
+  if (event === 'warn-10s') playSoftBell('tick');
+  else if (event === 'pose-done') playSoftBell('complete');
+  else playSoftBell('session-end');
 }

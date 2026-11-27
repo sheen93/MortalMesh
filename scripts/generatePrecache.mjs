@@ -65,7 +65,8 @@ for (const absPath of nextStaticFiles) {
   if (
     posixRel.startsWith('chunks/app/poses/') ||
     posixRel.startsWith('chunks/app/hands/') ||
-    posixRel.startsWith('chunks/app/gesture-timer/')
+    posixRel.startsWith('chunks/app/gesture-timer/') ||
+    posixRel.startsWith('chunks/app/anatomy-school/')
   ) {
     continue;
   }

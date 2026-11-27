@@ -18,7 +18,7 @@ export function generateMetadata({ params }: HandDetailPageProps): Metadata {
   if (!gesture) {
     return { title: 'Hand Reference — Mortal Mesh' };
   }
-  const title = `${gesture.label} Hand — Free 3D Hand Drawing Reference | Mortal Mesh`;
+  const title = `${gesture.label} Hand — Free 3D Hand Drawing Reference`;
   const description = `${gesture.description}. Orbit in 3D, check palm wedges and curved MCP knuckle arches, and refine individual finger joints offline.`;
   return {
     title,
@@ -86,7 +86,7 @@ export default function HandDetailPage({ params }: HandDetailPageProps) {
               data-testid="seo-open-hand-studio-cta"
               className="rounded-xl bg-emerald-400 px-5 py-2.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-300 transition-colors"
             >
-              Inspect {gesture.shortLabel} in 3D Studio →
+              Inspect &amp; Sketch Hand in 3D →
             </Link>
             <Link
               href="/poses"

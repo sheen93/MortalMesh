@@ -23,10 +23,15 @@ export interface PadBridge {
   setVellumOpacity: (opacity: number) => void;
   setXRayCheck: (config: Partial<PadXRayConfig>) => void;
   setFlipHorizontal: (flipped: boolean) => void;
-  clearPad: () => void;
+  clearPad: (silent?: boolean) => void;
   undo: () => boolean;
   redo: () => boolean;
   getStrokeTelemetry: () => PadStrokeTelemetry;
+  getCanvasSize: () => { width: number; height: number };
+  getCanvasRect: () => DOMRect | null;
+  subscribeTelemetry: (
+    listener: (telemetry: PadStrokeTelemetry) => void
+  ) => () => void;
   setLandmarkPinMode: (
     enabled: boolean,
     onPinPlaced?: PadPinPlacedCallback | null
@@ -40,5 +45,9 @@ export interface PadBridge {
     height: number;
     layers: Record<PadLayerId, HTMLCanvasElement>;
   };
+  captureThumbnailDataUrl: (
+    maxEdgePx?: number,
+    backdropDataUrl?: string | null
+  ) => Promise<string | null>;
   exportTimelapseBlob: (options?: PadTimelapseOptions) => Promise<Blob | null>;
 }

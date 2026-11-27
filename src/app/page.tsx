@@ -8,18 +8,8 @@ import {
   useState,
   type CSSProperties,
 } from 'react';
-import { AcademyLandmarkPins } from '@/components/AcademyLandmarkPins';
-import {
-  AcademyLessonHudCard,
-  AnatomyAcademyModal,
-} from '@/components/AnatomyAcademy';
 import { CompositionOverlay } from '@/components/CompositionOverlay';
 import { FloatingSidebar } from '@/components/FloatingSidebar';
-import {
-  GestureGym,
-  type GymDurationOption,
-  type GymStepTransitionPayload,
-} from '@/components/GestureGym';
 import { HeadUnitRuler } from '@/components/HeadUnitRuler';
 import { JointControlPopover } from '@/components/JointControlPopover';
 import {
@@ -35,7 +25,22 @@ import {
   retargetDetectedPersonToPose,
 } from '@/ai/poseRetargeting';
 import { ReferenceOverlay } from '@/components/ReferenceOverlay';
-import { SchoolWorkspaceSlot } from '@/components/SchoolWorkspaceSlot';
+import {
+  GestureGymActiveHud,
+  type GymDurationOption,
+  type GymSessionConfig,
+  type GymStepTransitionPayload,
+} from '@/components/school/GestureGym';
+import {
+  LandmarkPinOverlay,
+  type PlacedLandmarkPinMap,
+} from '@/components/school/LandmarkPinOverlay';
+import { LessonOverlayBar } from '@/components/school/LessonOverlayBar';
+import {
+  SchoolWorkspace,
+  type SchoolTabId,
+} from '@/components/school/SchoolWorkspace';
+import { StudyGalleryModal } from '@/components/school/StudyGalleryModal';
 import { ShortcutsModal } from '@/components/ShortcutsModal';
 import { StudioCanvas } from '@/components/StudioCanvas';
 import { StudioDock } from '@/components/StudioDock';
@@ -47,13 +52,13 @@ import { StudioToast, type StudioToastData } from '@/components/StudioToast';
 import { EyeIcon } from '@/components/StudioPrimitives';
 import { WorkspaceModeBar } from '@/components/WorkspaceModeBar';
 import {
-  ACADEMY_MODULES,
-  getAcademyModule,
-  loadCompletedAcademyModules,
-  saveCompletedAcademyModules,
-  type AcademyModuleId,
-  type AcademyTelemetry,
-} from '@/data/academyCurriculum';
+  KINETIC_MODULES,
+  LANDMARK_ORDER,
+  getKineticModule,
+  loadCompletedKineticModules,
+  saveCompletedKineticModules,
+  type KineticModuleId,
+} from '@/data/kineticCurriculum';
 import { HAND_GESTURE_BY_ID } from '@/data/handGestures';
 import {
   clampStudioLighting,
@@ -114,11 +119,13 @@ import {
   type StudioDrawingConfig,
 } from '@/types/drawing';
 import type {
+  PadDocumentV1,
   PadLayoutMode,
   PadXRaySource,
   WorkspaceTier,
 } from '@/types/pad';
 import type { PadBridge } from '@/types/padBridge';
+import { savePadStudy } from '@/utils/padStorage';
 import type { PoseBridge, PoseSnapshot } from '@/types/poseIO';
 import {
   createStudioProp,
@@ -280,29 +287,41 @@ export default function HomePage() {
   const [isPhotoToPoseOpen, setIsPhotoToPoseOpen] = useState(false);
   const [photoToPoseInitialFile, setPhotoToPoseInitialFile] =
     useState<File | null>(null);
-  const [isAcademyCatalogOpen, setIsAcademyCatalogOpen] = useState(false);
-  const [activeAcademyModuleId, setActiveAcademyModuleId] =
-    useState<AcademyModuleId | null>(null);
-  const [completedAcademyIds, setCompletedAcademyIds] = useState<
-    AcademyModuleId[]
+  const [activeKineticModuleId, setActiveKineticModuleId] =
+    useState<KineticModuleId | null>(null);
+  const [completedKineticIds, setCompletedKineticIds] = useState<
+    KineticModuleId[]
   >([]);
+  const [schoolInitialTab, setSchoolInitialTab] =
+    useState<SchoolTabId>('course');
+  const [highlightedModuleId, setHighlightedModuleId] =
+    useState<KineticModuleId | null>(null);
   const [projectedLandmarkPins, setProjectedLandmarkPins] = useState<
     ProjectedLandmarkPin[]
   >([]);
-  const [selectedLandmarkGroup, setSelectedLandmarkGroup] =
-    useState<LandmarkGroupId | null>(null);
-  const [inspectedLandmarks, setInspectedLandmarks] = useState<
-    LandmarkGroupId[]
-  >([]);
-  const [pelvisMovedInModule, setPelvisMovedInModule] = useState(false);
-  const [cameraOrbitedInModule, setCameraOrbitedInModule] = useState(false);
-  const [visitedHandGestures, setVisitedHandGestures] = useState<
+  const [placedLandmarkPins, setPlacedLandmarkPins] =
+    useState<PlacedLandmarkPinMap>({});
+  const [activeLandmarkTarget, setActiveLandmarkTarget] =
+    useState<LandmarkGroupId>('c7');
+  const [placedPinCount, setPlacedPinCount] = useState(0);
+  const [avgPinOffsetPx, setAvgPinOffsetPx] = useState<number | null>(null);
+  const [moduleSkeletonRevealed, setModuleSkeletonRevealed] = useState(false);
+  const [moduleXRayUsed, setModuleXRayUsed] = useState(false);
+  const [moduleSkeletonToggled, setModuleSkeletonToggled] = useState(false);
+  const [moduleSavedStudyCount, setModuleSavedStudyCount] = useState(0);
+  const [moduleExportedCount, setModuleExportedCount] = useState(0);
+  const [moduleHandRDeltaY, setModuleHandRDeltaY] = useState(0);
+  const [moduleVisitedHandGestures, setModuleVisitedHandGestures] = useState<
     HandGestureId[]
   >([]);
-  const [isGestureGymSetupOpen, setIsGestureGymSetupOpen] = useState(false);
-  const [isGestureGymActive, setIsGestureGymActive] = useState(false);
+  const [activeGymSession, setActiveGymSession] =
+    useState<GymSessionConfig | null>(null);
   const [gymInitialInterval, setGymInitialInterval] =
     useState<GymDurationOption | null>(null);
+  const [isStudiesModalOpen, setIsStudiesModalOpen] = useState(false);
+  const [studyRefreshToken, setStudyRefreshToken] = useState(0);
+  const [pendingDeepLinkModuleId, setPendingDeepLinkModuleId] =
+    useState<KineticModuleId | null>(null);
 
   const [workspaceTier, setWorkspaceTier] = useState<WorkspaceTier>('studio');
   const [padLayoutOverride, setPadLayoutOverride] =
@@ -339,15 +358,19 @@ export default function HomePage() {
   const skipNextAutosaveRef = useRef(false);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sandboxSavedSceneRef = useRef<MortalMeshSceneFile | null>(null);
+  const sandboxSavedPadDocRef = useRef<PadDocumentV1 | null>(null);
+  const sandboxSavedTierRef = useRef<WorkspaceTier>('studio');
   const isSandboxModeRef = useRef(false);
-  const moduleInitialAzimuthRef = useRef(42);
+  const moduleInitialHandRYRef = useRef<number | null>(null);
   const ignoreCameraRestUntilRef = useRef(0);
   const pendingCameraFocusBoneRef = useRef<{
     mannequinId: string;
     boneName: string;
   } | null>(null);
-  const activeAcademyModuleIdRef = useRef<AcademyModuleId | null>(null);
-  activeAcademyModuleIdRef.current = activeAcademyModuleId;
+  const activeKineticModuleIdRef = useRef<KineticModuleId | null>(null);
+  activeKineticModuleIdRef.current = activeKineticModuleId;
+  const activeLandmarkTargetRef = useRef<LandmarkGroupId>('c7');
+  activeLandmarkTargetRef.current = activeLandmarkTarget;
   const selectedIKHandleRef = useRef<IKHandleId | null>(null);
   selectedIKHandleRef.current = selectedIKHandle;
   const controlModeRef = useRef<PoseControlMode>('fk');
@@ -535,9 +558,9 @@ export default function HomePage() {
     [showToast]
   );
 
-  // Restore URL deep link, saved session, or theme + Academy progress on client mount
+  // Restore URL deep link, saved session, or theme + KINETIC-5 progress on client mount
   useEffect(() => {
-    setCompletedAcademyIds(loadCompletedAcademyModules());
+    setCompletedKineticIds(loadCompletedKineticModules());
 
     try {
       const deepLink = decodeSharedPoseParams(window.location.search);
@@ -647,7 +670,16 @@ export default function HomePage() {
 
         if (deepLink.kind === 'gym') {
           setGymInitialInterval(deepLink.interval);
-          setIsGestureGymSetupOpen(true);
+          setSchoolInitialTab('gym');
+          setWorkspaceTier('school');
+        } else if (deepLink.kind === 'school') {
+          setSchoolInitialTab('course');
+          setHighlightedModuleId(deepLink.lessonId);
+          if (deepLink.lessonId) {
+            setPendingDeepLinkModuleId(deepLink.lessonId);
+          } else {
+            setWorkspaceTier('school');
+          }
         } else if (deepLink.kind === 'invalid') {
           showToast(deepLink.error, 'error');
         }
@@ -776,8 +808,10 @@ export default function HomePage() {
       if (bridge) {
         bridgesRef.current.set(id, bridge);
         tryFocusPendingBone(id, bridge);
-        if (activeAcademyModuleIdRef.current !== null) {
-          setBridgeReadyVersion((prev) => prev + 1);
+        const modId = activeKineticModuleIdRef.current;
+        if (modId === 'muscle-envelopes' && id === 'figure-1') {
+          const p = bridge.getBoneWorldPosition('hand_r');
+          if (p) moduleInitialHandRYRef.current = p[1];
         }
       } else {
         bridgesRef.current.delete(id);
@@ -809,7 +843,20 @@ export default function HomePage() {
         ...prev,
         [id]: prev[id] ?? initPoseHistory(snapshot),
       }));
-      tryFocusPendingBone(id, bridgesRef.current.get(id));
+      const bridge = bridgesRef.current.get(id);
+      tryFocusPendingBone(id, bridge);
+      const modId = activeKineticModuleIdRef.current;
+      if (modId === 'muscle-envelopes' && id === 'figure-1' && bridge) {
+        const p = bridge.getBoneWorldPosition('hand_r');
+        if (p) moduleInitialHandRYRef.current = p[1];
+      }
+      if (modId === 'hands-as-wedges' && id === 'figure-1' && bridge) {
+        const applied = bridge.applyHandGesture('r', 'fist');
+        if (applied) {
+          poseByIdRef.current.set(id, clonePoseSnapshot(applied));
+        }
+        setActiveHandGestureId('fist');
+      }
     },
     [tryFocusPendingBone]
   );
@@ -823,11 +870,15 @@ export default function HomePage() {
       }));
       setPoseCommitVersion((prev) => prev + 1);
       if (
-        activeAcademyModuleIdRef.current === 'gesture-balance' &&
-        (selectedIKHandleRef.current === 'pelvis' ||
-          controlModeRef.current === 'ik')
+        activeKineticModuleIdRef.current === 'muscle-envelopes' &&
+        id === 'figure-1' &&
+        moduleInitialHandRYRef.current !== null
       ) {
-        setPelvisMovedInModule(true);
+        const p = bridgesRef.current.get(id)?.getBoneWorldPosition('hand_r');
+        if (p) {
+          const dy = Math.max(0, p[1] - moduleInitialHandRYRef.current);
+          setModuleHandRDeltaY((prev) => Math.max(prev, dy));
+        }
       }
     },
     []
@@ -2025,12 +2076,6 @@ export default function HomePage() {
 
   const handleCameraRest = useCallback(() => {
     setCameraRestSeq((prev) => prev + 1);
-    if (
-      activeAcademyModuleIdRef.current !== null &&
-      Date.now() >= ignoreCameraRestUntilRef.current
-    ) {
-      setCameraOrbitedInModule(true);
-    }
   }, []);
 
   const handleMannequinAnchorChange = useCallback(
@@ -2090,8 +2135,8 @@ export default function HomePage() {
         )
       );
       setActiveHandGestureId(gestureId);
-      if (activeAcademyModuleIdRef.current !== null) {
-        setVisitedHandGestures((prev) =>
+      if (activeKineticModuleIdRef.current !== null) {
+        setModuleVisitedHandGestures((prev) =>
           prev.includes(gestureId) ? prev : [...prev, gestureId]
         );
       }
@@ -2484,38 +2529,59 @@ export default function HomePage() {
   const enterSandboxIfNeeded = useCallback(() => {
     if (!isSandboxModeRef.current) {
       sandboxSavedSceneRef.current = buildCurrentSceneFile();
+      sandboxSavedPadDocRef.current =
+        padBridgeRef.current?.serializeDocument() ?? null;
+      sandboxSavedTierRef.current = workspaceTier;
       isSandboxModeRef.current = true;
     }
-  }, [buildCurrentSceneFile]);
+  }, [buildCurrentSceneFile, workspaceTier]);
 
   const exitSandboxAndRestore = useCallback(
-    (toastMessage?: string) => {
+    (toastMessage?: string, overrideTier?: WorkspaceTier) => {
       if (autosaveTimerRef.current) {
         clearTimeout(autosaveTimerRef.current);
         autosaveTimerRef.current = null;
       }
       pendingCameraFocusBoneRef.current = null;
-      setActiveAcademyModuleId(null);
-      setIsAcademyCatalogOpen(false);
-      setSelectedLandmarkGroup(null);
-      setInspectedLandmarks([]);
+      moduleInitialHandRYRef.current = null;
+      padBridgeRef.current?.setLandmarkPinMode(false, null);
+      padBridgeRef.current?.setXRayCheck({ active: false });
+
+      setActiveKineticModuleId(null);
       setProjectedLandmarkPins([]);
-      setPelvisMovedInModule(false);
-      setCameraOrbitedInModule(false);
-      setVisitedHandGestures([]);
-      setIsGestureGymActive(false);
-      setIsGestureGymSetupOpen(false);
+      setPlacedLandmarkPins({});
+      setActiveLandmarkTarget('c7');
+      setPlacedPinCount(0);
+      setAvgPinOffsetPx(null);
+      setModuleSkeletonRevealed(false);
+      setModuleXRayUsed(false);
+      setModuleSkeletonToggled(false);
+      setModuleSavedStudyCount(0);
+      setModuleExportedCount(0);
+      setModuleHandRDeltaY(0);
+      setModuleVisitedHandGestures([]);
+      setActiveGymSession(null);
       setIsHudMinimized(false);
       isSandboxModeRef.current = false;
 
-      const saved = sandboxSavedSceneRef.current;
+      const savedScene = sandboxSavedSceneRef.current;
+      const savedPadDoc = sandboxSavedPadDocRef.current;
+      const savedTier = sandboxSavedTierRef.current;
       sandboxSavedSceneRef.current = null;
-      if (saved) {
+      sandboxSavedPadDocRef.current = null;
+
+      if (savedScene) {
         skipNextAutosaveRef.current = true;
         ignoreCameraRestUntilRef.current = Date.now() + 300;
-        applyParsedScene(saved, { silent: true });
+        applyParsedScene(savedScene, { silent: true });
       }
-      if (!shouldAutoCollapseSidebar) {
+      if (savedPadDoc) {
+        padBridgeRef.current?.restoreDocument(savedPadDoc);
+      }
+
+      const nextTier = overrideTier ?? savedTier;
+      setWorkspaceTier(nextTier);
+      if (nextTier === 'studio' && !shouldAutoCollapseSidebar) {
         setIsSidebarOpen(true);
       }
       if (toastMessage) {
@@ -2525,16 +2591,32 @@ export default function HomePage() {
     [applyParsedScene, shouldAutoCollapseSidebar, showToast]
   );
 
-  const applyAcademyModuleSetup = useCallback(
-    (moduleId: AcademyModuleId) => {
+  const handleKineticPinPlaced = useCallback((normX: number, normY: number) => {
+    const targetGroup = activeLandmarkTargetRef.current;
+    setPlacedLandmarkPins((prev) => {
+      const next: PlacedLandmarkPinMap = {
+        ...prev,
+        [targetGroup]: { normX, normY },
+      };
+      const nextTarget = LANDMARK_ORDER.find((id) => !next[id]);
+      if (nextTarget) {
+        activeLandmarkTargetRef.current = nextTarget;
+        setActiveLandmarkTarget(nextTarget);
+      }
+      return next;
+    });
+  }, []);
+
+  const launchKineticModule = useCallback(
+    (moduleId: KineticModuleId) => {
       enterSandboxIfNeeded();
-      const mod = getAcademyModule(moduleId);
-      const setup = mod.setup;
+      const mod = getKineticModule(moduleId);
+      const setup = mod.studioSetup;
+      const padCfg = mod.padSetup;
       const preset = getPosePreset(setup.poseId);
 
-      setIsAcademyCatalogOpen(false);
-      setIsGestureGymActive(false);
-      setIsGestureGymSetupOpen(false);
+      setActiveGymSession(null);
+      setIsStudiesModalOpen(false);
       setIsPoseLibraryOpen(false);
       setIsPhotoToPoseOpen(false);
       setIsSnapshotOpen(false);
@@ -2546,23 +2628,52 @@ export default function HomePage() {
       setToast(null);
       handleCloseContextualPopover();
 
-      setSelectedLandmarkGroup(null);
-      setInspectedLandmarks([]);
+      moduleInitialHandRYRef.current = null;
       setProjectedLandmarkPins([]);
-      setPelvisMovedInModule(false);
-      setCameraOrbitedInModule(false);
-      setVisitedHandGestures([]);
+      setPlacedLandmarkPins({});
+      activeLandmarkTargetRef.current = 'c7';
+      setActiveLandmarkTarget('c7');
+      setPlacedPinCount(0);
+      setAvgPinOffsetPx(null);
+      setModuleSkeletonRevealed(false);
+      setModuleXRayUsed(false);
+      setModuleSkeletonToggled(false);
+      setModuleSavedStudyCount(0);
+      setModuleExportedCount(0);
+      setModuleHandRDeltaY(0);
+      setModuleVisitedHandGestures(
+        setup.initialHandGesture ? [setup.initialHandGesture] : []
+      );
+      setHighlightedModuleId(moduleId);
 
-      const fig: MannequinRecord = {
+      const primaryFig: MannequinRecord = {
         ...createInitialMannequin(setup.modelId),
         activePosePresetId: preset ? preset.id : setup.poseId,
         groundSnapEnabled: preset ? preset.groundSnap : true,
         elevationY: preset && !preset.groundSnap ? preset.elevationY : 0,
       };
+      const figs: MannequinRecord[] = [primaryFig];
+
+      if (setup.secondaryFigure) {
+        const secPreset = getPosePreset(setup.secondaryFigure.poseId);
+        figs.push({
+          ...createInitialMannequin(setup.secondaryFigure.modelId),
+          id: 'figure-2',
+          name: 'Figure 2',
+          finish: 'slate',
+          spawnOffset: [...setup.secondaryFigure.spawnOffset],
+          activePosePresetId: secPreset
+            ? secPreset.id
+            : setup.secondaryFigure.poseId,
+          groundSnapEnabled: secPreset ? secPreset.groundSnap : true,
+          elevationY:
+            secPreset && !secPreset.groundSnap ? secPreset.elevationY : 0,
+        });
+      }
 
       bridgesRef.current.clear();
       poseByIdRef.current.clear();
-      setMannequins([fig]);
+      setMannequins(figs);
       setActiveMannequinId('figure-1');
       setHistoryById({});
       setStudioProps([]);
@@ -2575,7 +2686,6 @@ export default function HomePage() {
         notanEnabled: setup.notanEnabled,
         notanSplit: setup.notanSplit,
       });
-      moduleInitialAzimuthRef.current = lit.azimuth;
       setKeyLight(lit);
 
       setControlMode(setup.controlMode);
@@ -2587,7 +2697,7 @@ export default function HomePage() {
       setLensCurvature(setup.lensCurvature);
       setShowPerspectiveGuides(false);
       setShowHeadRuler(false);
-      setCompositionCrop('off');
+      setCompositionCrop(setup.compositionCrop);
       setCompositionGrid('off');
       setDrawing(
         clampStudioDrawing({
@@ -2615,138 +2725,162 @@ export default function HomePage() {
         ? { mannequinId: 'figure-1', boneName: setup.focusBoneForCamera }
         : null;
 
-      setSceneLoadId((prev) => prev + 1);
-      setActiveAcademyModuleId(moduleId);
-    },
-    [enterSandboxIfNeeded, handleCloseContextualPopover]
-  );
+      // Setup synced Pad workspace state cleanly
+      const nextPadLayout: PadLayoutMode =
+        padCfg.layoutPreference === 'vellum'
+          ? 'vellum'
+          : viewport.isMobile
+            ? padCfg.phoneFallback
+            : 'split';
+      setPadLayoutOverride(nextPadLayout);
+      setSplitRatio(0.5);
+      setLeftHandedFlip(false);
+      setPadFlipHorizontal(false);
+      setVellumOpacity(padCfg.vellumOpacity);
+      setVellumInteraction('draw');
+      setVellumXRayActive(false);
 
-  const handleResetAcademyDrill = useCallback(() => {
-    if (!activeAcademyModuleId) return;
-    applyAcademyModuleSetup(activeAcademyModuleId);
-  }, [activeAcademyModuleId, applyAcademyModuleSetup]);
-
-  const handleNextAcademyModule = useCallback(() => {
-    if (!activeAcademyModuleId) return;
-    const idx = ACADEMY_MODULES.findIndex((m) => m.id === activeAcademyModuleId);
-    const nextMod = idx >= 0 ? ACADEMY_MODULES[idx + 1] : undefined;
-    if (nextMod) {
-      applyAcademyModuleSetup(nextMod.id);
-    } else {
-      exitSandboxAndRestore('Anatomy Academy complete!');
-    }
-  }, [activeAcademyModuleId, applyAcademyModuleSetup, exitSandboxAndRestore]);
-
-  const handleExitAcademy = useCallback(() => {
-    exitSandboxAndRestore('Returned to your studio scene');
-  }, [exitSandboxAndRestore]);
-
-  const handleSelectLandmarkPin = useCallback(
-    (groupId: LandmarkGroupId | null) => {
-      setSelectedLandmarkGroup(groupId);
-      if (groupId !== null) {
-        setInspectedLandmarks((prev) =>
-          prev.includes(groupId) ? prev : [...prev, groupId]
+      const padBridge = padBridgeRef.current;
+      if (padBridge) {
+        padBridge.clearPad(true);
+        padBridge.setTool(padCfg.tool);
+        padBridge.setColor(padCfg.color);
+        padBridge.setActiveLayer(padCfg.layer);
+        padBridge.setXRayCheck({ active: false });
+        padBridge.setLandmarkPinMode(
+          padCfg.landmarkPinMode,
+          padCfg.landmarkPinMode ? handleKineticPinPlaced : null
         );
       }
+
+      setSceneLoadId((prev) => prev + 1);
+      setWorkspaceTier('pad');
+      setActiveKineticModuleId(moduleId);
     },
-    []
+    [
+      enterSandboxIfNeeded,
+      handleCloseContextualPopover,
+      handleKineticPinPlaced,
+      viewport.isMobile,
+    ]
   );
 
-  const academyValidation = useMemo(() => {
-    if (!activeAcademyModuleId) return null;
-    const mod = getAcademyModule(activeAcademyModuleId);
-    const bridge = bridgesRef.current.get(activeMannequin.id);
-    const readBone = (boneName: string): JointAngles => {
-      if (selectedBoneName === boneName) {
-        return selectedBoneAngles;
-      }
-      return bridge?.readCanonicalBoneAngles(boneName) ?? ZERO_JOINT_ANGLES;
-    };
-    const pelvisAngles = readBone('pelvis');
-    const spineSumZ =
-      readBone('spine_01').z + readBone('spine_02').z + readBone('spine_03').z;
-    const lowerarmRAngles = readBone('lowerarm_r');
-    const handRAngles = readBone('hand_r');
-    const plumbBalanceMeters = bridge?.getPlumbFootBalanceMeters() ?? null;
-
-    const telemetry: AcademyTelemetry = {
-      modelId: activeMannequin.modelId,
-      activePosePresetId: activeMannequin.activePosePresetId,
-      controlMode,
-      activePreset,
-      lensCurvature,
-      lightAzimuth: keyLight.azimuth,
-      initialLightAzimuth: moduleInitialAzimuthRef.current,
-      notanEnabled: keyLight.notanEnabled,
-      notanSplit: keyLight.notanSplit,
-      constructiveMode: drawing.constructiveMode,
-      plumbBalanceMeters,
-      pelvisMoved: pelvisMovedInModule,
-      pelvisAngles,
-      spineSumZ,
-      lowerarmRAngles,
-      handRAngles,
-      inspectedLandmarks,
-      visitedHandGestures,
-      cameraOrbitedInModule,
-    };
-
-    void poseCommitVersion;
-    void bridgeReadyVersion;
-    return mod.evaluate(telemetry);
-  }, [
-    activeAcademyModuleId,
-    activeMannequin.id,
-    activeMannequin.modelId,
-    activeMannequin.activePosePresetId,
-    selectedBoneName,
-    selectedBoneAngles,
-    controlMode,
-    activePreset,
-    lensCurvature,
-    keyLight.azimuth,
-    keyLight.notanEnabled,
-    keyLight.notanSplit,
-    drawing.constructiveMode,
-    pelvisMovedInModule,
-    inspectedLandmarks,
-    visitedHandGestures,
-    cameraOrbitedInModule,
-    poseCommitVersion,
-    bridgeReadyVersion,
-  ]);
-
+  // Auto-launch module requested via /?mode=school&lesson=<id>
   useEffect(() => {
-    if (!activeAcademyModuleId || !academyValidation?.completed) return;
-    if (completedAcademyIds.includes(activeAcademyModuleId)) return;
+    if (!pendingDeepLinkModuleId) return;
+    const modId = pendingDeepLinkModuleId;
+    setPendingDeepLinkModuleId(null);
+    launchKineticModule(modId);
+  }, [pendingDeepLinkModuleId, launchKineticModule]);
 
-    const next = [...completedAcademyIds, activeAcademyModuleId];
-    setCompletedAcademyIds(next);
-    saveCompletedAcademyModules(next);
-    const mod = getAcademyModule(activeAcademyModuleId);
-    showToast(`Module ${mod.index} completed!`, 'success');
-  }, [
-    activeAcademyModuleId,
-    academyValidation?.completed,
-    completedAcademyIds,
-    showToast,
-  ]);
+  const handleMarkKineticModuleCompleted = useCallback(() => {
+    const modId = activeKineticModuleIdRef.current;
+    if (!modId) return;
+    setCompletedKineticIds((prev) => {
+      if (prev.includes(modId)) return prev;
+      const next = [...prev, modId];
+      saveCompletedKineticModules(next);
+      const mod = getKineticModule(modId);
+      showToast(`Module ${mod.index} completed!`, 'success');
+      return next;
+    });
+  }, [showToast]);
 
-  const handleOpenGestureGymSetup = useCallback(() => {
-    setActiveRightRailTab(null);
-    setIsJointsPopoverOpen(false);
-    setIsSnapshotOpen(false);
-    setIsShortcutsOpen(false);
-    setIsPoseLibraryOpen(false);
-    setIsPhotoToPoseOpen(false);
-    setIsAcademyCatalogOpen(false);
-    setGymInitialInterval(null);
-    setIsGestureGymSetupOpen(true);
-  }, []);
+  const handleSaveCurrentStudy = useCallback(
+    async (title: string, sourceKind: 'pad' | 'school' | 'gym', moduleId?: string | null) => {
+      const padBridge = padBridgeRef.current;
+      if (!padBridge) return;
+      const doc = padBridge.serializeDocument();
+      const backdropUrl =
+        snapshotBridgeRef.current?.captureDataUrl({ transparent: true, scale: 1 })
+          ?.dataUrl ?? null;
+      const thumb = await padBridge.captureThumbnailDataUrl(360, backdropUrl);
+      await savePadStudy({
+        id: `study-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        title,
+        createdAt: Date.now(),
+        posePresetId: activeMannequin.activePosePresetId ?? null,
+        moduleId: moduleId ?? null,
+        sourceKind,
+        thumbnailDataUrl: thumb,
+        document: doc,
+      });
+      setStudyRefreshToken((p) => p + 1);
+      if (activeKineticModuleIdRef.current !== null) {
+        setModuleSavedStudyCount((p) => p + 1);
+      }
+      showToast('Saved study to My Studies', 'success');
+    },
+    [activeMannequin.activePosePresetId, showToast]
+  );
+
+  const handleRevealModuleSkeleton = useCallback(() => {
+    setModuleSkeletonRevealed(true);
+    setModuleSkeletonToggled(true);
+    padBridgeRef.current?.setLandmarkPinMode(false, null);
+
+    const fig = mannequins[0];
+    if (!fig || fig.modelId === 'skeleton') return;
+    const snap = bridgesRef.current.get(fig.id)?.captureSnapshot() ?? null;
+    skipNextAutosaveRef.current = true;
+    bridgesRef.current.delete(fig.id);
+    setMannequins((prev) =>
+      prev.map((m) =>
+        m.id === fig.id
+          ? {
+              ...m,
+              modelId: 'skeleton',
+              initialSnapshot: snap ? clonePoseSnapshot(snap) : undefined,
+              preserveExactRootPosition: true,
+            }
+          : m
+      )
+    );
+  }, [mannequins]);
+
+  const handleToggleSkeletonInModule = useCallback(() => {
+    const fig = mannequins[0];
+    if (!fig) return;
+    setModuleSkeletonToggled(true);
+    const nextModel: MannequinModelId =
+      fig.modelId === 'skeleton' ? 'female' : 'skeleton';
+    const snap = bridgesRef.current.get(fig.id)?.captureSnapshot() ?? null;
+    skipNextAutosaveRef.current = true;
+    bridgesRef.current.delete(fig.id);
+    setMannequins((prev) =>
+      prev.map((m) =>
+        m.id === fig.id
+          ? {
+              ...m,
+              modelId: nextModel,
+              initialSnapshot: snap ? clonePoseSnapshot(snap) : undefined,
+              preserveExactRootPosition: true,
+            }
+          : m
+      )
+    );
+  }, [mannequins]);
+
+  const handleResetKineticDrill = useCallback(() => {
+    if (!activeKineticModuleId) return;
+    launchKineticModule(activeKineticModuleId);
+  }, [activeKineticModuleId, launchKineticModule]);
+
+  const handleNextKineticModule = useCallback(() => {
+    if (!activeKineticModuleId) return;
+    const idx = KINETIC_MODULES.findIndex((m) => m.id === activeKineticModuleId);
+    const nextMod = idx >= 0 ? KINETIC_MODULES[idx + 1] : undefined;
+    if (nextMod) {
+      launchKineticModule(nextMod.id);
+    } else {
+      exitSandboxAndRestore('KINETIC-5 Course complete!', 'school');
+    }
+  }, [activeKineticModuleId, launchKineticModule, exitSandboxAndRestore]);
 
   const applyGymSlideToStudio = useCallback(
     (slide: GymStepTransitionPayload) => {
+      setVellumInteraction('draw');
+      setVellumXRayActive(false);
       const preset = getPosePreset(slide.poseId);
       const shouldRemount =
         slide.randomizeCamera ||
@@ -2863,30 +2997,66 @@ export default function HomePage() {
   );
 
   const handleStartGymSession = useCallback(
-    (firstSlide: GymStepTransitionPayload) => {
+    (config: GymSessionConfig) => {
+      const first = config.slides[0];
+      if (!first) return;
       enterSandboxIfNeeded();
-      setActiveAcademyModuleId(null);
-      setIsAcademyCatalogOpen(false);
-      setSelectedLandmarkGroup(null);
+      setActiveKineticModuleId(null);
       setProjectedLandmarkPins([]);
-      setIsGestureGymSetupOpen(false);
       setActiveRightRailTab(null);
       setIsJointsPopoverOpen(false);
       setIsSnapshotOpen(false);
       setIsShortcutsOpen(false);
       setIsPoseLibraryOpen(false);
       setIsPhotoToPoseOpen(false);
+      setIsStudiesModalOpen(false);
       setIsSidebarOpen(false);
       setToast(null);
       handleCloseContextualPopover();
-      setIsGestureGymActive(true);
-      applyGymSlideToStudio(firstSlide);
+
+      if (config.sketchMode === 'pad') {
+        setPadLayoutOverride(viewport.isMobile ? 'vellum' : 'split');
+        setSplitRatio(0.5);
+        setLeftHandedFlip(false);
+        setPadFlipHorizontal(false);
+        setVellumOpacity(0.35);
+        setVellumInteraction('draw');
+        setVellumXRayActive(false);
+        padBridgeRef.current?.clearPad(true);
+        padBridgeRef.current?.setTool('pencil');
+        padBridgeRef.current?.setActiveLayer('construction');
+        padBridgeRef.current?.setXRayCheck({ active: false });
+        padBridgeRef.current?.setLandmarkPinMode(false, null);
+        setWorkspaceTier('pad');
+      } else {
+        setWorkspaceTier('studio');
+      }
+
+      setActiveGymSession(config);
+      applyGymSlideToStudio({
+        poseId: first.pose.id,
+        modelId: first.modelId,
+        studyStyle: config.studyStyle,
+        randomizeCamera: config.randomizeCamera,
+        azimuthDeg: first.azimuthDeg,
+        elevationDeg: first.elevationDeg,
+      });
     },
-    [applyGymSlideToStudio, enterSandboxIfNeeded, handleCloseContextualPopover]
+    [
+      applyGymSlideToStudio,
+      enterSandboxIfNeeded,
+      handleCloseContextualPopover,
+      viewport.isMobile,
+    ]
   );
 
+  const handleRestartGymSession = useCallback(() => {
+    setSchoolInitialTab('gym');
+    exitSandboxAndRestore(undefined, 'school');
+  }, [exitSandboxAndRestore]);
+
   const handleExitGestureGym = useCallback(() => {
-    exitSandboxAndRestore('Returned to your studio scene');
+    exitSandboxAndRestore('Returned to your workspace');
   }, [exitSandboxAndRestore]);
 
   const handleSharePoseLink = useCallback(async () => {
@@ -2943,13 +3113,8 @@ export default function HomePage() {
   ]);
 
   const handleEscape = useCallback(() => {
-    if (isAcademyCatalogOpen || isGestureGymSetupOpen) {
-      setIsAcademyCatalogOpen(false);
-      setIsGestureGymSetupOpen(false);
-      return;
-    }
-    if (selectedLandmarkGroup !== null) {
-      setSelectedLandmarkGroup(null);
+    if (isStudiesModalOpen) {
+      setIsStudiesModalOpen(false);
       return;
     }
     if (
@@ -2979,13 +3144,11 @@ export default function HomePage() {
       handleCloseContextualPopover();
       return;
     }
-    if (isHudMinimized && !isGestureGymActive) {
+    if (isHudMinimized && activeGymSession === null) {
       setIsHudMinimized(false);
     }
   }, [
-    isAcademyCatalogOpen,
-    isGestureGymSetupOpen,
-    selectedLandmarkGroup,
+    isStudiesModalOpen,
     isPhotoToPoseOpen,
     isPoseLibraryOpen,
     isSnapshotOpen,
@@ -2998,22 +3161,23 @@ export default function HomePage() {
     selectedPropId,
     moveBodyEnabled,
     isHudMinimized,
-    isGestureGymActive,
+    activeGymSession,
     handleCloseContextualPopover,
   ]);
 
   const handleCanvasBackgroundTap = useCallback(() => {
-    if (isGestureGymActive || workspaceTier === 'pad') return;
-    if (selectedLandmarkGroup !== null) {
-      setSelectedLandmarkGroup(null);
+    if (
+      activeGymSession !== null ||
+      workspaceTier === 'pad' ||
+      activeKineticModuleId !== null
+    ) {
       return;
     }
     if (isHudMinimized) {
       setIsHudMinimized(false);
       return;
     }
-    setIsAcademyCatalogOpen(false);
-    setIsGestureGymSetupOpen(false);
+    setIsStudiesModalOpen(false);
     setIsPhotoToPoseOpen(false);
     setPhotoToPoseInitialFile(null);
     setIsPoseLibraryOpen(false);
@@ -3027,9 +3191,9 @@ export default function HomePage() {
     handleCloseContextualPopover();
     setIsHudMinimized(true);
   }, [
-    isGestureGymActive,
+    activeGymSession,
     workspaceTier,
-    selectedLandmarkGroup,
+    activeKineticModuleId,
     isHudMinimized,
     viewport.isMobile,
     viewport.isCompactLandscape,
@@ -3056,13 +3220,13 @@ export default function HomePage() {
 
   const handleSelectWorkspaceTier = useCallback(
     (nextTier: WorkspaceTier) => {
+      if (isSandboxModeRef.current) {
+        exitSandboxAndRestore(undefined, nextTier);
+        return;
+      }
+
       if (nextTier === 'pad') {
-        if (isGestureGymActive) {
-          exitSandboxAndRestore();
-        }
-        setActiveAcademyModuleId(null);
-        setIsAcademyCatalogOpen(false);
-        setIsGestureGymSetupOpen(false);
+        setIsStudiesModalOpen(false);
         setIsPoseLibraryOpen(false);
         setIsPhotoToPoseOpen(false);
         setIsSnapshotOpen(false);
@@ -3096,13 +3260,22 @@ export default function HomePage() {
         );
       }
 
+      if (nextTier === 'school') {
+        setIsPoseLibraryOpen(false);
+        setIsPhotoToPoseOpen(false);
+        setIsSnapshotOpen(false);
+        setIsShortcutsOpen(false);
+        setIsJointsPopoverOpen(false);
+        setActiveRightRailTab(null);
+        handleCloseContextualPopover();
+      }
+
       setWorkspaceTier(nextTier);
       if (nextTier === 'studio' && !shouldAutoCollapseSidebar) {
         setIsSidebarOpen(true);
       }
     },
     [
-      isGestureGymActive,
       exitSandboxAndRestore,
       handleCloseContextualPopover,
       vellumXRayActive,
@@ -3110,19 +3283,13 @@ export default function HomePage() {
     ]
   );
 
-  // Recompute Three.js viewport camera cleanly on split/stacked resize
-  useEffect(() => {
-    const id1 = requestAnimationFrame(() => {
-      cameraBridgeRef.current?.invalidateView();
-    });
-    const id2 = setTimeout(() => {
-      cameraBridgeRef.current?.invalidateView();
-    }, 90);
-    return () => {
-      cancelAnimationFrame(id1);
-      clearTimeout(id2);
-    };
-  }, [workspaceTier, effectivePadLayout, splitRatio, leftHandedFlip]);
+  const handleLandmarkMetricsChange = useCallback(
+    (count: number, avg: number | null) => {
+      setPlacedPinCount(count);
+      setAvgPinOffsetPx(avg);
+    },
+    []
+  );
 
   const captureXRaySnapshot = useCallback(
     async (source: PadXRaySource): Promise<string | null> => {
@@ -3302,37 +3469,37 @@ export default function HomePage() {
 
   useStudioShortcuts({
     onUndo: () => {
-      if (workspaceTier === 'pad') {
+      if (showPadWorkspace) {
         padBridgeRef.current?.undo();
       } else {
         handleUndo();
       }
     },
     onRedo: () => {
-      if (workspaceTier === 'pad') {
+      if (showPadWorkspace) {
         padBridgeRef.current?.redo();
       } else {
         handleRedo();
       }
     },
     onRotateMode: () => {
-      if (!activeLocked && workspaceTier !== 'pad') {
+      if (!activeLocked && !showPadWorkspace) {
         setControlMode('fk');
         handleSetMoveBody(false);
       }
     },
     onToggleControlMode: () => {
-      if (workspaceTier !== 'pad') {
+      if (!showPadWorkspace) {
         handleChangeControlMode(controlMode === 'fk' ? 'ik' : 'fk');
       }
     },
     onToggleMoveBody: () => {
-      if (!activeLocked && workspaceTier !== 'pad') {
+      if (!activeLocked && !showPadWorkspace) {
         handleSetMoveBody(!moveBodyEnabled);
       }
     },
     onToggleJointsVisibility: () => {
-      if (workspaceTier === 'pad') {
+      if (showPadWorkspace) {
         setPadFlipHorizontal((prev) => !prev);
       } else {
         setJointsDisplay((prev) => (prev === 'hidden' ? 'core' : 'hidden'));
@@ -3350,46 +3517,80 @@ export default function HomePage() {
   });
 
   const activeTheme = STUDIO_THEMES[studioTheme];
-  const inPadMode = workspaceTier === 'pad';
-  const inPadVellum = inPadMode && effectivePadLayout === 'vellum';
+  const inPadTier = workspaceTier === 'pad';
+  const isKineticLessonActive = activeKineticModuleId !== null;
+  const isGestureGymActive = activeGymSession !== null;
+  const isGymPadActive =
+    activeGymSession !== null && activeGymSession.sketchMode === 'pad';
+  const showPadWorkspace = inPadTier || isKineticLessonActive || isGymPadActive;
+  const inPadVellum = showPadWorkspace && effectivePadLayout === 'vellum';
   const containStudioInPane =
-    inPadMode &&
+    showPadWorkspace &&
     (effectivePadLayout === 'split' || effectivePadLayout === 'stacked');
   const padHeaderHeightPx = viewport.isMobile ? 76 : 44;
+  const lessonBarHeightPx = 44;
+  const gymHudHeightPx = viewport.isMobile ? 84 : 56;
+  const activePadTopOffsetPx = isKineticLessonActive
+    ? padHeaderHeightPx + lessonBarHeightPx
+    : isGymPadActive
+      ? gymHudHeightPx
+      : showPadWorkspace
+        ? padHeaderHeightPx
+        : 0;
   const vellumDrawLocked3D = inPadVellum && vellumInteraction === 'draw';
   const effectiveHudMinimized =
     isHudMinimized || isGestureGymActive || vellumDrawLocked3D;
-  const activeModule = activeAcademyModuleId
-    ? getAcademyModule(activeAcademyModuleId)
+  const activeModule = activeKineticModuleId
+    ? getKineticModule(activeKineticModuleId)
     : null;
   const studioPaneWidth =
-    inPadMode && effectivePadLayout === 'split'
+    showPadWorkspace && effectivePadLayout === 'split'
       ? Math.max(120, Math.round(viewport.width * splitRatio))
       : viewport.width;
   const studioPaneHeight =
-    inPadMode && effectivePadLayout === 'stacked'
-      ? Math.max(120, Math.round((viewport.height - padHeaderHeightPx) * 0.42))
-      : inPadMode
-        ? Math.max(120, viewport.height - padHeaderHeightPx)
+    showPadWorkspace && effectivePadLayout === 'stacked'
+      ? Math.max(120, Math.round((viewport.height - activePadTopOffsetPx) * 0.42))
+      : showPadWorkspace
+        ? Math.max(120, viewport.height - activePadTopOffsetPx)
         : viewport.height;
 
+  // Recompute Three.js viewport camera cleanly on split/stacked/lesson resize
+  useEffect(() => {
+    const id1 = requestAnimationFrame(() => {
+      cameraBridgeRef.current?.invalidateView();
+    });
+    const id2 = setTimeout(() => {
+      cameraBridgeRef.current?.invalidateView();
+    }, 90);
+    return () => {
+      cancelAnimationFrame(id1);
+      clearTimeout(id2);
+    };
+  }, [
+    showPadWorkspace,
+    activePadTopOffsetPx,
+    effectivePadLayout,
+    splitRatio,
+    leftHandedFlip,
+  ]);
+
   let studioPaneStyle: CSSProperties = { inset: 0 };
-  if (inPadMode) {
+  if (showPadWorkspace) {
     if (effectivePadLayout === 'split') {
       const pct = `${(splitRatio * 100).toFixed(3)}%`;
       studioPaneStyle = leftHandedFlip
-        ? { top: padHeaderHeightPx, bottom: 0, right: 0, width: pct }
-        : { top: padHeaderHeightPx, bottom: 0, left: 0, width: pct };
+        ? { top: activePadTopOffsetPx, bottom: 0, right: 0, width: pct }
+        : { top: activePadTopOffsetPx, bottom: 0, left: 0, width: pct };
     } else if (effectivePadLayout === 'stacked') {
       studioPaneStyle = {
-        top: padHeaderHeightPx,
+        top: activePadTopOffsetPx,
         left: 0,
         right: 0,
-        height: `calc((100dvh - ${padHeaderHeightPx}px) * 0.42)`,
+        height: `calc((100dvh - ${activePadTopOffsetPx}px) * 0.42)`,
       };
     } else {
       studioPaneStyle = {
-        top: padHeaderHeightPx,
+        top: activePadTopOffsetPx,
         bottom: 0,
         left: 0,
         right: 0,
@@ -3426,15 +3627,18 @@ export default function HomePage() {
       }}
     >
       <StudioToast toast={toast} studioTheme={studioTheme} />
-      {workspaceTier !== 'pad' && (
+      {!showPadWorkspace && (
         <WorkspaceModeBar
           tier={workspaceTier}
           onSelectTier={handleSelectWorkspaceTier}
           studioTheme={studioTheme}
-          isHudMinimized={effectiveHudMinimized || activeAcademyModuleId !== null}
+          isHudMinimized={effectiveHudMinimized}
         />
       )}
-      {isHudMinimized && !isGestureGymActive && !inPadMode && !contextualAnchor && (
+      {isHudMinimized &&
+        !isGestureGymActive &&
+        !showPadWorkspace &&
+        !contextualAnchor && (
         <button
           type="button"
           data-testid="restore-hud-pill"
@@ -3488,54 +3692,129 @@ export default function HomePage() {
         onClose={() => setIsShortcutsOpen(false)}
         studioTheme={studioTheme}
       />
-      <AnatomyAcademyModal
-        isOpen={isAcademyCatalogOpen}
-        onClose={() => setIsAcademyCatalogOpen(false)}
-        studioTheme={studioTheme}
-        completedIds={completedAcademyIds}
-        activeModuleId={activeAcademyModuleId}
-        onSelectModule={applyAcademyModuleSetup}
-      />
-      {workspaceTier === 'school' && (
-        <SchoolWorkspaceSlot
+      {workspaceTier === 'school' && !activeKineticModuleId && !activeGymSession && (
+        <SchoolWorkspace
           studioTheme={studioTheme}
-          completedAcademyIds={completedAcademyIds}
-          onCloseToStudio={() => handleSelectWorkspaceTier('studio')}
+          initialTab={schoolInitialTab}
+          highlightedModuleId={highlightedModuleId}
+          gymInitialInterval={gymInitialInterval}
+          completedModuleIds={completedKineticIds}
+          snapshotBridge={snapshotBridgeRef.current}
+          studyRefreshToken={studyRefreshToken}
+          onSelectTab={setSchoolInitialTab}
+          onStartModule={launchKineticModule}
+          onStartGymSession={handleStartGymSession}
+          onReopenStudyInPad={(doc) => {
+            setWorkspaceTier('pad');
+            padBridgeRef.current?.restoreDocument(doc);
+            showToast('Loaded study onto Pad canvas', 'success');
+          }}
           onJumpToPad={() => handleSelectWorkspaceTier('pad')}
-          onOpenAcademy={() => {
-            handleSelectWorkspaceTier('studio');
-            setIsAcademyCatalogOpen(true);
-          }}
-          onOpenGestureGym={() => {
-            handleSelectWorkspaceTier('studio');
-            handleOpenGestureGymSetup();
-          }}
+          onCloseToStudio={() => handleSelectWorkspaceTier('studio')}
+          onToast={showToast}
         />
       )}
-      {activeModule && academyValidation && (
-        <AcademyLessonHudCard
+      {activeModule && (
+        <LessonOverlayBar
           module={activeModule}
-          validation={academyValidation}
-          completedIds={completedAcademyIds}
           studioTheme={studioTheme}
-          viewport={viewport}
-          isHudMinimized={effectiveHudMinimized}
-          isSidebarOpen={isSidebarOpen}
-          onResetDrill={handleResetAcademyDrill}
-          onNextModule={handleNextAcademyModule}
-          onExitAcademy={handleExitAcademy}
-          onOpenCatalog={() => setIsAcademyCatalogOpen(true)}
+          topOffsetPx={padHeaderHeightPx}
+          barHeightPx={lessonBarHeightPx}
+          padBridge={padBridgeRef.current}
+          modelId={activeMannequin.modelId}
+          showLineOfAction={drawing.showLineOfAction}
+          showPlumbLine={drawing.showPlumbLine}
+          showCrossContours={drawing.showCrossContours}
+          constructiveMode={drawing.constructiveMode}
+          notanEnabled={keyLight.notanEnabled}
+          padFlipHorizontal={padFlipHorizontal}
+          xRayUsed={moduleXRayUsed}
+          skeletonToggled={moduleSkeletonToggled}
+          skeletonRevealed={moduleSkeletonRevealed}
+          placedPinCount={placedPinCount}
+          avgPinOffsetPx={avgPinOffsetPx}
+          handRDeltaY={moduleHandRDeltaY}
+          visitedHandGestures={moduleVisitedHandGestures}
+          activeHandGestureId={activeHandGestureId ?? 'fist'}
+          savedStudyCount={moduleSavedStudyCount}
+          exportedInModule={moduleExportedCount > 0}
+          onRevealForceGuides={() =>
+            setDrawing((prev) => ({
+              ...prev,
+              constructiveMode: prev.constructiveMode === 'off' ? 'overlay' : prev.constructiveMode,
+              showLineOfAction: true,
+              showPlumbLine: true,
+            }))
+          }
+          onTriggerXRay={(src) => {
+            setModuleXRayUsed(true);
+            padBridgeRef.current?.setXRayCheck({ active: true, source: src });
+          }}
+          onRevealSkeleton={handleRevealModuleSkeleton}
+          onRevealCrossContours={() =>
+            setDrawing((prev) => ({
+              ...prev,
+              constructiveMode: 'overlay',
+              showCrossContours: true,
+            }))
+          }
+          onToggleSkeleton={handleToggleSkeletonInModule}
+          onCycleHandGesture={(g) => handleApplyHandGesture('r', g)}
+          onToggleNotan={() =>
+            setKeyLight((prev) => ({
+              ...prev,
+              notanEnabled: !prev.notanEnabled,
+            }))
+          }
+          onToggleFlipH={() => setPadFlipHorizontal((p) => !p)}
+          onSaveStudy={() =>
+            void handleSaveCurrentStudy(
+              `KINETIC-${activeModule.index}: ${activeModule.title}`,
+              'school',
+              activeModule.id
+            )
+          }
+          onResetDrill={handleResetKineticDrill}
+          onNextModule={handleNextKineticModule}
+          onExitLesson={() =>
+            exitSandboxAndRestore('Returned to your workspace')
+          }
+          onModuleCompleted={handleMarkKineticModuleCompleted}
         />
       )}
-      <GestureGym
-        isSetupOpen={isGestureGymSetupOpen}
-        isActive={isGestureGymActive}
-        initialInterval={gymInitialInterval}
+      {activeGymSession && (
+        <GestureGymActiveHud
+          session={activeGymSession}
+          studioTheme={studioTheme}
+          padBridge={padBridgeRef.current}
+          isPadMode={isGymPadActive}
+          onApplySlide={applyGymSlideToStudio}
+          onEnterInspectPhase={() => setVellumInteraction('pose')}
+          onTriggerXRayCheck={() => {
+            setModuleXRayUsed(true);
+            padBridgeRef.current?.setXRayCheck({ active: true, source: 'skeleton' });
+          }}
+          onSaveStudy={(poseName, poseId) =>
+            handleSaveCurrentStudy(`Gym: ${poseName}`, 'gym', poseId)
+          }
+          onOpenStudiesModal={() => setIsStudiesModalOpen(true)}
+          onRestartSession={handleRestartGymSession}
+          onExitGym={handleExitGestureGym}
+          onToast={showToast}
+        />
+      )}
+      <StudyGalleryModal
+        isOpen={isStudiesModalOpen}
+        onClose={() => setIsStudiesModalOpen(false)}
         studioTheme={studioTheme}
-        onCloseSetup={() => setIsGestureGymSetupOpen(false)}
-        onStartSession={handleStartGymSession}
-        onApplySlide={applyGymSlideToStudio}
-        onExitGym={handleExitGestureGym}
+        snapshotBridge={snapshotBridgeRef.current}
+        refreshToken={studyRefreshToken}
+        onReopenInPad={(doc) => {
+          setIsStudiesModalOpen(false);
+          exitSandboxAndRestore(undefined, 'pad');
+          setTimeout(() => padBridgeRef.current?.restoreDocument(doc), 40);
+        }}
+        onToast={showToast}
       />
       <JointControlPopover
         anchor={contextualAnchor}
@@ -3580,17 +3859,6 @@ export default function HomePage() {
         onDeleteProp={handleDeleteProp}
         onClose={handleCloseContextualPopover}
       />
-      {activeModule?.setup.showLandmarkPins && !effectiveHudMinimized && (
-        <AcademyLandmarkPins
-          pins={projectedLandmarkPins}
-          selectedGroupId={selectedLandmarkGroup}
-          inspectedGroupIds={inspectedLandmarks}
-          studioTheme={studioTheme}
-          viewportWidth={viewport.width}
-          viewportHeight={viewport.height}
-          onSelectPin={handleSelectLandmarkPin}
-        />
-      )}
 
       {/* Permanent Live 3D Studio Pane (preserves figures/camera cleanly across Studio, Pad & School) */}
       <div
@@ -3642,14 +3910,14 @@ export default function HomePage() {
             viewport={viewport}
             isHudMinimized={effectiveHudMinimized}
             containInPane={containStudioInPane}
-            flipHorizontal={inPadMode && padFlipHorizontal}
+            flipHorizontal={showPadWorkspace && padFlipHorizontal}
             onCanvasBackgroundTap={handleCanvasBackgroundTap}
             cameraRestSeq={cameraRestSeq}
             ikPinFeet={ikPinFeet}
             ikSwivelByHandle={ikSwivelByHandle}
             drawing={drawing}
             showHeadRuler={showHeadRuler}
-            showLandmarkPins={activeModule?.setup.showLandmarkPins ?? false}
+            showLandmarkPins={activeModule?.studioSetup.showLandmarkPins ?? false}
             onSelectMannequin={handleSelectMannequin}
             onSelectBoneChange={handleSelectBoneChange}
             onSelectIKHandleChange={handleSelectIKHandleChange}
@@ -3738,19 +4006,6 @@ export default function HomePage() {
           onExportSceneJson={handleExportSceneJson}
           onSharePoseLink={handleSharePoseLink}
           onNewBlankScene={handleNewBlankScene}
-          academyCompletedCount={completedAcademyIds.length}
-          totalAcademyModules={ACADEMY_MODULES.length}
-          onOpenAcademy={() => {
-            setActiveRightRailTab(null);
-            setIsJointsPopoverOpen(false);
-            setIsSnapshotOpen(false);
-            setIsShortcutsOpen(false);
-            setIsPoseLibraryOpen(false);
-            setIsPhotoToPoseOpen(false);
-            setIsGestureGymSetupOpen(false);
-            setIsAcademyCatalogOpen(true);
-          }}
-          onOpenGestureGym={handleOpenGestureGymSetup}
           studioProps={studioProps}
           selectedPropId={selectedPropId}
           onSelectProp={handleSelectProp}
@@ -3853,9 +4108,10 @@ export default function HomePage() {
 
       {/* Atelier 2D Drawing Pad Workspace */}
       <PadWorkspace
+        isVisible={showPadWorkspace}
         studioTheme={studioTheme}
         viewport={viewport}
-        workspaceTier={workspaceTier}
+        workspaceTier={isKineticLessonActive ? 'school' : workspaceTier}
         onSelectTier={handleSelectWorkspaceTier}
         layoutMode={effectivePadLayout}
         onChangeLayoutMode={(m) => setPadLayoutOverride(m)}
@@ -3879,6 +4135,36 @@ export default function HomePage() {
         onPadBridgeReady={handlePadBridgeReady}
         onToast={showToast}
         headerHeightPx={padHeaderHeightPx}
+        topOffsetPx={activePadTopOffsetPx}
+        hideTopHeader={isGymPadActive}
+        pauseAutosave={isKineticLessonActive || isGymPadActive}
+        canvasOverlayNode={
+          activeModule?.id === 'eight-anchor-bones' ? (
+            <LandmarkPinOverlay
+              studioTheme={studioTheme}
+              placedPins={placedLandmarkPins}
+              activeTargetGroupId={activeLandmarkTarget}
+              onSelectTargetGroup={(g) => {
+                activeLandmarkTargetRef.current = g;
+                setActiveLandmarkTarget(g);
+              }}
+              revealed={moduleSkeletonRevealed}
+              projectedLandmarkPins={projectedLandmarkPins}
+              padBridge={padBridgeRef.current}
+              onMetricsChange={handleLandmarkMetricsChange}
+            />
+          ) : null
+        }
+        onExportCompleted={() => {
+          if (activeKineticModuleIdRef.current !== null) {
+            setModuleExportedCount((p) => p + 1);
+          }
+        }}
+        onXRayTriggered={() => {
+          if (activeKineticModuleIdRef.current !== null) {
+            setModuleXRayUsed(true);
+          }
+        }}
       />
     </main>
   );

@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { HAND_GESTURE_BY_ID, buildHandGestureBones } from '@/data/handGestures';
 import { clampJointAngles, getJointSpec } from '@/data/jointLimits';
+import {
+  isKineticModuleId,
+  type KineticModuleId,
+} from '@/data/kineticCurriculum';
 import { isMannequinModelId, type MannequinModelId } from '@/data/modelCatalog';
 import { getPosePreset, POSE_PRESETS } from '@/data/poses';
 import { clampFigureProportions, DEFAULT_FIGURE_PROPORTIONS, proportionsEqual } from '@/data/proportions';
@@ -86,6 +90,10 @@ export type DecodedStudioDeepLink =
   | {
       kind: 'gym';
       interval: GymDeepLinkInterval;
+    }
+  | {
+      kind: 'school';
+      lessonId: KineticModuleId | null;
     }
   | {
       kind: 'invalid';
@@ -476,6 +484,17 @@ export function decodeSharedPoseParams(search: string): DecodedStudioDeepLink {
               ? 'class'
               : 60;
     return { kind: 'gym', interval };
+  }
+
+  if (mode === 'school') {
+    const rawLesson = params.get('lesson');
+    if (rawLesson !== null && !isKineticModuleId(rawLesson)) {
+      return { kind: 'invalid', error: `Unknown KINETIC-5 lesson "${rawLesson}"` };
+    }
+    return {
+      kind: 'school',
+      lessonId: rawLesson && isKineticModuleId(rawLesson) ? rawLesson : null,
+    };
   }
 
   return { kind: 'none' };

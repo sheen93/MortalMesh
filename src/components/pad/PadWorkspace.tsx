@@ -3,10 +3,10 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from 'react';
 import { PadCanvas } from '@/components/pad/PadCanvas';
 import { PadExportPopover } from '@/components/pad/PadExportPopover';
@@ -50,10 +50,12 @@ import {
   PAD_PAPER_ORDER,
   PENCIL_SWATCHES,
   type PadDocumentV1,
+  type PadExportFormat,
   type PadLayerId,
   type PadLayoutMode,
   type PadPaperTone,
   type PadStroke,
+  type PadStrokeTelemetry,
   type PadToolId,
   type PadXRayConfig,
   type PadXRaySource,
@@ -68,6 +70,7 @@ const MAX_PAD_HISTORY = 50;
 const PAD_AUTOSAVE_DEBOUNCE_MS = 800;
 
 interface PadWorkspaceProps {
+  isVisible: boolean;
   studioTheme: StudioThemeId;
   viewport: ViewportProfile;
   workspaceTier: WorkspaceTier;
@@ -94,6 +97,12 @@ interface PadWorkspaceProps {
   onPadBridgeReady: (bridge: PadBridge | null) => void;
   onToast: (message: string, tone?: 'success' | 'error') => void;
   headerHeightPx: number;
+  topOffsetPx: number;
+  hideTopHeader?: boolean;
+  pauseAutosave?: boolean;
+  canvasOverlayNode?: ReactNode;
+  onExportCompleted?: (format: PadExportFormat) => void;
+  onXRayTriggered?: (source: PadXRaySource) => void;
 }
 
 function cloneDoc(doc: PadDocumentV1): PadDocumentV1 {
@@ -114,6 +123,7 @@ function cloneDoc(doc: PadDocumentV1): PadDocumentV1 {
 }
 
 export function PadWorkspace({
+  isVisible,
   studioTheme,
   viewport,
   workspaceTier,
@@ -140,6 +150,12 @@ export function PadWorkspace({
   onPadBridgeReady,
   onToast,
   headerHeightPx,
+  topOffsetPx,
+  hideTopHeader = false,
+  pauseAutosave = false,
+  canvasOverlayNode,
+  onExportCompleted,
+  onXRayTriggered,
 }: PadWorkspaceProps) {
   const [doc, setDoc] = useState<PadDocumentV1>(() =>
     createEmptyPadDocument('white')
@@ -197,6 +213,20 @@ export function PadWorkspace({
   futureRef.current = future;
   const canvasSizeRef = useRef(canvasSize);
   canvasSizeRef.current = canvasSize;
+  const canvasBoxRef = useRef<HTMLDivElement>(null);
+  const telemetryListenersRef = useRef(
+    new Set<(telemetry: PadStrokeTelemetry) => void>()
+  );
+  const layoutModeRef = useRef(layoutMode);
+  layoutModeRef.current = layoutMode;
+  const xRayConfigRef = useRef(xRayConfig);
+  xRayConfigRef.current = xRayConfig;
+  const onCaptureXRaySnapshotRef = useRef(onCaptureXRaySnapshot);
+  onCaptureXRaySnapshotRef.current = onCaptureXRaySnapshot;
+  const onToggleVellumXRayRef = useRef(onToggleVellumXRay);
+  onToggleVellumXRayRef.current = onToggleVellumXRay;
+  const onXRayTriggeredRef = useRef(onXRayTriggered);
+  onXRayTriggeredRef.current = onXRayTriggered;
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isResizingSplitRef = useRef(false);
 
@@ -215,9 +245,22 @@ export function PadWorkspace({
     };
   }, []);
 
-  // Debounced IndexedDB persistence (800ms)
+  // Notify live KINETIC-5 telemetry subscribers with zero parent re-renders
   useEffect(() => {
-    if (!hasLoadedIdb) return;
+    if (telemetryListenersRef.current.size === 0) return;
+    const telemetry = computeStrokeTelemetry(doc.strokes);
+    telemetryListenersRef.current.forEach((listener) => listener(telemetry));
+  }, [doc.strokes]);
+
+  // Debounced IndexedDB persistence (800ms), paused while sandboxed in School/Gym
+  useEffect(() => {
+    if (!hasLoadedIdb || pauseAutosave) {
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+      return;
+    }
     if (autosaveTimerRef.current) {
       clearTimeout(autosaveTimerRef.current);
     }
@@ -230,7 +273,7 @@ export function PadWorkspace({
         clearTimeout(autosaveTimerRef.current);
       }
     };
-  }, [doc, hasLoadedIdb]);
+  }, [doc, hasLoadedIdb, pauseAutosave]);
 
   const commitNextDoc = useCallback((nextDoc: PadDocumentV1) => {
     const prevSnapshot = cloneDoc(docRef.current);
@@ -302,13 +345,29 @@ export function PadWorkspace({
     return true;
   }, []);
 
-  const handleClearPad = useCallback(() => {
-    if (docRef.current.strokes.length === 0) return;
-    const next = cloneDoc(docRef.current);
-    next.strokes = [];
-    commitNextDoc(next);
-    onToast('Cleared Pad canvas', 'success');
-  }, [commitNextDoc, onToast]);
+  const handleClearPad = useCallback(
+    (silent = false) => {
+      if (silent) {
+        setPast([]);
+        setFuture([]);
+        setDoc({
+          ...createEmptyPadDocument(docRef.current.paperTone),
+          layers: {
+            construction: { ...docRef.current.layers.construction },
+            ink: { ...docRef.current.layers.ink },
+            value: { ...docRef.current.layers.value },
+          },
+        });
+        return;
+      }
+      if (docRef.current.strokes.length === 0) return;
+      const next = cloneDoc(docRef.current);
+      next.strokes = [];
+      commitNextDoc(next);
+      onToast('Cleared Pad canvas', 'success');
+    },
+    [commitNextDoc, onToast]
+  );
 
   const handleSetColor = useCallback(
     (hex: string) => {
@@ -326,13 +385,18 @@ export function PadWorkspace({
         source,
         dataUrl,
       }));
+      onXRayTriggeredRef.current?.(source);
     },
     [onCaptureXRaySnapshot]
   );
 
   const handleToggleXRayCheck = useCallback(async () => {
     if (layoutMode === 'vellum') {
-      onToggleVellumXRay(!vellumXRayActive);
+      const nextActive = !vellumXRayActive;
+      onToggleVellumXRay(nextActive);
+      if (nextActive) {
+        onXRayTriggeredRef.current?.('skeleton');
+      }
       return;
     }
     if (xRayConfig.active) {
@@ -369,13 +433,52 @@ export function PadWorkspace({
       },
       setLayoutMode: onChangeLayoutMode,
       setVellumOpacity: onChangeVellumOpacity,
-      setXRayCheck: (patch) =>
-        setXRayConfig((prev) => ({ ...prev, ...patch })),
+      setXRayCheck: (patch) => {
+        const nextSource = patch.source ?? xRayConfigRef.current.source;
+        const nextActive = patch.active ?? xRayConfigRef.current.active;
+        if (layoutModeRef.current === 'vellum') {
+          if (patch.active !== undefined) {
+            onToggleVellumXRayRef.current(patch.active);
+          }
+          setXRayConfig((prev) => ({ ...prev, ...patch }));
+          if (nextActive) {
+            onXRayTriggeredRef.current?.(nextSource);
+          }
+          return;
+        }
+        setXRayConfig((prev) => ({ ...prev, ...patch }));
+        if (nextActive) {
+          onXRayTriggeredRef.current?.(nextSource);
+          if (patch.dataUrl === undefined) {
+            void onCaptureXRaySnapshotRef
+              .current(nextSource)
+              .then((dataUrl) => {
+                if (dataUrl) {
+                  setXRayConfig((prev) =>
+                    prev.active ? { ...prev, dataUrl } : prev
+                  );
+                }
+              });
+          }
+        } else if (patch.active === false) {
+          setXRayAlignMode(false);
+        }
+      },
       setFlipHorizontal: onSetFlipHorizontalDirect,
       clearPad: handleClearPad,
       undo: handleUndo,
       redo: handleRedo,
       getStrokeTelemetry: () => computeStrokeTelemetry(docRef.current.strokes),
+      getCanvasSize: () => ({ ...canvasSizeRef.current }),
+      getCanvasRect: () =>
+        canvasBoxRef.current?.getBoundingClientRect() ?? null,
+      subscribeTelemetry: (listener) => {
+        telemetryListenersRef.current.add(listener);
+        listener(computeStrokeTelemetry(docRef.current.strokes));
+        return () => {
+          telemetryListenersRef.current.delete(listener);
+        };
+      },
       setLandmarkPinMode: (enabled, onPinPlaced) =>
         setLandmarkPinMode({ enabled, onPinPlaced: onPinPlaced ?? null }),
       serializeDocument: () => cloneDoc(docRef.current),
@@ -395,6 +498,62 @@ export function PadWorkspace({
           layers[id] = c;
         }
         return { width: outW, height: outH, layers };
+      },
+      captureThumbnailDataUrl: async (maxEdgePx = 360, backdropDataUrl = null) => {
+        const { width: cssW, height: cssH } = canvasSizeRef.current;
+        const safeW = Math.max(64, cssW);
+        const safeH = Math.max(64, cssH);
+        const ratio = Math.min(1, maxEdgePx / Math.max(safeW, safeH));
+        const outW = Math.max(64, Math.round(safeW * ratio));
+        const outH = Math.max(64, Math.round(safeH * ratio));
+        const outCanvas = window.document.createElement('canvas');
+        outCanvas.width = outW;
+        outCanvas.height = outH;
+        const ctx = outCanvas.getContext('2d');
+        if (!ctx) return null;
+
+        const paperHex =
+          PAD_PAPER_META[docRef.current.paperTone]?.hex ?? '#FAF9F5';
+        ctx.fillStyle = paperHex;
+        ctx.fillRect(0, 0, outW, outH);
+
+        if (backdropDataUrl) {
+          await new Promise<void>((resolve) => {
+            const img = new window.Image();
+            img.onload = () => {
+              const scale = Math.min(outW / img.width, outH / img.height);
+              const dw = img.width * scale;
+              const dh = img.height * scale;
+              ctx.save();
+              ctx.globalAlpha = 0.45;
+              ctx.drawImage(img, (outW - dw) / 2, (outH - dh) / 2, dw, dh);
+              ctx.restore();
+              resolve();
+            };
+            img.onerror = () => resolve();
+            img.src = backdropDataUrl;
+          });
+        }
+
+        const scaleX = outW / safeW;
+        for (const id of PAD_LAYER_ORDER) {
+          const cfg = docRef.current.layers[id];
+          if (!cfg.visible || cfg.opacity <= 0) continue;
+          const layerCanvas = window.document.createElement('canvas');
+          renderLayerToCanvas(
+            layerCanvas,
+            docRef.current.strokes,
+            id,
+            safeW,
+            safeH,
+            scaleX
+          );
+          ctx.save();
+          ctx.globalAlpha = cfg.opacity;
+          ctx.drawImage(layerCanvas, 0, 0, outW, outH);
+          ctx.restore();
+        }
+        return outCanvas.toDataURL('image/png');
       },
       exportTimelapseBlob: (options) =>
         buildPadTimelapseBlob(docRef.current.strokes, docRef.current, options),
@@ -446,7 +605,7 @@ export function PadWorkspace({
     window.addEventListener('pointercancel', onUp);
   };
 
-  if (workspaceTier !== 'pad') return null;
+  if (!isVisible) return null;
 
   const { ui } = STUDIO_THEMES[studioTheme];
   const isPhone = viewport.isMobile;
@@ -468,12 +627,12 @@ export function PadWorkspace({
   if (layoutMode === 'split') {
     const padPct = `${((1 - splitRatio) * 100).toFixed(3)}%`;
     padPaneStyle = leftHandedFlip
-      ? { top: headerHeightPx, bottom: 0, left: 0, width: padPct }
-      : { top: headerHeightPx, bottom: 0, right: 0, width: padPct };
+      ? { top: topOffsetPx, bottom: 0, left: 0, width: padPct }
+      : { top: topOffsetPx, bottom: 0, right: 0, width: padPct };
   } else if (layoutMode === 'stacked') {
-    padPaneStyle = { top: `calc(${headerHeightPx}px + (100dvh - ${headerHeightPx}px) * 0.42)`, bottom: 0, left: 0, right: 0 };
+    padPaneStyle = { top: `calc(${topOffsetPx}px + (100dvh - ${topOffsetPx}px) * 0.42)`, bottom: 0, left: 0, right: 0 };
   } else {
-    padPaneStyle = { top: headerHeightPx, bottom: 0, left: 0, right: 0 };
+    padPaneStyle = { top: topOffsetPx, bottom: 0, left: 0, right: 0 };
   }
 
   const dividerLeftStyle: CSSProperties = leftHandedFlip
@@ -609,7 +768,7 @@ export function PadWorkspace({
         aria-label="Clear pad strokes"
         title="Clear Canvas"
         disabled={doc.strokes.length === 0}
-        onClick={handleClearPad}
+        onClick={() => handleClearPad(false)}
         className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors ${
           doc.strokes.length === 0 ? ui.pillButtonDisabled : ui.pillButton
         }`}
@@ -625,6 +784,7 @@ export function PadWorkspace({
   return (
     <>
       {/* Unified Slim Top Header Bar */}
+      {!hideTopHeader && (
       <header
         data-testid="pad-top-header"
         onPointerDown={(e) => e.stopPropagation()}
@@ -896,6 +1056,7 @@ export function PadWorkspace({
           </div>
         )}
       </header>
+      )}
 
       {/* Draggable Split Divider (Desktop & Tab S8 Split Mode) */}
       {layoutMode === 'split' && (
@@ -906,7 +1067,7 @@ export function PadWorkspace({
           data-testid="pad-split-divider"
           onPointerDown={handleDividerPointerDown}
           style={{
-            top: headerHeightPx,
+            top: topOffsetPx,
             bottom: 0,
             ...dividerLeftStyle,
             touchAction: 'none',
@@ -1040,7 +1201,7 @@ export function PadWorkspace({
           )}
 
           {/* Pure Drawing Canvas Rect (zero floating buttons inside canvas!) */}
-          <div className="relative flex-1 min-w-0 min-h-0">
+          <div ref={canvasBoxRef} className="relative flex-1 min-w-0 min-h-0">
             <PadCanvas
               document={doc}
               activeLayer={activeLayer}
@@ -1064,6 +1225,7 @@ export function PadWorkspace({
               onRedo={handleRedo}
               onCanvasSizeChange={setCanvasSize}
             />
+            {canvasOverlayNode}
           </div>
         </div>
 
@@ -1102,7 +1264,7 @@ export function PadWorkspace({
             top:
               isPhone || viewport.isCompactLandscape
                 ? undefined
-                : `${headerHeightPx + 12}px`,
+                : `${Math.max(headerHeightPx, topOffsetPx) + 12}px`,
             right:
               isPhone || viewport.isCompactLandscape ? '12px' : '64px',
           }}
@@ -1238,7 +1400,7 @@ export function PadWorkspace({
             top:
               isPhone || viewport.isCompactLandscape
                 ? undefined
-                : `${headerHeightPx + 12}px`,
+                : `${Math.max(headerHeightPx, topOffsetPx) + 12}px`,
             right:
               isPhone || viewport.isCompactLandscape ? '12px' : '64px',
           }}
@@ -1341,6 +1503,7 @@ export function PadWorkspace({
         canvasSize={canvasSize}
         snapshotBridge={snapshotBridge}
         onExportDone={onToast}
+        onExportCompleted={onExportCompleted}
       />
     </>
   );
