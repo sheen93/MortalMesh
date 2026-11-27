@@ -47,12 +47,15 @@ import {
   type JointAngleCommand,
   type JointAngles,
   type JointsDisplayMode,
+  type LandmarkGroupId,
   type PoseControlMode,
   type PosePresetCommand,
+  type ProjectedLandmarkPin,
   type StudioThemeId,
 } from '@/types/anatomy';
-import type { PoseBridge, PoseSnapshot, QuaternionTuple } from '@/types/poseIO';
+import type { PoseBridge, PoseSnapshot, QuaternionTuple, Vec3Tuple } from '@/types/poseIO';
 import type { StudioDrawingConfig } from '@/types/drawing';
+import { computeConstructiveFigureData } from '@/utils/constructiveGeometry';
 import { MANNEQUIN_FINISHES, type MannequinRecord } from '@/types/scene';
 import {
   buildHandGestureBones,
@@ -168,6 +171,7 @@ interface AnatomyModelProps {
   notanSplit: number;
   drawing: StudioDrawingConfig;
   showHeadRuler: boolean;
+  showLandmarkPins?: boolean;
   onSelectMannequin: (id: string) => void;
   onDraggingChange: (isDragging: boolean) => void;
   onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
@@ -181,6 +185,7 @@ interface AnatomyModelProps {
   onCommitPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onContextualAnchorChange: (anchor: ContextualAnchor | null) => void;
   onHeadRulerMetricsChange: (metrics: HeadRulerMetrics | null) => void;
+  onLandmarkPinsChange?: (pins: ProjectedLandmarkPin[]) => void;
 }
 
 interface MannequinInstanceProps {
@@ -213,6 +218,7 @@ interface MannequinInstanceProps {
   notanSplit: number;
   drawing: StudioDrawingConfig;
   showHeadRuler: boolean;
+  showLandmarkPins?: boolean;
   onSelectMannequin: (id: string) => void;
   onDraggingChange: (isDragging: boolean) => void;
   onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
@@ -226,6 +232,7 @@ interface MannequinInstanceProps {
   onCommitPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onContextualAnchorChange: (anchor: ContextualAnchor | null) => void;
   onHeadRulerMetricsChange: (metrics: HeadRulerMetrics | null) => void;
+  onLandmarkPinsChange?: (pins: ProjectedLandmarkPin[]) => void;
 }
 
 interface DraggingChangedDispatcher {
@@ -238,6 +245,52 @@ interface DraggingChangedDispatcher {
     listener: (event: { value: boolean }) => void
   ) => void;
 }
+
+const LANDMARK_PIN_SPECS: ReadonlyArray<{
+  groupId: LandmarkGroupId;
+  number: number;
+  label: string;
+  candidates: readonly string[];
+}> = [
+  { groupId: 'c7', number: 1, label: 'C7 Vertebra', candidates: ['c7'] },
+  { groupId: 'sternum', number: 2, label: 'Sternum Pit', candidates: ['sternum'] },
+  {
+    groupId: 'acromion',
+    number: 3,
+    label: 'Acromion',
+    candidates: ['acromion_r', 'acromion_l'],
+  },
+  {
+    groupId: 'asis',
+    number: 4,
+    label: 'ASIS Crest',
+    candidates: ['asis_r', 'asis_l'],
+  },
+  {
+    groupId: 'trochanter',
+    number: 5,
+    label: 'Greater Trochanter',
+    candidates: ['trochanter_r', 'trochanter_l'],
+  },
+  {
+    groupId: 'olecranon',
+    number: 6,
+    label: 'Olecranon',
+    candidates: ['olecranon_r', 'olecranon_l'],
+  },
+  {
+    groupId: 'patella',
+    number: 7,
+    label: 'Patella',
+    candidates: ['patella_r', 'patella_l'],
+  },
+  {
+    groupId: 'malleolus',
+    number: 8,
+    label: 'Malleolus',
+    candidates: ['malleolus_r', 'malleolus_l'],
+  },
+];
 
 function round2(value: number): number {
   const rounded = Math.round(value * 100) / 100;
@@ -303,6 +356,7 @@ function MannequinInstance({
   notanSplit,
   drawing,
   showHeadRuler,
+  showLandmarkPins = false,
   onSelectMannequin,
   onDraggingChange,
   onSelectBoneChange,
@@ -316,6 +370,7 @@ function MannequinInstance({
   onCommitPoseSnapshot,
   onContextualAnchorChange,
   onHeadRulerMetricsChange,
+  onLandmarkPinsChange,
 }: MannequinInstanceProps) {
   const [selectedBoneName, setSelectedBoneName] = useState<string | null>(null);
   const [hoveredBoneName, setHoveredBoneName] = useState<string | null>(null);
@@ -340,6 +395,7 @@ function MannequinInstance({
     clampFigureProportions(record.proportions)
   );
   const lastRulerEmitKeyRef = useRef<string>('');
+  const lastPinsEmitKeyRef = useRef<string>('');
   const constructiveOverlayRef = useRef<ConstructiveOverlayHandle>(null);
   const hitboxRefs = useRef<Map<string, THREE.Object3D>>(new Map());
   const ikHandleRefs = useRef<Map<IKHandleId, THREE.Group>>(new Map());
@@ -388,6 +444,7 @@ function MannequinInstance({
   const ikSwivelByHandleRef = useRef(ikSwivelByHandle);
   const proportionsRef = useRef(clampFigureProportions(record.proportions));
   const showHeadRulerRef = useRef(showHeadRuler);
+  const showLandmarkPinsRef = useRef(showLandmarkPins);
   const recordVisibleRef = useRef(record.visible);
 
   const onSelectBoneChangeRef = useRef(onSelectBoneChange);
@@ -397,6 +454,7 @@ function MannequinInstance({
   const onCommitPoseSnapshotRef = useRef(onCommitPoseSnapshot);
   const onContextualAnchorChangeRef = useRef(onContextualAnchorChange);
   const onHeadRulerMetricsChangeRef = useRef(onHeadRulerMetricsChange);
+  const onLandmarkPinsChangeRef = useRef(onLandmarkPinsChange);
 
   const solverRef = useRef(new JointSpaceGravitySolver());
   const solverAwakeRef = useRef(false);
@@ -422,6 +480,7 @@ function MannequinInstance({
   ikSwivelByHandleRef.current = ikSwivelByHandle;
   proportionsRef.current = clampFigureProportions(record.proportions);
   showHeadRulerRef.current = showHeadRuler;
+  showLandmarkPinsRef.current = showLandmarkPins;
   recordVisibleRef.current = record.visible;
   onSelectBoneChangeRef.current = onSelectBoneChange;
   onSelectIKHandleChangeRef.current = onSelectIKHandleChange;
@@ -430,6 +489,7 @@ function MannequinInstance({
   onCommitPoseSnapshotRef.current = onCommitPoseSnapshot;
   onContextualAnchorChangeRef.current = onContextualAnchorChange;
   onHeadRulerMetricsChangeRef.current = onHeadRulerMetricsChange;
+  onLandmarkPinsChangeRef.current = onLandmarkPinsChange;
 
   const { camera, size, invalidate } = useThree();
 
@@ -828,6 +888,86 @@ function MannequinInstance({
     });
   }, [instance, computeSkinnedBounds, camera, size.width, size.height]);
 
+  const emitLandmarkPins = useCallback(() => {
+    const notify = onLandmarkPinsChangeRef.current;
+    if (!notify) return;
+
+    if (
+      !isActiveRef.current ||
+      !showLandmarkPinsRef.current ||
+      !recordVisibleRef.current
+    ) {
+      if (lastPinsEmitKeyRef.current !== '') {
+        lastPinsEmitKeyRef.current = '';
+        notify([]);
+      }
+      return;
+    }
+
+    instance.rootGroup.updateMatrixWorld(true);
+    const data = computeConstructiveFigureData({
+      mannequinId: record.id,
+      rigAdapter: instance.rigAdapter,
+      baseHeadHeight: instance.baseHeadHeight,
+      proportions: proportionsRef.current,
+      groundY: 0,
+    });
+    const byId = new Map(data.landmarks.map((lm) => [lm.id, lm]));
+    const pins: ProjectedLandmarkPin[] = [];
+    const camPos = camera.position;
+
+    for (const spec of LANDMARK_PIN_SPECS) {
+      let chosen = byId.get(spec.candidates[0]);
+      if (spec.candidates.length > 1) {
+        let bestDist = Infinity;
+        for (const candId of spec.candidates) {
+          const item = byId.get(candId);
+          if (!item) continue;
+          const d = item.position.distanceToSquared(camPos);
+          if (d < bestDist) {
+            bestDist = d;
+            chosen = item;
+          }
+        }
+      }
+      if (!chosen) continue;
+
+      const proj = projectWorldPointToScreen(
+        chosen.position,
+        camera,
+        size.width,
+        size.height,
+        activePresetRef.current,
+        lensCurvatureRef.current
+      );
+      const sx = Math.round(proj.screenX);
+      const sy = Math.round(proj.screenY);
+      const inBounds =
+        proj.visible &&
+        sx >= 10 &&
+        sx <= size.width - 10 &&
+        sy >= 10 &&
+        sy <= size.height - 10;
+
+      pins.push({
+        id: chosen.id,
+        groupId: spec.groupId,
+        number: spec.number,
+        label: spec.label,
+        screenX: sx,
+        screenY: sy,
+        visible: inBounds,
+      });
+    }
+
+    const key = pins
+      .map((p) => `${p.id}:${p.screenX}:${p.screenY}:${p.visible ? 1 : 0}`)
+      .join('|');
+    if (key === lastPinsEmitKeyRef.current) return;
+    lastPinsEmitKeyRef.current = key;
+    notify(pins);
+  }, [instance, record.id, camera, size.width, size.height]);
+
   const syncHitboxPositions = useCallback(() => {
     instance.rootGroup.updateMatrixWorld(true);
     const tempVec = tempWorldPosRef.current;
@@ -860,8 +1000,9 @@ function MannequinInstance({
 
     constructiveOverlayRef.current?.sync();
     emitHeadRulerMetrics();
+    emitLandmarkPins();
     invalidate();
-  }, [instance, emitHeadRulerMetrics, invalidate]);
+  }, [instance, emitHeadRulerMetrics, emitLandmarkPins, invalidate]);
 
   const recomputeGroundOffset = useCallback(
     (targetElevationY = 0) => {
@@ -1351,6 +1492,54 @@ function MannequinInstance({
     ]
   );
 
+  const readCanonicalBoneAngles = useCallback(
+    (boneName: string): JointAngles | null => {
+      if (!instance.rigAdapter.hasJoint(boneName)) return null;
+      return instance.rigAdapter.readCanonicalAngles(
+        boneName,
+        getJointSpec(boneName),
+        false
+      );
+    },
+    [instance]
+  );
+
+  const getBoneWorldPosition = useCallback(
+    (boneName: string): Vec3Tuple | null => {
+      const bone = instance.bonesByName.get(boneName);
+      if (!bone) return null;
+      instance.rootGroup.updateMatrixWorld(true);
+      const v = new THREE.Vector3();
+      bone.getWorldPosition(v);
+      return [round2(v.x), round2(v.y), round2(v.z)];
+    },
+    [instance]
+  );
+
+  const getPlumbFootBalanceMeters = useCallback((): number | null => {
+    instance.rootGroup.updateMatrixWorld(true);
+    const data = computeConstructiveFigureData({
+      mannequinId: record.id,
+      rigAdapter: instance.rigAdapter,
+      baseHeadHeight: instance.baseHeadHeight,
+      proportions: proportionsRef.current,
+      groundY: 0,
+    });
+    const plumbX = data.plumbLine[0].x;
+    const plumbZ = data.plumbLine[0].z;
+    const footNames = ['foot_l', 'foot_r', 'ball_l', 'ball_r'] as const;
+    let bestDist = Infinity;
+    const v = new THREE.Vector3();
+    for (const fName of footNames) {
+      const bone = instance.bonesByName.get(fName);
+      if (!bone) continue;
+      bone.getWorldPosition(v);
+      const d = Math.hypot(v.x - plumbX, v.z - plumbZ);
+      if (d < bestDist) bestDist = d;
+    }
+    return Number.isFinite(bestDist) ? round2(bestDist) : null;
+  }, [instance, record.id]);
+
   useEffect(() => {
     onMannequinBridgeChange(record.id, {
       captureSnapshot,
@@ -1364,6 +1553,9 @@ function MannequinInstance({
       resetIKLimb,
       plantFootIK,
       syncProportions,
+      readCanonicalBoneAngles,
+      getBoneWorldPosition,
+      getPlumbFootBalanceMeters,
     });
     return () => onMannequinBridgeChange(record.id, null);
   }, [
@@ -1379,6 +1571,9 @@ function MannequinInstance({
     resetIKLimb,
     plantFootIK,
     syncProportions,
+    readCanonicalBoneAngles,
+    getBoneWorldPosition,
+    getPlumbFootBalanceMeters,
     onMannequinBridgeChange,
   ]);
 
@@ -1499,9 +1694,11 @@ function MannequinInstance({
 
   useEffect(() => {
     emitHeadRulerMetrics();
+    emitLandmarkPins();
   }, [
     isActive,
     showHeadRuler,
+    showLandmarkPins,
     record.visible,
     record.proportions,
     activePreset,
@@ -1510,6 +1707,7 @@ function MannequinInstance({
     size.width,
     size.height,
     emitHeadRulerMetrics,
+    emitLandmarkPins,
   ]);
 
   useEffect(() => {
@@ -1517,6 +1715,10 @@ function MannequinInstance({
       if (lastRulerEmitKeyRef.current !== '') {
         lastRulerEmitKeyRef.current = '';
         onHeadRulerMetricsChangeRef.current(null);
+      }
+      if (lastPinsEmitKeyRef.current !== '') {
+        lastPinsEmitKeyRef.current = '';
+        onLandmarkPinsChangeRef.current?.([]);
       }
     };
   }, []);
@@ -2794,6 +2996,7 @@ export function AnatomyModel({
   notanSplit,
   drawing,
   showHeadRuler,
+  showLandmarkPins = false,
   onSelectMannequin,
   onDraggingChange,
   onSelectBoneChange,
@@ -2807,6 +3010,7 @@ export function AnatomyModel({
   onCommitPoseSnapshot,
   onContextualAnchorChange,
   onHeadRulerMetricsChange,
+  onLandmarkPinsChange,
 }: AnatomyModelProps) {
   const [templatesByModel, setTemplatesByModel] = useState<
     Partial<Record<MannequinModelId, MannequinTemplate>>
@@ -2977,6 +3181,7 @@ export function AnatomyModel({
             notanSplit={notanSplit}
             drawing={drawing}
             showHeadRuler={showHeadRuler}
+            showLandmarkPins={showLandmarkPins}
             onSelectMannequin={onSelectMannequin}
             onDraggingChange={onDraggingChange}
             onSelectBoneChange={onSelectBoneChange}
@@ -2990,6 +3195,7 @@ export function AnatomyModel({
             onCommitPoseSnapshot={onCommitPoseSnapshot}
             onContextualAnchorChange={onContextualAnchorChange}
             onHeadRulerMetricsChange={onHeadRulerMetricsChange}
+            onLandmarkPinsChange={onLandmarkPinsChange}
           />
         );
       })}

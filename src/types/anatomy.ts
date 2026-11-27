@@ -320,6 +320,26 @@ export interface HeadRulerMetrics {
   ticks: HeadRulerTick[];
 }
 
+export type LandmarkGroupId =
+  | 'c7'
+  | 'sternum'
+  | 'acromion'
+  | 'asis'
+  | 'trochanter'
+  | 'olecranon'
+  | 'patella'
+  | 'malleolus';
+
+export interface ProjectedLandmarkPin {
+  id: string;
+  groupId: LandmarkGroupId;
+  number: number;
+  label: string;
+  screenX: number;
+  screenY: number;
+  visible: boolean;
+}
+
 export type CompositionCropRatio = 'off' | '4:5' | '16:9' | '1:1' | '9:16';
 
 export type CompositionGridType = 'off' | 'thirds' | 'cross' | 'golden';

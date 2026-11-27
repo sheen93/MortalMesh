@@ -945,6 +945,161 @@ export function WifiOffIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
   );
 }
 
+export function GraduationCapIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M1.5 6.2 8 3l6.5 3.2L8 9.4 1.5 6.2Z" />
+      <path d="M4.2 7.6v3.3c0 1 1.7 1.8 3.8 1.8s3.8-.8 3.8-1.8V7.6" />
+      <path d="M14.2 6.5v4.2" />
+    </svg>
+  );
+}
+
+export function TimerIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M6.25 1.75h3.5M8 4.25v4l2.5 1.5" />
+      <circle cx="8" cy="9.25" r="5" />
+    </svg>
+  );
+}
+
+export function Share2Icon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="3.5" r="1.75" />
+      <circle cx="4" cy="8" r="1.75" />
+      <circle cx="12" cy="12.5" r="1.75" />
+      <path d="m5.5 7.1 5-2.7M5.5 8.9l5 2.7" />
+    </svg>
+  );
+}
+
+export function Volume2Icon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M2.5 6h2.75l3.25-2.75v9.5L5.25 10H2.5V6Z" />
+      <path d="M11 5.75a3.5 3.5 0 0 1 0 4.5M12.9 4a6 6 0 0 1 0 8" />
+    </svg>
+  );
+}
+
+export function VolumeXIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M2.5 6h2.75l3.25-2.75v9.5L5.25 10H2.5V6Z" />
+      <path d="m11 6 3 4M14 6l-3 4" />
+    </svg>
+  );
+}
+
+export function PlayIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M4.2 3.1a.6.6 0 0 1 .9-.52l7.8 4.9a.6.6 0 0 1 0 1.04l-7.8 4.9a.6.6 0 0 1-.9-.52V3.1Z" />
+    </svg>
+  );
+}
+
+export function PauseIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="3.5" y="3" width="3" height="10" rx="0.75" />
+      <rect x="9.5" y="3" width="3" height="10" rx="0.75" />
+    </svg>
+  );
+}
+
+export function SkipForwardIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M3 3.75v8.5L9.5 8 3 3.75Z" fill="currentColor" />
+      <path d="M12.25 3.75v8.5" />
+    </svg>
+  );
+}
+
+export function ChevronRightIcon({ className = 'w-3.5 h-3.5' }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="m6 3.5 4.5 4.5L6 12.5" />
+    </svg>
+  );
+}
+
 interface ToggleSwitchProps {
   id?: string;
   label: string;

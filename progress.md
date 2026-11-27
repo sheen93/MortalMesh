@@ -1,7 +1,7 @@
 # Mortal Mesh — Project Progress & Handoff Guide
 
 **Last Updated:** 2026-11-26  
-**Status:** Phase 16 Complete — On-Device AI Photo-to-3D-Pose & Hand Reconstruction (`@mediapipe/tasks-vision` WASM SIMD CPU, Lazy Offline `mortal-mesh-ai-v1` Cache, `solveLimbIK` + 21-Point Gesture Retargeting, Multi-Person Staging & Ghost Backdrop) Built & Verified  
+**Status:** Phase 17 Complete — Interactive 6-Module Anatomy Academy ("The Kinetic Atelier" with Live Landmark Pins), 3D Timed Gesture Drawing Gym (0 Idle WebGL Draws), Shareable 3D Pose URL Codec & 65+ Static Programmatic SEO Pages Built & Verified  
 **Local Server:** Stopped cleanly (start preview via `rm -rf .next && npm run build && npm run start`, or dev via `npm run dev`)
 
 ---
@@ -474,4 +474,36 @@ All four new GLB assets from `/home/sheen/Documents/Mortal Mesh/models/` were cl
   - **Lazy Boot & Closed-Loop Self-Render Accuracy:** Confirmed `0` `/ai/*` requests during core boot & precache; fed clean `Female` Studio PNGs (`Victory Arms Raised` and `Action Lunge`) into `Photo → Pose`, verified MediaPipe CPU SIMD detection (`98%` confidence, `264ms` cached inference), reconstructed `Victory` onto `Female` (`handLY: 1.874 > shoulderLY: 1.434`, `handLX: +0.457`, `handRY: 1.854 > shoulderRY: 1.435`, `handRX: -0.492`), verified `ReferenceOverlay` auto-pinned in locked Backdrop (`35%`), preserved pose across `Skeleton` model swap, restored `T-Pose` cleanly on `Ctrl+Z` (`0.0000m` delta), verified `Extract 3D Pose` from `Guides & Ref`, and verified locked figure guard.
   - **True Offline AI Proof:** Verified all 4 `/ai/*` entries stored inside `mortal-mesh-ai-v1`, switched CDP network to `offline: true`, reloaded page (`Offline Mode · AI Ready`), and completed full `Photo → Pose` WASM SIMD inference & pose apply offline with `0` errors.
   - **Idle GPU, 5-Viewport Audit & Regressions:** Measured `0` idle WebGL draws (`1500ms` window), strictly `4` icons on `StudioRightRail`, zero overflow/overlap across `1440×900`, `412×915`, `915×412`, `1280×800`, and `800×1280`, plus Phase 12–15 Constructive Breakdown + Comic Ink + Layered SVG regressions, and visually inspected all screenshots (`p16_modal_victory.png`, `p16_applied_victory_female.png`, `p16_victory_skeleton.png`, `p16_applied_lunge.png`, `p16_mobile_modal.png`, `p16_offline_ai.png`). Temporary test server stopped cleanly (`0` background tasks running).
+
+---
+
+## 15. Phase 17: Interactive Anatomy Academy, 3D Timed Gesture Gym, Shareable Pose URLs & Programmatic SEO Pages
+
+### 15.1 Delivered Systems & Architecture
+
+- **Milestone 39 — Interactive 6-Module Anatomy Academy ("The Kinetic Atelier") & Live 3D Landmark Pins (`src/data/academyCurriculum.ts`, `src/components/AnatomyAcademy.tsx`, `src/components/AcademyLandmarkPins.tsx`, `src/components/AnatomyModel.tsx`, `src/components/StudioCanvas.tsx`, `src/types/anatomy.ts`, `src/types/poseIO.ts`):**
+  - Built 6 self-contained, 100% offline interactive 3D curriculum modules (`gesture-balance`, `three-masses`, `bony-landmarks`, `foreshortening-optics`, `hand-wedges`, `value-shapes`) with live geometric telemetry validators and persistent completion tracking in `localStorage` (`mortal-mesh:academy:v1`).
+  - Extended `PoseBridge` (`readCanonicalBoneAngles`, `getBoneWorldPosition`, `getPlumbFootBalanceMeters`) and `AnatomyModel.tsx` (`emitLandmarkPins()` deduplicated inside `syncHitboxPositions()` with zero continuous `useFrame` ticks) to project clickable numbered bony landmark callout pins (`C7`, `Sternum`, `Acromion`, `ASIS`, `Trochanter`, `Olecranon`, `Patella`, `Malleolus`) onto `skeleton-rig.glb` outside the WebGL canvas (`AcademyLandmarkPins.tsx` with viewport-clamped tooltip cards).
+  - Implemented non-destructive sandbox staging (`sandboxSavedSceneRef` + `isSandboxModeRef`) that pauses autosave during drills and restores the user's pre-Academy scene cleanly on exit, paired with a collision-free responsive `AcademyLessonHudCard` with sticky action buttons across desktop, tablet, mobile portrait, and `915×412` compact landscape.
+- **Milestone 40 — 3D Timed Gesture Drawing Gym (`src/components/GestureGym.tsx`, `src/utils/studioChime.ts`, `src/app/page.tsx`):**
+  - Built a distraction-free 3D timed figure-drawing trainer supporting `30s | 1m | 2m | 5m | Class` (progressive 10-pose life-drawing curve), pose count (`5 | 10 | 15`), category & model filters (`Mix` cycling all 5 rigs), 4 study styles (`Atelier`, `2-Value Notan`, `Loomis Blue-Pencil`, `Comic Ink`), optional randomized orbit camera angles, post-timer `Orbit 3D` inspection pause, synthesized Web Audio API bell chimes (`studioChime.ts`), and local streak/stats persistence (`mortal-mesh:gym:v1`).
+  - Encapsulated the `1 Hz` countdown interval strictly inside `GestureGym.tsx` so countdown ticks never re-render `HomePage` or `StudioCanvas` (`0` idle WebGL draws during countdown), while hiding studio chrome (`effectiveHudMinimized`) cleanly and restoring the user's original scene on `Exit`.
+- **Milestone 41 — Shareable 3D Pose URL Codec, Consolidated Sidebar Learn Strip & Programmatic SEO Pages (`src/utils/poseUrlCodec.ts`, `src/components/FloatingSidebar.tsx`, `src/data/seoContent.ts`, `src/components/SeoShell.tsx`, `src/app/layout.tsx`, `src/app/poses/`, `src/app/hands/`, `src/app/gesture-timer/`, `src/app/sitemap.ts`, `src/app/robots.ts`, `scripts/generatePrecache.mjs`):**
+  - Implemented zero-backend base64url pose codec (`encodeSharedPoseParams` / `decodeSharedPoseParams`) supporting `/?p=...` (model, finish, proportions, preset or sparse non-zero canonical joint angles, camera, perspective/lens curvature, lighting/Notan, and drawing/constructive state), `/?pose=<slug>`, `/?hand=<slug>` (focused onto `hand_r`), and `/?mode=gym&interval=<30|60|120|300|class>`.
+  - Kept `StudioRightRail` strictly at `4` icons and placed a compact 2-button **Learn** strip (`Academy` with completion badge + `Gesture Gym`) directly below the `Mortal Mesh` header plus a single `Share 3D Link` button inside `Scene & Files`.
+  - Generated 66 static programmatic SEO URLs (`/`, `/poses`, 50 `/poses/[slug]`, `/hands`, 12 `/hands/[slug]`, `/gesture-timer`, plus `/sitemap.xml` and `/robots.txt`) with `HowTo` JSON-LD, study checklists, direct 3D Studio deep-link CTAs, zero Three.js client bundle bloat, and excluded SEO route chunks from `public/sw-precache.json` `urls`.
+
+### 15.2 Phase 17 Final Verification Outputs
+
+- **TypeScript (`npx tsc --noEmit`):** Exited `0` (`0` errors).
+- **Pose & Hand Gesture Validation (`node scripts/validatePoses.mjs`):** Exited `0` — `50` poses + `12x2` hand gestures, `0` ROM/bone violations.
+- **Log Audit (`grep -rn "console\.log" src/`):** Zero matches.
+- **Production Build (`rm -rf .next && npm run build`):** Exited `0`, statically generating `71/71` routes (`/` `399 kB` / `486 kB` First Load JS; `/poses`, 50 `/poses/[slug]`, `/hands`, 12 `/hands/[slug]`, and `/gesture-timer` at `186 B` / `94.2 kB` First Load JS with zero Three.js bloat) and generating `public/sw-precache.json` (`version=be4472a159b9`, `31` core URLs excluding SEO routes and `/ai/*`, `3` optional models, `4` lazy AI assets).
+- **HTTP SEO & Sitemap Verification (`http://localhost:3017`):** Verified HTTP `200` on `/`, `/poses`, `/poses/contrapposto` (`HowTo` schema + `/?pose=contrapposto`), `/hands`, `/hands/rock` (`/?hand=rock`), `/gesture-timer` (`/?mode=gym&interval=60`), `/sitemap.xml` (`66 <loc>` entries), and `/robots.txt`.
+- **Phase 17 Headless Chrome QA (`verify_phase17_cdp.mjs` against `npx next start -p 3017`):** Exited `0` (`ALL PHASE 17 PRODUCTION CHROME QA CHECKS PASSED`, `0` console errors, `0` page exceptions, `0` network failures):
+  - **UI Discipline & Shareable URL:** Confirmed strictly `4` icons on `StudioRightRail`, single `Academy`/`Gesture Gym` buttons and single `Share 3D Link` button; generated compact `347`-char `/?p=...` link and verified full round-trip restore (`Classic` + `Notan`), plus `/?pose=superhero-landing`, `/?hand=rock`, and `/?mode=gym&interval=60` deep links.
+  - **Anatomy Academy:** Verified 6-module catalog, Module 3 `skeleton-rig.glb` clickable landmark pins + tooltip bounds (`Pins read: 3/3`), Module 1 immediate live plumb-line offset (`25 cm from foot`), Module 6 Notan azimuth + split auto-completion persisted to `mortal-mesh:academy:v1`, and non-destructive `Exit Academy` restore.
+  - **Gesture Gym:** Verified `30s` session hid studio chrome & Zen pill, ticked `00:29 -> 00:27` with **`0` idle WebGL draw calls** across `1600ms`, toggled `Loomis` + `Skeleton` + `Skip` cleanly, and restored the user's pre-gym studio scene on `Exit`.
+  - **True Offline Proof & 5-Viewport Audit:** Reloaded `/` under `Network.emulateNetworkConditions({ offline: true })`, launched both Anatomy Academy and Gesture Gym offline with `0` errors; verified zero horizontal overflow, zero Academy/dock collision, and fully visible action buttons across `1440×900`, `412×915`, `915×412`, `1280×800`, and `800×1280`; confirmed Phase 12–16 smoke regressions and visually inspected all captured screenshots (`p17_*.png`). Temporary test server stopped cleanly (`0` background tasks running).
+
 

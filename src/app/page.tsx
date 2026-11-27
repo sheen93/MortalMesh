@@ -3,12 +3,23 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
 } from 'react';
+import { AcademyLandmarkPins } from '@/components/AcademyLandmarkPins';
+import {
+  AcademyLessonHudCard,
+  AnatomyAcademyModal,
+} from '@/components/AnatomyAcademy';
 import { CompositionOverlay } from '@/components/CompositionOverlay';
 import { FloatingSidebar } from '@/components/FloatingSidebar';
+import {
+  GestureGym,
+  type GymDurationOption,
+  type GymStepTransitionPayload,
+} from '@/components/GestureGym';
 import { HeadUnitRuler } from '@/components/HeadUnitRuler';
 import { JointControlPopover } from '@/components/JointControlPopover';
 import {
@@ -32,6 +43,14 @@ import {
 } from '@/components/StudioRightRail';
 import { StudioToast, type StudioToastData } from '@/components/StudioToast';
 import { EyeIcon } from '@/components/StudioPrimitives';
+import {
+  ACADEMY_MODULES,
+  getAcademyModule,
+  loadCompletedAcademyModules,
+  saveCompletedAcademyModules,
+  type AcademyModuleId,
+  type AcademyTelemetry,
+} from '@/data/academyCurriculum';
 import { HAND_GESTURE_BY_ID } from '@/data/handGestures';
 import {
   clampStudioLighting,
@@ -73,10 +92,12 @@ import {
   type JointAngles,
   type JointsDisplayMode,
   type KeyLightSettings,
+  type LandmarkGroupId,
   type LayerVisibility,
   type LightingPresetId,
   type PoseControlMode,
   type PosePresetCommand,
+  type ProjectedLandmarkPin,
   type ReferenceOverlayState,
   type SnapshotBridge,
   type SnapshotOptions,
@@ -121,6 +142,11 @@ import {
   undoPoseHistory,
   type PoseHistoryState,
 } from '@/utils/poseHistory';
+import {
+  buildPoseSnapshotFromCanonicalAngles,
+  decodeSharedPoseParams,
+  encodeSharedPoseParams,
+} from '@/utils/poseUrlCodec';
 import {
   clonePoseSnapshot,
   downloadPoseFile,
@@ -245,11 +271,35 @@ export default function HomePage() {
   const [isPhotoToPoseOpen, setIsPhotoToPoseOpen] = useState(false);
   const [photoToPoseInitialFile, setPhotoToPoseInitialFile] =
     useState<File | null>(null);
+  const [isAcademyCatalogOpen, setIsAcademyCatalogOpen] = useState(false);
+  const [activeAcademyModuleId, setActiveAcademyModuleId] =
+    useState<AcademyModuleId | null>(null);
+  const [completedAcademyIds, setCompletedAcademyIds] = useState<
+    AcademyModuleId[]
+  >([]);
+  const [projectedLandmarkPins, setProjectedLandmarkPins] = useState<
+    ProjectedLandmarkPin[]
+  >([]);
+  const [selectedLandmarkGroup, setSelectedLandmarkGroup] =
+    useState<LandmarkGroupId | null>(null);
+  const [inspectedLandmarks, setInspectedLandmarks] = useState<
+    LandmarkGroupId[]
+  >([]);
+  const [pelvisMovedInModule, setPelvisMovedInModule] = useState(false);
+  const [cameraOrbitedInModule, setCameraOrbitedInModule] = useState(false);
+  const [visitedHandGestures, setVisitedHandGestures] = useState<
+    HandGestureId[]
+  >([]);
+  const [isGestureGymSetupOpen, setIsGestureGymSetupOpen] = useState(false);
+  const [isGestureGymActive, setIsGestureGymActive] = useState(false);
+  const [gymInitialInterval, setGymInitialInterval] =
+    useState<GymDurationOption | null>(null);
 
   const [historyById, setHistoryById] = useState<
     Record<string, PoseHistoryState>
   >({});
   const [poseCommitVersion, setPoseCommitVersion] = useState(0);
+  const [bridgeReadyVersion, setBridgeReadyVersion] = useState(0);
   const [toast, setToast] = useState<StudioToastData | null>(null);
 
   const bridgesRef = useRef<Map<string, PoseBridge>>(new Map());
@@ -260,6 +310,20 @@ export default function HomePage() {
   const isHydratedRef = useRef(false);
   const skipNextAutosaveRef = useRef(false);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sandboxSavedSceneRef = useRef<MortalMeshSceneFile | null>(null);
+  const isSandboxModeRef = useRef(false);
+  const moduleInitialAzimuthRef = useRef(42);
+  const ignoreCameraRestUntilRef = useRef(0);
+  const pendingCameraFocusBoneRef = useRef<{
+    mannequinId: string;
+    boneName: string;
+  } | null>(null);
+  const activeAcademyModuleIdRef = useRef<AcademyModuleId | null>(null);
+  activeAcademyModuleIdRef.current = activeAcademyModuleId;
+  const selectedIKHandleRef = useRef<IKHandleId | null>(null);
+  selectedIKHandleRef.current = selectedIKHandle;
+  const controlModeRef = useRef<PoseControlMode>('fk');
+  controlModeRef.current = controlMode;
 
   const nextFigureNumberRef = useRef(2);
   const nextPropSeqRef = useRef(1);
@@ -443,27 +507,129 @@ export default function HomePage() {
     [showToast]
   );
 
-  // Restore saved session or theme on client mount before enabling debounced autosave
+  // Restore URL deep link, saved session, or theme + Academy progress on client mount
   useEffect(() => {
+    setCompletedAcademyIds(loadCompletedAcademyModules());
+
     try {
-      const savedScene = loadSceneFromLocalStorage();
-      if (savedScene) {
+      const deepLink = decodeSharedPoseParams(window.location.search);
+
+      if (deepLink.kind === 'shared') {
         skipNextAutosaveRef.current = true;
-        applyParsedScene(savedScene, { silent: true });
-      } else {
-        const savedTheme = window.localStorage.getItem(
-          STUDIO_THEME_STORAGE_KEY
+        const matchedPreset = deepLink.posePresetId
+          ? getPosePreset(deepLink.posePresetId)
+          : undefined;
+        const fig: MannequinRecord = {
+          id: 'figure-1',
+          name: 'Figure 1',
+          modelId: deepLink.modelId,
+          locked: false,
+          visible: true,
+          finish: deepLink.finish,
+          spawnOffset: [0, 0, 0],
+          elevationY: matchedPreset && !matchedPreset.groundSnap ? matchedPreset.elevationY : 0,
+          groundSnapEnabled: matchedPreset ? matchedPreset.groundSnap : true,
+          pinnedBones: [],
+          activePosePresetId: matchedPreset ? matchedPreset.id : null,
+          proportions: clampFigureProportions(deepLink.proportions),
+          initialSnapshot: matchedPreset ? undefined : deepLink.poseSnapshot,
+          preserveExactRootPosition: false,
+        };
+        bridgesRef.current.clear();
+        poseByIdRef.current.clear();
+        setMannequins([fig]);
+        setActiveMannequinId('figure-1');
+        setHistoryById({});
+        setStudioProps([]);
+        setSelectedPropId(null);
+        setActivePreset(deepLink.perspective);
+        setLensCurvature(deepLink.lensCurvature);
+        setKeyLight(
+          clampStudioLighting({
+            ...DEFAULT_STUDIO_LIGHTING,
+            ...deepLink.lighting,
+          })
         );
-        if (savedTheme && isStudioThemeId(savedTheme)) {
-          setStudioTheme(savedTheme);
+        setDrawing(deepLink.drawing);
+        ignoreCameraRestUntilRef.current = Date.now() + 300;
+        if (cameraBridgeRef.current) {
+          cameraBridgeRef.current.setView(deepLink.camera, false);
+        } else {
+          pendingCameraRestoreRef.current = deepLink.camera;
+        }
+        setSceneLoadId((prev) => prev + 1);
+        showToast('Shared 3D pose loaded', 'success');
+      } else if (deepLink.kind === 'pose') {
+        const preset = getPosePreset(deepLink.poseId);
+        if (preset) {
+          skipNextAutosaveRef.current = true;
+          const fig: MannequinRecord = {
+            ...createInitialMannequin('female'),
+            activePosePresetId: preset.id,
+            groundSnapEnabled: preset.groundSnap,
+            elevationY: preset.groundSnap ? 0 : preset.elevationY,
+          };
+          bridgesRef.current.clear();
+          poseByIdRef.current.clear();
+          setMannequins([fig]);
+          setActiveMannequinId('figure-1');
+          setHistoryById({});
+          setStudioProps([]);
+          setSelectedPropId(null);
+          setSceneLoadId((prev) => prev + 1);
+          showToast(`Loaded ${preset.name}`, 'success');
+        }
+      } else if (deepLink.kind === 'hand') {
+        skipNextAutosaveRef.current = true;
+        const fig: MannequinRecord = {
+          ...createInitialMannequin('female'),
+          activePosePresetId: null,
+          initialSnapshot: deepLink.poseSnapshot,
+          preserveExactRootPosition: false,
+        };
+        bridgesRef.current.clear();
+        poseByIdRef.current.clear();
+        setMannequins([fig]);
+        setActiveMannequinId('figure-1');
+        setHistoryById({});
+        setStudioProps([]);
+        setSelectedPropId(null);
+        pendingCameraFocusBoneRef.current = {
+          mannequinId: 'figure-1',
+          boneName: 'hand_r',
+        };
+        setSceneLoadId((prev) => prev + 1);
+        showToast(
+          `${HAND_GESTURE_BY_ID[deepLink.gestureId].label} hand study loaded`,
+          'success'
+        );
+      } else {
+        const savedScene = loadSceneFromLocalStorage();
+        if (savedScene) {
+          skipNextAutosaveRef.current = true;
+          applyParsedScene(savedScene, { silent: true });
+        } else {
+          const savedTheme = window.localStorage.getItem(
+            STUDIO_THEME_STORAGE_KEY
+          );
+          if (savedTheme && isStudioThemeId(savedTheme)) {
+            setStudioTheme(savedTheme);
+          }
+        }
+
+        if (deepLink.kind === 'gym') {
+          setGymInitialInterval(deepLink.interval);
+          setIsGestureGymSetupOpen(true);
+        } else if (deepLink.kind === 'invalid') {
+          showToast(deepLink.error, 'error');
         }
       }
     } catch {
-      // Ignore storage read errors in restricted contexts
+      // Ignore storage / URL decode errors in restricted contexts
     } finally {
       isHydratedRef.current = true;
     }
-  }, [applyParsedScene]);
+  }, [applyParsedScene, showToast]);
 
   const buildCurrentSceneFile = useCallback((): MortalMeshSceneFile => {
     const livePoseMap = new Map<string, PoseSnapshot>(poseByIdRef.current);
@@ -536,7 +702,7 @@ export default function HomePage() {
   ]);
 
   useEffect(() => {
-    if (!isHydratedRef.current) return;
+    if (!isHydratedRef.current || isSandboxModeRef.current) return;
     if (skipNextAutosaveRef.current) {
       skipNextAutosaveRef.current = false;
       return;
@@ -547,6 +713,7 @@ export default function HomePage() {
     }
 
     autosaveTimerRef.current = setTimeout(() => {
+      if (isSandboxModeRef.current) return;
       saveSceneToLocalStorage(buildCurrentSceneFile());
       autosaveTimerRef.current = null;
     }, AUTOSAVE_DEBOUNCE_MS);
@@ -555,15 +722,40 @@ export default function HomePage() {
     poseCommitVersion,
   ]);
 
+  const tryFocusPendingBone = useCallback(
+    (id: string, bridge: PoseBridge | null | undefined) => {
+      const pending = pendingCameraFocusBoneRef.current;
+      if (!pending || pending.mannequinId !== id || !bridge) return;
+      const pos = bridge.getBoneWorldPosition(pending.boneName);
+      if (!pos) return;
+      pendingCameraFocusBoneRef.current = null;
+      const view: CameraViewState = {
+        position: [pos[0] + 0.24, pos[1] + 0.08, pos[2] + 0.56],
+        target: [pos[0], pos[1], pos[2]],
+      };
+      ignoreCameraRestUntilRef.current = Date.now() + 300;
+      if (cameraBridgeRef.current) {
+        cameraBridgeRef.current.setView(view, false);
+      } else {
+        pendingCameraRestoreRef.current = view;
+      }
+    },
+    []
+  );
+
   const handleMannequinBridgeChange = useCallback(
     (id: string, bridge: PoseBridge | null) => {
       if (bridge) {
         bridgesRef.current.set(id, bridge);
+        tryFocusPendingBone(id, bridge);
+        if (activeAcademyModuleIdRef.current !== null) {
+          setBridgeReadyVersion((prev) => prev + 1);
+        }
       } else {
         bridgesRef.current.delete(id);
       }
     },
-    []
+    [tryFocusPendingBone]
   );
 
   const handleSnapshotBridgeReady = useCallback(
@@ -589,8 +781,9 @@ export default function HomePage() {
         ...prev,
         [id]: prev[id] ?? initPoseHistory(snapshot),
       }));
+      tryFocusPendingBone(id, bridgesRef.current.get(id));
     },
-    []
+    [tryFocusPendingBone]
   );
 
   const handleCommitPoseSnapshot = useCallback(
@@ -601,6 +794,13 @@ export default function HomePage() {
         [id]: pushPoseHistory(prev[id] ?? EMPTY_POSE_HISTORY, snapshot),
       }));
       setPoseCommitVersion((prev) => prev + 1);
+      if (
+        activeAcademyModuleIdRef.current === 'gesture-balance' &&
+        (selectedIKHandleRef.current === 'pelvis' ||
+          controlModeRef.current === 'ik')
+      ) {
+        setPelvisMovedInModule(true);
+      }
     },
     []
   );
@@ -1797,6 +1997,12 @@ export default function HomePage() {
 
   const handleCameraRest = useCallback(() => {
     setCameraRestSeq((prev) => prev + 1);
+    if (
+      activeAcademyModuleIdRef.current !== null &&
+      Date.now() >= ignoreCameraRestUntilRef.current
+    ) {
+      setCameraOrbitedInModule(true);
+    }
   }, []);
 
   const handleMannequinAnchorChange = useCallback(
@@ -1856,6 +2062,11 @@ export default function HomePage() {
         )
       );
       setActiveHandGestureId(gestureId);
+      if (activeAcademyModuleIdRef.current !== null) {
+        setVisitedHandGestures((prev) =>
+          prev.includes(gestureId) ? prev : [...prev, gestureId]
+        );
+      }
       handleCommitPoseSnapshot(targetId, updated);
       showToast(`${HAND_GESTURE_BY_ID[gestureId].label} applied`, 'success');
     },
@@ -2242,7 +2453,477 @@ export default function HomePage() {
     );
   }, [activeLocked, activeMannequin.id]);
 
+  const enterSandboxIfNeeded = useCallback(() => {
+    if (!isSandboxModeRef.current) {
+      sandboxSavedSceneRef.current = buildCurrentSceneFile();
+      isSandboxModeRef.current = true;
+    }
+  }, [buildCurrentSceneFile]);
+
+  const exitSandboxAndRestore = useCallback(
+    (toastMessage?: string) => {
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+      pendingCameraFocusBoneRef.current = null;
+      setActiveAcademyModuleId(null);
+      setIsAcademyCatalogOpen(false);
+      setSelectedLandmarkGroup(null);
+      setInspectedLandmarks([]);
+      setProjectedLandmarkPins([]);
+      setPelvisMovedInModule(false);
+      setCameraOrbitedInModule(false);
+      setVisitedHandGestures([]);
+      setIsGestureGymActive(false);
+      setIsGestureGymSetupOpen(false);
+      setIsHudMinimized(false);
+      isSandboxModeRef.current = false;
+
+      const saved = sandboxSavedSceneRef.current;
+      sandboxSavedSceneRef.current = null;
+      if (saved) {
+        skipNextAutosaveRef.current = true;
+        ignoreCameraRestUntilRef.current = Date.now() + 300;
+        applyParsedScene(saved, { silent: true });
+      }
+      if (!shouldAutoCollapseSidebar) {
+        setIsSidebarOpen(true);
+      }
+      if (toastMessage) {
+        showToast(toastMessage, 'success');
+      }
+    },
+    [applyParsedScene, shouldAutoCollapseSidebar, showToast]
+  );
+
+  const applyAcademyModuleSetup = useCallback(
+    (moduleId: AcademyModuleId) => {
+      enterSandboxIfNeeded();
+      const mod = getAcademyModule(moduleId);
+      const setup = mod.setup;
+      const preset = getPosePreset(setup.poseId);
+
+      setIsAcademyCatalogOpen(false);
+      setIsGestureGymActive(false);
+      setIsGestureGymSetupOpen(false);
+      setIsPoseLibraryOpen(false);
+      setIsPhotoToPoseOpen(false);
+      setIsSnapshotOpen(false);
+      setIsShortcutsOpen(false);
+      setIsJointsPopoverOpen(false);
+      setActiveRightRailTab(null);
+      setIsSidebarOpen(false);
+      setIsHudMinimized(false);
+      setToast(null);
+      handleCloseContextualPopover();
+
+      setSelectedLandmarkGroup(null);
+      setInspectedLandmarks([]);
+      setProjectedLandmarkPins([]);
+      setPelvisMovedInModule(false);
+      setCameraOrbitedInModule(false);
+      setVisitedHandGestures([]);
+
+      const fig: MannequinRecord = {
+        ...createInitialMannequin(setup.modelId),
+        activePosePresetId: preset ? preset.id : setup.poseId,
+        groundSnapEnabled: preset ? preset.groundSnap : true,
+        elevationY: preset && !preset.groundSnap ? preset.elevationY : 0,
+      };
+
+      bridgesRef.current.clear();
+      poseByIdRef.current.clear();
+      setMannequins([fig]);
+      setActiveMannequinId('figure-1');
+      setHistoryById({});
+      setStudioProps([]);
+      setSelectedPropId(null);
+
+      const lit = clampStudioLighting({
+        ...DEFAULT_STUDIO_LIGHTING,
+        ...LIGHTING_PRESETS[setup.lightingPreset],
+        presetId: setup.lightingPreset,
+        notanEnabled: setup.notanEnabled,
+        notanSplit: setup.notanSplit,
+      });
+      moduleInitialAzimuthRef.current = lit.azimuth;
+      setKeyLight(lit);
+
+      setControlMode(setup.controlMode);
+      setIkPinFeet(setup.ikPinFeet);
+      setJointsDisplay(setup.jointsDisplay);
+      setGroundEnabled(true);
+      setGravityEnabled(false);
+      setActivePreset(setup.perspectiveMode);
+      setLensCurvature(setup.lensCurvature);
+      setShowPerspectiveGuides(false);
+      setShowHeadRuler(false);
+      setCompositionCrop('off');
+      setCompositionGrid('off');
+      setDrawing(
+        clampStudioDrawing({
+          ...DEFAULT_STUDIO_DRAWING,
+          drawingStyle: setup.drawingStyle,
+          constructiveMode: setup.constructiveMode,
+          showLineOfAction: setup.showLineOfAction,
+          showPlumbLine: setup.showPlumbLine,
+          showCrossContours: setup.showCrossContours,
+          showLandmarks: setup.showLandmarks,
+        })
+      );
+
+      ignoreCameraRestUntilRef.current = Date.now() + 300;
+      const view: CameraViewState = {
+        position: [...setup.cameraLookAt.position],
+        target: [...setup.cameraLookAt.target],
+      };
+      if (cameraBridgeRef.current) {
+        cameraBridgeRef.current.setView(view, false);
+      } else {
+        pendingCameraRestoreRef.current = view;
+      }
+      pendingCameraFocusBoneRef.current = setup.focusBoneForCamera
+        ? { mannequinId: 'figure-1', boneName: setup.focusBoneForCamera }
+        : null;
+
+      setSceneLoadId((prev) => prev + 1);
+      setActiveAcademyModuleId(moduleId);
+    },
+    [enterSandboxIfNeeded, handleCloseContextualPopover]
+  );
+
+  const handleResetAcademyDrill = useCallback(() => {
+    if (!activeAcademyModuleId) return;
+    applyAcademyModuleSetup(activeAcademyModuleId);
+  }, [activeAcademyModuleId, applyAcademyModuleSetup]);
+
+  const handleNextAcademyModule = useCallback(() => {
+    if (!activeAcademyModuleId) return;
+    const idx = ACADEMY_MODULES.findIndex((m) => m.id === activeAcademyModuleId);
+    const nextMod = idx >= 0 ? ACADEMY_MODULES[idx + 1] : undefined;
+    if (nextMod) {
+      applyAcademyModuleSetup(nextMod.id);
+    } else {
+      exitSandboxAndRestore('Anatomy Academy complete!');
+    }
+  }, [activeAcademyModuleId, applyAcademyModuleSetup, exitSandboxAndRestore]);
+
+  const handleExitAcademy = useCallback(() => {
+    exitSandboxAndRestore('Returned to your studio scene');
+  }, [exitSandboxAndRestore]);
+
+  const handleSelectLandmarkPin = useCallback(
+    (groupId: LandmarkGroupId | null) => {
+      setSelectedLandmarkGroup(groupId);
+      if (groupId !== null) {
+        setInspectedLandmarks((prev) =>
+          prev.includes(groupId) ? prev : [...prev, groupId]
+        );
+      }
+    },
+    []
+  );
+
+  const academyValidation = useMemo(() => {
+    if (!activeAcademyModuleId) return null;
+    const mod = getAcademyModule(activeAcademyModuleId);
+    const bridge = bridgesRef.current.get(activeMannequin.id);
+    const readBone = (boneName: string): JointAngles => {
+      if (selectedBoneName === boneName) {
+        return selectedBoneAngles;
+      }
+      return bridge?.readCanonicalBoneAngles(boneName) ?? ZERO_JOINT_ANGLES;
+    };
+    const pelvisAngles = readBone('pelvis');
+    const spineSumZ =
+      readBone('spine_01').z + readBone('spine_02').z + readBone('spine_03').z;
+    const lowerarmRAngles = readBone('lowerarm_r');
+    const handRAngles = readBone('hand_r');
+    const plumbBalanceMeters = bridge?.getPlumbFootBalanceMeters() ?? null;
+
+    const telemetry: AcademyTelemetry = {
+      modelId: activeMannequin.modelId,
+      activePosePresetId: activeMannequin.activePosePresetId,
+      controlMode,
+      activePreset,
+      lensCurvature,
+      lightAzimuth: keyLight.azimuth,
+      initialLightAzimuth: moduleInitialAzimuthRef.current,
+      notanEnabled: keyLight.notanEnabled,
+      notanSplit: keyLight.notanSplit,
+      constructiveMode: drawing.constructiveMode,
+      plumbBalanceMeters,
+      pelvisMoved: pelvisMovedInModule,
+      pelvisAngles,
+      spineSumZ,
+      lowerarmRAngles,
+      handRAngles,
+      inspectedLandmarks,
+      visitedHandGestures,
+      cameraOrbitedInModule,
+    };
+
+    void poseCommitVersion;
+    void bridgeReadyVersion;
+    return mod.evaluate(telemetry);
+  }, [
+    activeAcademyModuleId,
+    activeMannequin.id,
+    activeMannequin.modelId,
+    activeMannequin.activePosePresetId,
+    selectedBoneName,
+    selectedBoneAngles,
+    controlMode,
+    activePreset,
+    lensCurvature,
+    keyLight.azimuth,
+    keyLight.notanEnabled,
+    keyLight.notanSplit,
+    drawing.constructiveMode,
+    pelvisMovedInModule,
+    inspectedLandmarks,
+    visitedHandGestures,
+    cameraOrbitedInModule,
+    poseCommitVersion,
+    bridgeReadyVersion,
+  ]);
+
+  useEffect(() => {
+    if (!activeAcademyModuleId || !academyValidation?.completed) return;
+    if (completedAcademyIds.includes(activeAcademyModuleId)) return;
+
+    const next = [...completedAcademyIds, activeAcademyModuleId];
+    setCompletedAcademyIds(next);
+    saveCompletedAcademyModules(next);
+    const mod = getAcademyModule(activeAcademyModuleId);
+    showToast(`Module ${mod.index} completed!`, 'success');
+  }, [
+    activeAcademyModuleId,
+    academyValidation?.completed,
+    completedAcademyIds,
+    showToast,
+  ]);
+
+  const handleOpenGestureGymSetup = useCallback(() => {
+    setActiveRightRailTab(null);
+    setIsJointsPopoverOpen(false);
+    setIsSnapshotOpen(false);
+    setIsShortcutsOpen(false);
+    setIsPoseLibraryOpen(false);
+    setIsPhotoToPoseOpen(false);
+    setIsAcademyCatalogOpen(false);
+    setGymInitialInterval(null);
+    setIsGestureGymSetupOpen(true);
+  }, []);
+
+  const applyGymSlideToStudio = useCallback(
+    (slide: GymStepTransitionPayload) => {
+      const preset = getPosePreset(slide.poseId);
+      const shouldRemount =
+        slide.randomizeCamera ||
+        mannequins.length !== 1 ||
+        mannequins[0]?.modelId !== slide.modelId ||
+        mannequins[0]?.activePosePresetId !== slide.poseId;
+
+      if (shouldRemount) {
+        const fig: MannequinRecord = {
+          ...createInitialMannequin(slide.modelId),
+          activePosePresetId: preset ? preset.id : slide.poseId,
+          groundSnapEnabled: preset ? preset.groundSnap : true,
+          elevationY: preset && !preset.groundSnap ? preset.elevationY : 0,
+        };
+        bridgesRef.current.clear();
+        poseByIdRef.current.clear();
+        setMannequins([fig]);
+        setActiveMannequinId('figure-1');
+        setHistoryById({});
+        setStudioProps([]);
+        setSelectedPropId(null);
+        setSceneLoadId((prev) => prev + 1);
+      }
+
+      setControlMode('fk');
+      setMoveBodyEnabled(false);
+      setGroundEnabled(true);
+      setGravityEnabled(false);
+      setActivePreset('1-point');
+      setLensCurvature(0);
+      setShowPerspectiveGuides(false);
+      setShowHeadRuler(false);
+      setCompositionCrop('off');
+      setCompositionGrid('off');
+
+      if (slide.studyStyle === 'notan') {
+        setKeyLight(
+          clampStudioLighting({
+            ...DEFAULT_STUDIO_LIGHTING,
+            ...LIGHTING_PRESETS.chiaroscuro,
+            presetId: 'chiaroscuro',
+            notanEnabled: true,
+            notanSplit: 0.5,
+          })
+        );
+        setDrawing({ ...DEFAULT_STUDIO_DRAWING });
+      } else if (slide.studyStyle === 'loomis') {
+        setKeyLight(
+          clampStudioLighting({
+            ...DEFAULT_STUDIO_LIGHTING,
+            ...LIGHTING_PRESETS.rembrandt,
+            presetId: 'rembrandt',
+            notanEnabled: false,
+          })
+        );
+        setDrawing(
+          clampStudioDrawing({
+            ...DEFAULT_STUDIO_DRAWING,
+            drawingStyle: 'blue-pencil',
+            constructiveMode: 'overlay',
+            showLineOfAction: true,
+            showPlumbLine: true,
+          })
+        );
+      } else if (slide.studyStyle === 'comic-ink') {
+        setKeyLight(
+          clampStudioLighting({
+            ...DEFAULT_STUDIO_LIGHTING,
+            ...LIGHTING_PRESETS.rim,
+            presetId: 'rim',
+            notanEnabled: false,
+          })
+        );
+        setDrawing(
+          clampStudioDrawing({
+            ...DEFAULT_STUDIO_DRAWING,
+            drawingStyle: 'comic-ink',
+            constructiveMode: 'off',
+          })
+        );
+      } else {
+        setKeyLight(
+          clampStudioLighting({
+            ...DEFAULT_STUDIO_LIGHTING,
+            ...LIGHTING_PRESETS.rembrandt,
+            presetId: 'rembrandt',
+            notanEnabled: false,
+          })
+        );
+        setDrawing({ ...DEFAULT_STUDIO_DRAWING });
+      }
+
+      if (slide.randomizeCamera) {
+        const azRad = (slide.azimuthDeg * Math.PI) / 180;
+        const elRad = (slide.elevationDeg * Math.PI) / 180;
+        const r = 5.4;
+        const view: CameraViewState = {
+          position: [
+            Number((r * Math.cos(elRad) * Math.sin(azRad)).toFixed(2)),
+            Number((1.0 + r * Math.sin(elRad)).toFixed(2)),
+            Number((r * Math.cos(elRad) * Math.cos(azRad)).toFixed(2)),
+          ],
+          target: [0, 1.0, 0],
+        };
+        ignoreCameraRestUntilRef.current = Date.now() + 300;
+        if (cameraBridgeRef.current) {
+          cameraBridgeRef.current.setView(view, false);
+        } else {
+          pendingCameraRestoreRef.current = view;
+        }
+      }
+    },
+    [mannequins]
+  );
+
+  const handleStartGymSession = useCallback(
+    (firstSlide: GymStepTransitionPayload) => {
+      enterSandboxIfNeeded();
+      setActiveAcademyModuleId(null);
+      setIsAcademyCatalogOpen(false);
+      setSelectedLandmarkGroup(null);
+      setProjectedLandmarkPins([]);
+      setIsGestureGymSetupOpen(false);
+      setActiveRightRailTab(null);
+      setIsJointsPopoverOpen(false);
+      setIsSnapshotOpen(false);
+      setIsShortcutsOpen(false);
+      setIsPoseLibraryOpen(false);
+      setIsPhotoToPoseOpen(false);
+      setIsSidebarOpen(false);
+      setToast(null);
+      handleCloseContextualPopover();
+      setIsGestureGymActive(true);
+      applyGymSlideToStudio(firstSlide);
+    },
+    [applyGymSlideToStudio, enterSandboxIfNeeded, handleCloseContextualPopover]
+  );
+
+  const handleExitGestureGym = useCallback(() => {
+    exitSandboxAndRestore('Returned to your studio scene');
+  }, [exitSandboxAndRestore]);
+
+  const handleSharePoseLink = useCallback(async () => {
+    const snap =
+      bridgesRef.current.get(activeMannequin.id)?.captureSnapshot() ??
+      poseByIdRef.current.get(activeMannequin.id) ??
+      activeMannequin.initialSnapshot ??
+      buildPoseSnapshotFromCanonicalAngles({});
+    const camera: CameraViewState = cameraBridgeRef.current?.getView() ?? {
+      position: [...CAMERA_PRESETS[activePreset].position],
+      target: [...CAMERA_PRESETS[activePreset].target],
+    };
+
+    const token = encodeSharedPoseParams({
+      modelId: activeMannequin.modelId,
+      finish: activeMannequin.finish,
+      proportions: activeMannequin.proportions,
+      posePresetId: activeMannequin.activePosePresetId,
+      poseSnapshot: snap,
+      camera,
+      perspective: activePreset,
+      lensCurvature,
+      keyLight,
+      drawing,
+    });
+    const shareUrl = `${window.location.origin}/?p=${token}`;
+
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      showToast('Shareable 3D pose link copied', 'success');
+    } catch {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = shareUrl;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast('Shareable 3D pose link copied', 'success');
+      } catch {
+        showToast('Could not copy 3D link automatically', 'error');
+      }
+    }
+  }, [
+    activeMannequin,
+    activePreset,
+    lensCurvature,
+    keyLight,
+    drawing,
+    showToast,
+  ]);
+
   const handleEscape = useCallback(() => {
+    if (isAcademyCatalogOpen || isGestureGymSetupOpen) {
+      setIsAcademyCatalogOpen(false);
+      setIsGestureGymSetupOpen(false);
+      return;
+    }
+    if (selectedLandmarkGroup !== null) {
+      setSelectedLandmarkGroup(null);
+      return;
+    }
     if (
       isPhotoToPoseOpen ||
       isPoseLibraryOpen ||
@@ -2270,10 +2951,13 @@ export default function HomePage() {
       handleCloseContextualPopover();
       return;
     }
-    if (isHudMinimized) {
+    if (isHudMinimized && !isGestureGymActive) {
       setIsHudMinimized(false);
     }
   }, [
+    isAcademyCatalogOpen,
+    isGestureGymSetupOpen,
+    selectedLandmarkGroup,
     isPhotoToPoseOpen,
     isPoseLibraryOpen,
     isSnapshotOpen,
@@ -2286,14 +2970,22 @@ export default function HomePage() {
     selectedPropId,
     moveBodyEnabled,
     isHudMinimized,
+    isGestureGymActive,
     handleCloseContextualPopover,
   ]);
 
   const handleCanvasBackgroundTap = useCallback(() => {
+    if (isGestureGymActive) return;
+    if (selectedLandmarkGroup !== null) {
+      setSelectedLandmarkGroup(null);
+      return;
+    }
     if (isHudMinimized) {
       setIsHudMinimized(false);
       return;
     }
+    setIsAcademyCatalogOpen(false);
+    setIsGestureGymSetupOpen(false);
     setIsPhotoToPoseOpen(false);
     setPhotoToPoseInitialFile(null);
     setIsPoseLibraryOpen(false);
@@ -2307,6 +2999,8 @@ export default function HomePage() {
     handleCloseContextualPopover();
     setIsHudMinimized(true);
   }, [
+    isGestureGymActive,
+    selectedLandmarkGroup,
     isHudMinimized,
     viewport.isMobile,
     viewport.isCompactLandscape,
@@ -2342,6 +3036,10 @@ export default function HomePage() {
   });
 
   const activeTheme = STUDIO_THEMES[studioTheme];
+  const effectiveHudMinimized = isHudMinimized || isGestureGymActive;
+  const activeModule = activeAcademyModuleId
+    ? getAcademyModule(activeAcademyModuleId)
+    : null;
   const themeVars = {
     backgroundColor: activeTheme.bg,
     '--studio-track': activeTheme.rangeVars.track,
@@ -2372,7 +3070,7 @@ export default function HomePage() {
       }}
     >
       <StudioToast toast={toast} studioTheme={studioTheme} />
-      {isHudMinimized && !contextualAnchor && (
+      {isHudMinimized && !isGestureGymActive && !contextualAnchor && (
         <button
           type="button"
           data-testid="restore-hud-pill"
@@ -2392,7 +3090,7 @@ export default function HomePage() {
       <FloatingSidebar
         studioTheme={studioTheme}
         viewport={viewport}
-        isHudMinimized={isHudMinimized}
+        isHudMinimized={effectiveHudMinimized}
         isOpen={isSidebarOpen}
         onToggleOpen={setIsSidebarOpen}
         mannequins={mannequins}
@@ -2426,7 +3124,21 @@ export default function HomePage() {
         onExportPoseJson={handleExportPoseJson}
         onImportSceneOrPoseJson={handleImportSceneOrPoseJson}
         onExportSceneJson={handleExportSceneJson}
+        onSharePoseLink={handleSharePoseLink}
         onNewBlankScene={handleNewBlankScene}
+        academyCompletedCount={completedAcademyIds.length}
+        totalAcademyModules={ACADEMY_MODULES.length}
+        onOpenAcademy={() => {
+          setActiveRightRailTab(null);
+          setIsJointsPopoverOpen(false);
+          setIsSnapshotOpen(false);
+          setIsShortcutsOpen(false);
+          setIsPoseLibraryOpen(false);
+          setIsPhotoToPoseOpen(false);
+          setIsGestureGymSetupOpen(false);
+          setIsAcademyCatalogOpen(true);
+        }}
+        onOpenGestureGym={handleOpenGestureGymSetup}
         studioProps={studioProps}
         selectedPropId={selectedPropId}
         onSelectProp={handleSelectProp}
@@ -2474,11 +3186,44 @@ export default function HomePage() {
         onClose={() => setIsShortcutsOpen(false)}
         studioTheme={studioTheme}
       />
+      <AnatomyAcademyModal
+        isOpen={isAcademyCatalogOpen}
+        onClose={() => setIsAcademyCatalogOpen(false)}
+        studioTheme={studioTheme}
+        completedIds={completedAcademyIds}
+        activeModuleId={activeAcademyModuleId}
+        onSelectModule={applyAcademyModuleSetup}
+      />
+      {activeModule && academyValidation && (
+        <AcademyLessonHudCard
+          module={activeModule}
+          validation={academyValidation}
+          completedIds={completedAcademyIds}
+          studioTheme={studioTheme}
+          viewport={viewport}
+          isHudMinimized={effectiveHudMinimized}
+          isSidebarOpen={isSidebarOpen}
+          onResetDrill={handleResetAcademyDrill}
+          onNextModule={handleNextAcademyModule}
+          onExitAcademy={handleExitAcademy}
+          onOpenCatalog={() => setIsAcademyCatalogOpen(true)}
+        />
+      )}
+      <GestureGym
+        isSetupOpen={isGestureGymSetupOpen}
+        isActive={isGestureGymActive}
+        initialInterval={gymInitialInterval}
+        studioTheme={studioTheme}
+        onCloseSetup={() => setIsGestureGymSetupOpen(false)}
+        onStartSession={handleStartGymSession}
+        onApplySlide={applyGymSlideToStudio}
+        onExitGym={handleExitGestureGym}
+      />
       <StudioRightRail
         studioTheme={studioTheme}
         activeTab={activeRightRailTab}
         viewport={viewport}
-        isHudMinimized={isHudMinimized}
+        isHudMinimized={effectiveHudMinimized}
         isLocked={activeLocked}
         gravityEnabled={gravityEnabled}
         dampingPreset={dampingPreset}
@@ -2558,13 +3303,13 @@ export default function HomePage() {
         isShortcutsOpen={isShortcutsOpen}
         onToggleShortcuts={handleToggleShortcuts}
         viewport={viewport}
-        isHudMinimized={isHudMinimized}
+        isHudMinimized={effectiveHudMinimized}
       />
       <JointControlPopover
         anchor={contextualAnchor}
         studioTheme={studioTheme}
         viewport={viewport}
-        isHudMinimized={isHudMinimized}
+        isHudMinimized={effectiveHudMinimized}
         isSidebarOpen={isSidebarOpen}
         jointsDisplay={jointsDisplay}
         jointLimitsEnabled={jointLimitsEnabled}
@@ -2617,7 +3362,7 @@ export default function HomePage() {
         onTogglePerspectiveGuides={setShowPerspectiveGuides}
         isDragging={isDragging}
         onDraggingChange={setIsDragging}
-        jointsDisplay={jointsDisplay}
+        jointsDisplay={isGestureGymActive ? 'hidden' : jointsDisplay}
         controlMode={controlMode}
         jointLimitsEnabled={jointLimitsEnabled}
         jointAngleCommand={jointAngleCommand}
@@ -2637,13 +3382,14 @@ export default function HomePage() {
         dropPropToFloorCommand={dropPropToFloorCommand}
         bookmarks={bookmarks}
         viewport={viewport}
-        isHudMinimized={isHudMinimized}
+        isHudMinimized={effectiveHudMinimized}
         onCanvasBackgroundTap={handleCanvasBackgroundTap}
         cameraRestSeq={cameraRestSeq}
         ikPinFeet={ikPinFeet}
         ikSwivelByHandle={ikSwivelByHandle}
         drawing={drawing}
         showHeadRuler={showHeadRuler}
+        showLandmarkPins={activeModule?.setup.showLandmarkPins ?? false}
         onSelectMannequin={handleSelectMannequin}
         onSelectBoneChange={handleSelectBoneChange}
         onSelectIKHandleChange={handleSelectIKHandleChange}
@@ -2661,15 +3407,27 @@ export default function HomePage() {
         onMannequinAnchorChange={handleMannequinAnchorChange}
         onPropAnchorChange={handlePropAnchorChange}
         onHeadRulerMetricsChange={setHeadRulerMetrics}
+        onLandmarkPinsChange={setProjectedLandmarkPins}
         onCameraRest={handleCameraRest}
         onSnapshotBridgeReady={handleSnapshotBridgeReady}
         onCameraBridgeReady={handleCameraBridgeReady}
       />
+      {activeModule?.setup.showLandmarkPins && !effectiveHudMinimized && (
+        <AcademyLandmarkPins
+          pins={projectedLandmarkPins}
+          selectedGroupId={selectedLandmarkGroup}
+          inspectedGroupIds={inspectedLandmarks}
+          studioTheme={studioTheme}
+          viewportWidth={viewport.width}
+          viewportHeight={viewport.height}
+          onSelectPin={handleSelectLandmarkPin}
+        />
+      )}
       <ReferenceOverlay
         reference={referenceImage}
         studioTheme={studioTheme}
         viewport={viewport}
-        isHudMinimized={isHudMinimized}
+        isHudMinimized={effectiveHudMinimized}
         onUpdateOffset={handleUpdateReferenceOffset}
         onToggleLock={handleToggleReferenceLock}
         onRemove={handleRemoveReferenceImage}
@@ -2679,7 +3437,7 @@ export default function HomePage() {
         studioTheme={studioTheme}
         width={viewport.width}
         height={viewport.height}
-        isHudMinimized={isHudMinimized}
+        isHudMinimized={effectiveHudMinimized}
       />
       <CompositionOverlay
         crop={compositionCrop}

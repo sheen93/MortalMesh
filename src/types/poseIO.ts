@@ -3,6 +3,7 @@ import type {
   HandGestureId,
   HandSide,
   IKHandleId,
+  JointAngles,
 } from '@/types/anatomy';
 
 export type QuaternionTuple = [number, number, number, number];
@@ -59,4 +60,7 @@ export interface PoseBridge {
     proportions: FigureProportions,
     commitHistory?: boolean
   ) => PoseSnapshot | null;
+  readCanonicalBoneAngles: (boneName: string) => JointAngles | null;
+  getBoneWorldPosition: (boneName: string) => Vec3Tuple | null;
+  getPlumbFootBalanceMeters: () => number | null;
 }

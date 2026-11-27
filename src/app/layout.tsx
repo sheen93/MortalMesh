@@ -10,7 +10,12 @@ export const viewport: Viewport = {
   themeColor: '#1B1D21',
 };
 
+const SITE_URL = (
+  process.env.NEXT_PUBLIC_SITE_URL ?? 'https://mortal-mesh.vercel.app'
+).replace(/\/$/, '');
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: 'Mortal Mesh — 3D Anatomy Studio',
   description:
     'Offline-ready 3D rigged mannequin, live two-bone IK, and figure-posing reference studio for artists.',
@@ -39,7 +44,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="h-[100dvh] w-[100dvw] overflow-hidden overscroll-none bg-[#686E78] font-sans text-zinc-100 antialiased">
+      <body className="min-h-[100dvh] bg-[#686E78] font-sans text-zinc-100 antialiased">
         {children}
       </body>
     </html>

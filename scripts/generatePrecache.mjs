@@ -61,6 +61,14 @@ const nextStaticFiles = walkFiles(NEXT_STATIC_DIR).filter(
 );
 for (const absPath of nextStaticFiles) {
   const rel = path.relative(NEXT_STATIC_DIR, absPath);
+  const posixRel = rel.split(path.sep).join('/');
+  if (
+    posixRel.startsWith('chunks/app/poses/') ||
+    posixRel.startsWith('chunks/app/hands/') ||
+    posixRel.startsWith('chunks/app/gesture-timer/')
+  ) {
+    continue;
+  }
   const url = '/_next/static/' + rel.split(path.sep).map(encodeURIComponent).join('/');
   urlSet.add(url);
 }

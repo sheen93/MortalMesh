@@ -40,6 +40,7 @@ import {
   type KeyLightSettings,
   type PoseControlMode,
   type PosePresetCommand,
+  type ProjectedLandmarkPin,
   type SnapshotBridge,
   type SnapshotOptions,
   type SnapshotResult,
@@ -130,12 +131,14 @@ interface StudioCanvasProps {
   ikSwivelByHandle: Record<Exclude<IKHandleId, 'pelvis'>, number>;
   drawing: StudioDrawingConfig;
   showHeadRuler: boolean;
+  showLandmarkPins?: boolean;
   onMannequinBridgeChange: (id: string, bridge: PoseBridge | null) => void;
   onInitialPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onCommitPoseSnapshot: (id: string, snapshot: PoseSnapshot) => void;
   onMannequinAnchorChange: (anchor: ContextualAnchor | null) => void;
   onPropAnchorChange: (anchor: ContextualAnchor | null) => void;
   onHeadRulerMetricsChange: (metrics: HeadRulerMetrics | null) => void;
+  onLandmarkPinsChange?: (pins: ProjectedLandmarkPin[]) => void;
   onCameraRest: () => void;
   onSnapshotBridgeReady: (bridge: SnapshotBridge | null) => void;
   onCameraBridgeReady: (bridge: CameraBridge | null) => void;
@@ -816,6 +819,7 @@ interface StageReferenceProps {
   notanSplit: number;
   drawing: StudioDrawingConfig;
   showHeadRuler: boolean;
+  showLandmarkPins?: boolean;
   onSelectMannequin: (id: string) => void;
   onDraggingChange: (isDragging: boolean) => void;
   onSelectBoneChange: (boneName: string | null, angles: JointAngles) => void;
@@ -838,6 +842,7 @@ interface StageReferenceProps {
   onMannequinAnchorChange: (anchor: ContextualAnchor | null) => void;
   onPropAnchorChange: (anchor: ContextualAnchor | null) => void;
   onHeadRulerMetricsChange: (metrics: HeadRulerMetrics | null) => void;
+  onLandmarkPinsChange?: (pins: ProjectedLandmarkPin[]) => void;
 }
 
 const StageReference = memo(function StageReference({
@@ -875,6 +880,7 @@ const StageReference = memo(function StageReference({
   notanSplit,
   drawing,
   showHeadRuler,
+  showLandmarkPins,
   onSelectMannequin,
   onDraggingChange,
   onSelectBoneChange,
@@ -890,6 +896,7 @@ const StageReference = memo(function StageReference({
   onMannequinAnchorChange,
   onPropAnchorChange,
   onHeadRulerMetricsChange,
+  onLandmarkPinsChange,
 }: StageReferenceProps) {
   const handleClearPropSelection = useCallback(
     () => onSelectProp(null),
@@ -931,6 +938,7 @@ const StageReference = memo(function StageReference({
         notanSplit={notanSplit}
         drawing={drawing}
         showHeadRuler={showHeadRuler}
+        showLandmarkPins={showLandmarkPins}
         onSelectMannequin={onSelectMannequin}
         onDraggingChange={onDraggingChange}
         onSelectBoneChange={onSelectBoneChange}
@@ -944,6 +952,7 @@ const StageReference = memo(function StageReference({
         onCommitPoseSnapshot={onCommitPoseSnapshot}
         onContextualAnchorChange={onMannequinAnchorChange}
         onHeadRulerMetricsChange={onHeadRulerMetricsChange}
+        onLandmarkPinsChange={onLandmarkPinsChange}
       />
 
       <StudioProps
@@ -1026,12 +1035,14 @@ export function StudioCanvas({
   ikSwivelByHandle,
   drawing,
   showHeadRuler,
+  showLandmarkPins = false,
   onMannequinBridgeChange,
   onInitialPoseSnapshot,
   onCommitPoseSnapshot,
   onMannequinAnchorChange,
   onPropAnchorChange,
   onHeadRulerMetricsChange,
+  onLandmarkPinsChange,
   onCameraRest,
   onSnapshotBridgeReady,
   onCameraBridgeReady,
@@ -1227,6 +1238,7 @@ export function StudioCanvas({
           notanSplit={keyLight.notanSplit}
           drawing={drawing}
           showHeadRuler={showHeadRuler}
+          showLandmarkPins={showLandmarkPins}
           onSelectMannequin={onSelectMannequin}
           onDraggingChange={onDraggingChange}
           onSelectBoneChange={onSelectBoneChange}
@@ -1242,6 +1254,7 @@ export function StudioCanvas({
           onMannequinAnchorChange={onMannequinAnchorChange}
           onPropAnchorChange={onPropAnchorChange}
           onHeadRulerMetricsChange={onHeadRulerMetricsChange}
+          onLandmarkPinsChange={onLandmarkPinsChange}
         />
         {(isFisheyePreset(activePreset) || drawing.drawingStyle !== 'off') && (
           <CurvilinearLens
