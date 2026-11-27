@@ -23,6 +23,7 @@ interface PadExportPopoverProps {
   isOpen: boolean;
   onClose: () => void;
   studioTheme: StudioThemeId;
+  topOffsetPx?: number;
   document: PadDocumentV1;
   canvasSize: { width: number; height: number };
   snapshotBridge: SnapshotBridge | null;
@@ -46,6 +47,7 @@ export function PadExportPopover({
   isOpen,
   onClose,
   studioTheme,
+  topOffsetPx,
   document: doc,
   canvasSize,
   snapshotBridge,
@@ -103,10 +105,17 @@ export function PadExportPopover({
       data-testid="pad-export-popover"
       onPointerDown={(e) => e.stopPropagation()}
       style={{
-        top: 'calc(env(safe-area-inset-top, 0px) + 52px)',
+        top:
+          topOffsetPx !== undefined
+            ? `${topOffsetPx}px`
+            : 'calc(env(safe-area-inset-top, 0px) + 52px)',
         right: 'calc(env(safe-area-inset-right, 0px) + 12px)',
+        maxHeight:
+          topOffsetPx !== undefined
+            ? `calc(100dvh - ${topOffsetPx + 14}px)`
+            : 'calc(100dvh - 68px)',
       }}
-      className={`fixed z-50 w-[min(92vw,310px)] rounded-2xl p-3.5 space-y-3 backdrop-blur-xl select-none ${ui.panel}`}
+      className={`fixed z-50 w-[min(92vw,310px)] overflow-y-auto studio-scroll rounded-2xl p-3.5 space-y-3 backdrop-blur-xl select-none ${ui.panel}`}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">

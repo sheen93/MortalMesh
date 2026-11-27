@@ -59,6 +59,8 @@ interface StudioRightRailProps {
   viewport: ViewportProfile;
   isHudMinimized?: boolean;
   containInPane?: boolean;
+  paneTopOffsetPx?: number;
+  rightInsetPx?: number;
   isLocked: boolean;
   gravityEnabled: boolean;
   dampingPreset: DampingPreset;
@@ -148,6 +150,8 @@ export function StudioRightRail({
   viewport,
   isHudMinimized = false,
   containInPane = false,
+  paneTopOffsetPx = 0,
+  rightInsetPx = 0,
   isLocked,
   gravityEnabled,
   dampingPreset,
@@ -206,17 +210,29 @@ export function StudioRightRail({
     referenceImage !== null;
 
   const posType = containInPane ? 'absolute' : 'fixed';
-  const compactStackRail =
-    viewport.isCompactLandscape || (containInPane && viewport.isMobile);
-  const railWrapperClass = compactStackRail
-    ? `${posType} z-30 right-2 bottom-[68px] flex items-end`
-    : `${posType} z-30 right-3 sm:right-4 top-1/2 -translate-y-1/2 flex items-center`;
+  const topLeftHorizontalRail =
+    containInPane && (viewport.isMobile || viewport.isCompactLandscape);
+  const compactGridRail = !topLeftHorizontalRail && viewport.isCompactLandscape;
+  const railWrapperClass = topLeftHorizontalRail
+    ? 'absolute z-30 top-2 left-2 flex items-start'
+    : compactGridRail
+      ? `${posType} z-30 right-2 bottom-[68px] flex items-end`
+      : `${posType} z-30 right-3 sm:right-4 top-1/2 -translate-y-1/2 flex items-center`;
 
-  const asidePositionClass = viewport.isCompactLandscape
-    ? 'relative mr-2.5 w-[248px] max-w-[calc(100vw-4.5rem)] max-h-[calc(100dvh-232px)]'
-    : containInPane && viewport.isMobile
-      ? 'relative mr-2 w-[236px] max-w-[calc(100vw-6.5rem)] max-h-[calc(100%-3.75rem)]'
+  const asidePositionClass = topLeftHorizontalRail
+    ? 'fixed z-40 left-2 w-[min(calc(100vw-16px),260px)]'
+    : compactGridRail
+      ? 'relative mr-2.5 w-[248px] max-w-[calc(100vw-4.5rem)] max-h-[calc(100dvh-232px)]'
       : 'relative mr-2.5 w-[248px] max-w-[calc(100vw-4.5rem)] max-h-[min(470px,calc(100dvh-8.5rem))]';
+
+  const asideStyle = topLeftHorizontalRail
+    ? {
+        top: `${paneTopOffsetPx + 48}px`,
+        maxHeight: `calc(100dvh - ${paneTopOffsetPx + 60}px)`,
+      }
+    : containInPane && paneTopOffsetPx > 0
+      ? { maxHeight: `calc(100dvh - ${paneTopOffsetPx + 36}px)` }
+      : undefined;
 
   const dialogTitle =
     activeTab === 'physics'
@@ -245,6 +261,11 @@ export function StudioRightRail({
       onPointerDown={(e) => {
         if (!isHudMinimized) e.stopPropagation();
       }}
+      style={
+        !topLeftHorizontalRail && rightInsetPx > 0
+          ? { right: `${12 + rightInsetPx}px` }
+          : undefined
+      }
       className={`${railWrapperClass} transition-all duration-200 ${
         isHudMinimized
           ? 'opacity-0 translate-x-4 pointer-events-none'
@@ -255,6 +276,7 @@ export function StudioRightRail({
         <aside
           role="dialog"
           aria-label={dialogAriaLabel}
+          style={asideStyle}
           className={`rounded-2xl border backdrop-blur-xl transition-colors duration-200 overflow-hidden flex flex-col ${asidePositionClass} ${ui.panel}`}
         >
           <div
@@ -958,10 +980,12 @@ export function StudioRightRail({
 
       <div
         className={`${
-          compactStackRail
-            ? 'grid grid-cols-2 place-items-center'
-            : 'flex flex-col items-center'
-        } gap-1 rounded-2xl border p-1 backdrop-blur-xl transition-colors duration-200 ${ui.dock}`}
+          topLeftHorizontalRail
+            ? 'flex flex-row items-center gap-0.5 rounded-xl p-1'
+            : compactGridRail
+              ? 'grid grid-cols-2 place-items-center gap-1 rounded-2xl p-1'
+              : 'flex flex-col items-center gap-1 rounded-2xl p-1'
+        } border backdrop-blur-xl transition-colors duration-200 ${ui.dock}`}
       >
         <button
           type="button"
@@ -970,7 +994,11 @@ export function StudioRightRail({
           aria-label="Physics & Floor"
           aria-expanded={activeTab === 'physics'}
           className={`relative flex items-center justify-center rounded-xl transition-colors ${
-            compactStackRail ? 'h-8 w-8' : 'h-9 w-9'
+            topLeftHorizontalRail
+              ? 'h-7 w-7'
+              : compactGridRail
+                ? 'h-8 w-8'
+                : 'h-9 w-9'
           } ${activeTab === 'physics' ? ui.dockButtonActive : ui.dockButton}`}
         >
           <GridFloorIcon className="w-4 h-4" />
@@ -989,7 +1017,11 @@ export function StudioRightRail({
           aria-label="Studio Lighting"
           aria-expanded={activeTab === 'lighting'}
           className={`relative flex items-center justify-center rounded-xl transition-colors ${
-            compactStackRail ? 'h-8 w-8' : 'h-9 w-9'
+            topLeftHorizontalRail
+              ? 'h-7 w-7'
+              : compactGridRail
+                ? 'h-8 w-8'
+                : 'h-9 w-9'
           } ${activeTab === 'lighting' ? ui.dockButtonActive : ui.dockButton}`}
         >
           <LightbulbIcon className="w-4 h-4" />
@@ -1008,7 +1040,11 @@ export function StudioRightRail({
           aria-label="Guides & Ref"
           aria-expanded={activeTab === 'guides'}
           className={`relative flex items-center justify-center rounded-xl transition-colors ${
-            compactStackRail ? 'h-8 w-8' : 'h-9 w-9'
+            topLeftHorizontalRail
+              ? 'h-7 w-7'
+              : compactGridRail
+                ? 'h-8 w-8'
+                : 'h-9 w-9'
           } ${activeTab === 'guides' ? ui.dockButtonActive : ui.dockButton}`}
         >
           <FrameGuidesIcon className="w-4 h-4" />
@@ -1027,7 +1063,11 @@ export function StudioRightRail({
           aria-label="Studio Theme"
           aria-expanded={activeTab === 'theme'}
           className={`flex items-center justify-center rounded-xl transition-colors ${
-            compactStackRail ? 'h-8 w-8' : 'h-9 w-9'
+            topLeftHorizontalRail
+              ? 'h-7 w-7'
+              : compactGridRail
+                ? 'h-8 w-8'
+                : 'h-9 w-9'
           } ${activeTab === 'theme' ? ui.dockButtonActive : ui.dockButton}`}
         >
           <ThemeIcon id={studioTheme} className="w-4 h-4" />

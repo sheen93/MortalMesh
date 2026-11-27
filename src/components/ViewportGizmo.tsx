@@ -32,6 +32,7 @@ interface ViewportGizmoProps {
   viewport: ViewportProfile;
   isHudMinimized?: boolean;
   containInPane?: boolean;
+  rightInsetPx?: number;
   bookmarks: readonly CameraBookmark[];
   onSelectCameraPreset: (preset: CameraPreset) => void;
   onChangeLensCurvature: (value: number) => void;
@@ -166,6 +167,7 @@ export function ViewportGizmo({
   viewport,
   isHudMinimized = false,
   containInPane = false,
+  rightInsetPx = 0,
   bookmarks,
   onSelectCameraPreset,
   onChangeLensCurvature,
@@ -188,7 +190,9 @@ export function ViewportGizmo({
   const [desktopLensCardOpen, setDesktopLensCardOpen] = useState(false);
 
   const compact = viewport.isMobile || viewport.isCompactLandscape || containInPane;
-  const cubeSize = compact ? 46 : 64;
+  const miniContained =
+    containInPane && (viewport.isMobile || viewport.isCompactLandscape);
+  const cubeSize = miniContained ? 36 : compact ? 46 : 64;
   const halfDepth = cubeSize / 2;
   const atBookmarkLimit = bookmarks.length >= MAX_CAMERA_BOOKMARKS;
   const isFisheye = isFisheyePreset(activePreset);
@@ -324,12 +328,21 @@ export function ViewportGizmo({
       aria-hidden={isHudMinimized}
       className={`${
         containInPane ? 'absolute' : 'fixed'
-      } z-20 flex flex-col items-end gap-1.5 pointer-events-none select-none transition-all duration-200 ${
+      } z-20 flex flex-col items-end ${
+        miniContained ? 'gap-1' : 'gap-1.5'
+      } pointer-events-none select-none transition-all duration-200 ${
         isHudMinimized ? 'opacity-0 translate-x-4' : 'opacity-100 translate-x-0'
       }`}
       style={{
-        top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
-        right: 'calc(env(safe-area-inset-right, 0px) + 12px)',
+        top: miniContained
+          ? '6px'
+          : 'calc(env(safe-area-inset-top, 0px) + 12px)',
+        right:
+          rightInsetPx > 0
+            ? `${(miniContained ? 8 : 12) + rightInsetPx}px`
+            : miniContained
+              ? '8px'
+              : 'calc(env(safe-area-inset-right, 0px) + 12px)',
       }}
     >
       {/* Interactive 26-Zone 3D ViewCube Stage */}
@@ -352,7 +365,11 @@ export function ViewportGizmo({
             }
           }}
           className={`${pointerClass} relative flex items-center justify-center rounded-2xl viewcube-scene ${
-            compact ? 'h-[64px] w-[64px]' : 'h-[104px] w-[104px]'
+            miniContained
+              ? 'h-[50px] w-[50px]'
+              : compact
+                ? 'h-[64px] w-[64px]'
+                : 'h-[104px] w-[104px]'
           } ${isDraggingCube ? 'cursor-grabbing' : 'cursor-grab'}`}
           style={{ touchAction: 'none' }}
         >
@@ -462,17 +479,19 @@ export function ViewportGizmo({
           </div>
         </div>
 
-        {/* Non-shifting hover readout pill (fixed height slot) */}
-        <div className="flex h-4 items-center justify-end pr-0.5">
-          {hoveredZone && !isDraggingCube && (
-            <span
-              data-testid="viewcube-readout"
-              className={`rounded-md px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-[0.08em] uppercase leading-none ${ui.monoPill}`}
-            >
-              {hoveredZone.label}
-            </span>
-          )}
-        </div>
+        {/* Non-shifting hover readout pill (collapses when idle in compact contained panes) */}
+        {(!miniContained || (hoveredZone && !isDraggingCube)) && (
+          <div className="flex h-4 items-center justify-end pr-0.5">
+            {hoveredZone && !isDraggingCube && (
+              <span
+                data-testid="viewcube-readout"
+                className={`rounded-md px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-[0.08em] uppercase leading-none ${ui.monoPill}`}
+              >
+                {hoveredZone.label}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Compact Mobile Camera Pill vs Full Desktop Perspective Bar */}
@@ -603,7 +622,9 @@ export function ViewportGizmo({
           role="dialog"
           aria-label="Camera & Lens"
           onPointerDown={(event) => event.stopPropagation()}
-          className={`pointer-events-auto w-[236px] max-w-[calc(100vw-1.5rem)] rounded-2xl p-3 space-y-2.5 ${ui.panel}`}
+          className={`pointer-events-auto w-[236px] max-w-[calc(100vw-1.5rem)] rounded-2xl p-3 space-y-2.5 ${
+            miniContained ? 'max-h-[calc(100dvh-190px)] overflow-y-auto studio-scroll' : ''
+          } ${ui.panel}`}
         >
           <div className="flex items-center justify-between gap-2">
             <span
@@ -730,7 +751,9 @@ export function ViewportGizmo({
           role="dialog"
           aria-label="Camera Bookmarks"
           onPointerDown={(event) => event.stopPropagation()}
-          className={`pointer-events-auto w-[236px] max-w-[calc(100vw-1.5rem)] rounded-2xl p-3 space-y-2.5 ${ui.panel}`}
+          className={`pointer-events-auto w-[236px] max-w-[calc(100vw-1.5rem)] rounded-2xl p-3 space-y-2.5 ${
+            miniContained ? 'max-h-[calc(100dvh-190px)] overflow-y-auto studio-scroll' : ''
+          } ${ui.panel}`}
         >
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 min-w-0">

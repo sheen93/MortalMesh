@@ -78,6 +78,7 @@ interface FloatingSidebarProps {
   viewport: ViewportProfile;
   isHudMinimized?: boolean;
   containInPane?: boolean;
+  paneTopOffsetPx?: number;
   isOpen: boolean;
   onToggleOpen: (open: boolean) => void;
   mannequins: readonly MannequinRecord[];
@@ -126,6 +127,7 @@ export function FloatingSidebar({
   viewport,
   isHudMinimized = false,
   containInPane = false,
+  paneTopOffsetPx = 0,
   isOpen,
   onToggleOpen,
   mannequins,
@@ -207,17 +209,27 @@ export function FloatingSidebar({
 
   const safeTopStyle = 'calc(env(safe-area-inset-top, 0px) + 12px)';
   const safeLeftStyle = 'calc(env(safe-area-inset-left, 0px) + 12px)';
+  const compactSafeLeftStyle = 'calc(env(safe-area-inset-left, 0px) + 10px)';
+  const useOverlayDrawer = isDrawerOverlay || containInPane;
 
   if (!isOpen) {
+    // PadWorkspace's unified top header already includes the Stage drawer trigger.
+    if (containInPane) return null;
+
     return (
       <aside
         aria-label="Viewport controls"
         aria-hidden={isHudMinimized}
         onPointerDown={(event) => event.stopPropagation()}
-        style={{ top: safeTopStyle, left: safeLeftStyle }}
-        className={`${
-          containInPane ? 'absolute' : 'fixed'
-        } z-20 flex min-h-[42px] items-center gap-2 rounded-2xl px-3 py-1.5 select-none transition-all duration-200 ${ui.panel} ${
+        style={{
+          top: safeTopStyle,
+          left: isDrawerOverlay ? compactSafeLeftStyle : safeLeftStyle,
+        }}
+        className={`fixed z-20 flex select-none transition-all duration-200 ${ui.panel} ${
+          isDrawerOverlay
+            ? 'h-[38px] w-[38px] items-center justify-center rounded-xl p-0'
+            : 'min-h-[42px] items-center gap-2 rounded-2xl px-3 py-1.5'
+        } ${
           isHudMinimized
             ? 'opacity-0 -translate-x-4 pointer-events-none'
             : 'opacity-100 translate-x-0 pointer-events-auto'
@@ -230,13 +242,21 @@ export function FloatingSidebar({
           aria-controls="sidebar-controls-panel"
           aria-label="Expand sidebar controls"
           title="Open Stage Inspector"
-          className={`flex min-h-[30px] items-center gap-2 rounded-lg transition-colors ${ui.textPrimary}`}
+          className={`flex items-center justify-center rounded-lg transition-colors ${ui.textPrimary} ${
+            isDrawerOverlay ? 'h-full w-full' : 'min-h-[30px] gap-2'
+          }`}
         >
-          <LogoMarkIcon className="h-3.5 w-3.5 shrink-0" />
-          <span className="text-[11px] font-semibold uppercase tracking-[0.13em]">
-            {isDrawerOverlay ? 'Stage' : 'Mortal Mesh'}
-          </span>
-          <PanelToggleIcon collapsed className="h-3.5 w-3.5 shrink-0 opacity-80" />
+          {isDrawerOverlay ? (
+            <PanelToggleIcon collapsed className="h-4 w-4 shrink-0" />
+          ) : (
+            <>
+              <LogoMarkIcon className="h-3.5 w-3.5 shrink-0" />
+              <span className="text-[11px] font-semibold uppercase tracking-[0.13em]">
+                Mortal Mesh
+              </span>
+              <PanelToggleIcon collapsed className="h-3.5 w-3.5 shrink-0 opacity-80" />
+            </>
+          )}
         </button>
       </aside>
     );
@@ -244,7 +264,7 @@ export function FloatingSidebar({
 
   return (
     <>
-      {isDrawerOverlay && (
+      {useOverlayDrawer && (
         <div
           aria-hidden="true"
           onClick={() => onToggleOpen(false)}
@@ -257,18 +277,24 @@ export function FloatingSidebar({
         aria-hidden={isHudMinimized}
         onPointerDown={(event) => event.stopPropagation()}
         style={{
-          top: safeTopStyle,
+          top:
+            containInPane && paneTopOffsetPx > 0
+              ? `${paneTopOffsetPx + 8}px`
+              : safeTopStyle,
           left: safeLeftStyle,
-          maxHeight: isDrawerOverlay
-            ? 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px)'
-            : 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 5.75rem)',
+          maxHeight:
+            containInPane && paneTopOffsetPx > 0
+              ? `calc(100dvh - ${paneTopOffsetPx + 20}px)`
+              : useOverlayDrawer
+                ? 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px)'
+                : 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 5.75rem)',
         }}
         className={`fixed flex flex-col overflow-hidden rounded-2xl select-none transition-all duration-200 ${ui.panel} ${
           isHudMinimized
             ? 'opacity-0 -translate-x-4 pointer-events-none'
             : 'opacity-100 translate-x-0 pointer-events-auto'
         } ${
-          isDrawerOverlay
+          useOverlayDrawer
             ? 'z-40 w-[min(88vw,320px)]'
             : viewport.isTablet
               ? 'z-20 w-[264px]'
@@ -295,7 +321,7 @@ export function FloatingSidebar({
             aria-label="Collapse sidebar controls"
             title="Collapse Stage Inspector"
             className={`flex ${
-              isDrawerOverlay || viewport.isCoarsePointer ? 'h-9 w-9' : 'h-6 w-6'
+              useOverlayDrawer || viewport.isCoarsePointer ? 'h-9 w-9' : 'h-6 w-6'
             } items-center justify-center rounded-lg transition-colors ${ui.iconButton}`}
           >
             <PanelToggleIcon collapsed={false} className="h-3.5 w-3.5" />

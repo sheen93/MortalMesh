@@ -60,6 +60,7 @@ interface StudioDockProps {
   viewport: ViewportProfile;
   isHudMinimized?: boolean;
   containInPane?: boolean;
+  bottomOffsetPx?: number;
 }
 
 const SNAPSHOT_BG_OPTIONS: ReadonlyArray<
@@ -130,6 +131,7 @@ export function StudioDock({
   viewport,
   isHudMinimized = false,
   containInPane = false,
+  bottomOffsetPx,
 }: StudioDockProps) {
   const [snapshotBg, setSnapshotBg] = useState<'transparent' | 'studio'>(
     'transparent'
@@ -168,7 +170,10 @@ export function StudioDock({
         isHudMinimized ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'
       }`}
       style={{
-        bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+        bottom:
+          bottomOffsetPx !== undefined
+            ? `${bottomOffsetPx}px`
+            : 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
       }}
     >
       {/* Joint Display Options Popover anchored above the dock */}
@@ -177,7 +182,7 @@ export function StudioDock({
           role="dialog"
           aria-label="Joint Display Options"
           onPointerDown={(event) => event.stopPropagation()}
-          className={`pointer-events-auto w-[244px] max-w-[calc(100vw-2rem)] rounded-2xl p-3 space-y-2.5 ${ui.panel}`}
+          className={`pointer-events-auto w-[244px] max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-160px)] overflow-y-auto studio-scroll rounded-2xl p-3 space-y-2.5 ${ui.panel}`}
         >
           <div className="flex items-center justify-between gap-2">
             <span className="flex items-center gap-1.5 min-w-0">
@@ -224,7 +229,7 @@ export function StudioDock({
           role="dialog"
           aria-label="Export Snapshot"
           onPointerDown={(event) => event.stopPropagation()}
-          className={`pointer-events-auto w-[274px] max-w-[calc(100vw-2rem)] rounded-2xl p-3 space-y-2.5 ${ui.panel}`}
+          className={`pointer-events-auto w-[274px] max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-160px)] overflow-y-auto studio-scroll rounded-2xl p-3 space-y-2.5 ${ui.panel}`}
         >
           <div className="flex items-center justify-between gap-2">
             <span className="flex items-center gap-1.5 min-w-0">

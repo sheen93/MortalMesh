@@ -502,6 +502,7 @@ interface GestureGymActiveHudProps {
   studioTheme: StudioThemeId;
   padBridge: PadBridge | null;
   isPadMode: boolean;
+  isCompact?: boolean;
   onApplySlide: (slide: GymStepTransitionPayload) => void;
   onEnterInspectPhase: () => void;
   onTriggerXRayCheck: () => void;
@@ -517,6 +518,7 @@ export function GestureGymActiveHud({
   studioTheme,
   padBridge,
   isPadMode,
+  isCompact = false,
   onApplySlide,
   onEnterInspectPhase,
   onTriggerXRayCheck,
@@ -691,6 +693,144 @@ export function GestureGymActiveHud({
       ? Math.max(0, Math.min(100, (remainingSec / currentSlide.durationSeconds) * 100))
       : 0;
 
+  const styleAndAudioControls = (
+    <>
+      {phase === 'drawing' && (
+        <>
+          <button
+            type="button"
+            data-testid="gym-skip-btn"
+            onClick={advanceToNextSlide}
+            className={`flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-[10px] font-medium whitespace-nowrap ${ui.pillButton}`}
+          >
+            <SkipForwardIcon className="h-3 w-3" />
+            <span className={isCompact ? 'inline' : 'hidden lg:inline'}>Skip</span>
+          </button>
+
+          {(
+            [
+              { id: 'atelier', label: 'Atelier' },
+              { id: 'notan', label: 'Notan' },
+              { id: 'loomis', label: 'Loomis' },
+            ] as const
+          ).map((st) => (
+            <button
+              key={st.id}
+              type="button"
+              data-testid={`gym-style-${st.id}`}
+              aria-pressed={studyStyle === st.id}
+              onClick={() => handleSwitchStudyStyle(st.id)}
+              className={`h-7 shrink-0 rounded-lg px-2 text-[10px] font-medium whitespace-nowrap ${
+                studyStyle === st.id ? ui.pillButtonActive : ui.pillButton
+              }`}
+            >
+              {st.label}
+            </button>
+          ))}
+        </>
+      )}
+
+      <button
+        type="button"
+        data-testid="gym-toggle-skeleton-btn"
+        aria-pressed={currentSlide?.modelId === 'skeleton'}
+        onClick={handleSwapSkeleton}
+        className={`h-7 shrink-0 rounded-lg px-2 text-[10px] font-medium whitespace-nowrap ${
+          currentSlide?.modelId === 'skeleton' ? ui.pillButtonActive : ui.pillButton
+        }`}
+      >
+        Skel
+      </button>
+
+      <button
+        type="button"
+        aria-label={audioEnabled ? 'Mute chime' : 'Unmute chime'}
+        onClick={() => setAudioEnabled((p) => !p)}
+        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${ui.iconButton}`}
+      >
+        {audioEnabled ? <Volume2Icon className="h-3.5 w-3.5" /> : <VolumeXIcon className="h-3.5 w-3.5" />}
+      </button>
+    </>
+  );
+
+  const phasePrimaryControls =
+    phase === 'drawing' ? (
+      <>
+        {!isCompact && (
+          <button
+            type="button"
+            data-testid="gym-pause-btn"
+            aria-label={isPaused ? 'Resume timer' : 'Pause timer'}
+            onClick={() => setIsPaused((p) => !p)}
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${ui.pillButton}`}
+          >
+            {isPaused ? <PlayIcon className="h-3 w-3" /> : <PauseIcon className="h-3 w-3" />}
+          </button>
+        )}
+        <button
+          type="button"
+          data-testid="gym-finish-pose-btn"
+          onClick={enterInspectState}
+          className={`flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold whitespace-nowrap ${ui.pillButtonActive}`}
+        >
+          <ScanEyeIcon className="h-3 w-3" />
+          <span>Check</span>
+        </button>
+      </>
+    ) : (
+      <>
+        {isPadMode && (
+          <button
+            type="button"
+            data-testid="gym-inspect-xray-btn"
+            onClick={onTriggerXRayCheck}
+            className={`flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold whitespace-nowrap ${ui.pillButton}`}
+          >
+            <ScanEyeIcon className="h-3 w-3" />
+            <span>
+              X-Ray<span className="hidden lg:inline"> Check</span>
+            </span>
+          </button>
+        )}
+        {isPadMode && currentSlide && (
+          <button
+            type="button"
+            data-testid="gym-save-study-btn"
+            onClick={() => void onSaveStudy(currentSlide.pose.name, currentSlide.pose.id)}
+            className={`flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold whitespace-nowrap ${ui.pillButton}`}
+          >
+            <SaveIcon className="h-3 w-3" />
+            <span>
+              Save<span className="hidden lg:inline"> Study</span>
+            </span>
+          </button>
+        )}
+        {isPadMode && (
+          <button
+            type="button"
+            data-testid="gym-timelapse-btn"
+            disabled={timelapseBusy}
+            onClick={() => void handleExportTimelapse()}
+            title="Download 5s WebM Timelapse"
+            className={`flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-[10px] font-medium whitespace-nowrap ${ui.pillButton}`}
+          >
+            <VideoIcon className="h-3 w-3" />
+            <span className={isCompact ? 'inline' : 'hidden lg:inline'}>Timelapse</span>
+          </button>
+        )}
+        <button
+          type="button"
+          data-testid="gym-next-pose-btn"
+          onClick={advanceToNextSlide}
+          className={`flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-[10.5px] font-semibold whitespace-nowrap ${ui.pillButtonActive}`}
+        >
+          <span>
+            Next<span className="hidden lg:inline"> Pose</span> →
+          </span>
+        </button>
+      </>
+    );
+
   return (
     <>
       {phase !== 'summary' && currentSlide && (
@@ -698,162 +838,94 @@ export function GestureGymActiveHud({
           data-testid="gesture-gym-hud"
           onPointerDown={(e) => e.stopPropagation()}
           style={{ top: 'calc(env(safe-area-inset-top, 0px) + 6px)' }}
-          className={`fixed left-1/2 z-30 -translate-x-1/2 w-[min(96vw,980px)] rounded-2xl px-3 py-1.5 backdrop-blur-xl select-none ${ui.panel}`}
+          className={`fixed left-1/2 z-30 -translate-x-1/2 ${
+            isCompact ? 'w-[min(97vw,980px)] px-2.5' : 'w-[min(96vw,980px)] px-3'
+          } rounded-2xl py-1.5 backdrop-blur-xl select-none ${ui.panel}`}
         >
-          <div className="flex flex-wrap items-center justify-between gap-1.5">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className={`rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums ${ui.monoPill}`}>
-                {slideIdx + 1}/{slides.length}
-              </span>
-              <span className={`text-[11px] font-semibold truncate max-w-[120px] sm:max-w-[190px] ${ui.textPrimary}`}>
-                {phase === 'inspect' ? 'Orbit & Check' : currentSlide.pose.name}
-              </span>
-              <span
-                data-testid="gym-countdown-clock"
-                className={`rounded-md px-2 py-0.5 font-mono text-[11.5px] font-bold tabular-nums ${
-                  phase === 'inspect' ? 'bg-emerald-500 text-zinc-950' : ui.pillButtonActive
-                }`}
-              >
-                {phase === 'inspect' ? 'ORBIT' : formatClock(remainingSec)}
-              </span>
-            </div>
+          {isCompact ? (
+            <>
+              <div className="flex h-[30px] items-center justify-between gap-1.5">
+                <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+                  <span className={`shrink-0 rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums ${ui.monoPill}`}>
+                    {slideIdx + 1}/{slides.length}
+                  </span>
+                  <span className={`min-w-0 flex-1 truncate text-[11px] font-semibold ${ui.textPrimary}`}>
+                    {phase === 'inspect' ? 'Orbit & Check' : currentSlide.pose.name}
+                  </span>
+                  <span
+                    data-testid="gym-countdown-clock"
+                    className={`shrink-0 rounded-md px-2 py-0.5 font-mono text-[11px] font-bold tabular-nums ${
+                      phase === 'inspect' ? 'bg-emerald-500 text-zinc-950' : ui.pillButtonActive
+                    }`}
+                  >
+                    {phase === 'inspect' ? 'ORBIT' : formatClock(remainingSec)}
+                  </span>
+                </div>
 
-            <div className="flex flex-wrap items-center gap-1">
-              {phase === 'drawing' ? (
-                <>
+                <div className="flex shrink-0 items-center gap-1">
+                  {phase === 'drawing' && (
+                    <button
+                      type="button"
+                      data-testid="gym-pause-btn"
+                      aria-label={isPaused ? 'Resume timer' : 'Pause timer'}
+                      onClick={() => setIsPaused((p) => !p)}
+                      className={`flex h-7 w-7 items-center justify-center rounded-lg ${ui.pillButton}`}
+                    >
+                      {isPaused ? <PlayIcon className="h-3 w-3" /> : <PauseIcon className="h-3 w-3" />}
+                    </button>
+                  )}
                   <button
                     type="button"
-                    data-testid="gym-pause-btn"
-                    aria-label={isPaused ? 'Resume timer' : 'Pause timer'}
-                    onClick={() => setIsPaused((p) => !p)}
+                    data-testid="gym-exit-btn"
+                    aria-label="Exit Gesture Gym"
+                    onClick={onExitGym}
                     className={`flex h-7 w-7 items-center justify-center rounded-lg ${ui.pillButton}`}
                   >
-                    {isPaused ? <PlayIcon className="h-3 w-3" /> : <PauseIcon className="h-3 w-3" />}
+                    <XIcon className="h-3.5 w-3.5" />
                   </button>
-                  <button
-                    type="button"
-                    data-testid="gym-finish-pose-btn"
-                    onClick={enterInspectState}
-                    className={`flex h-7 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold ${ui.pillButtonActive}`}
-                  >
-                    <ScanEyeIcon className="h-3 w-3" />
-                    <span>Check</span>
-                  </button>
-                </>
-              ) : (
-                <>
-                  {isPadMode && (
-                    <button
-                      type="button"
-                      data-testid="gym-inspect-xray-btn"
-                      onClick={onTriggerXRayCheck}
-                      className={`flex h-7 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold ${ui.pillButton}`}
-                    >
-                      <ScanEyeIcon className="h-3 w-3" />
-                      <span>X-Ray Check</span>
-                    </button>
-                  )}
-                  {isPadMode && (
-                    <button
-                      type="button"
-                      data-testid="gym-save-study-btn"
-                      onClick={() => void onSaveStudy(currentSlide.pose.name, currentSlide.pose.id)}
-                      className={`flex h-7 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold ${ui.pillButton}`}
-                    >
-                      <SaveIcon className="h-3 w-3" />
-                      <span>Save Study</span>
-                    </button>
-                  )}
-                  {isPadMode && (
-                    <button
-                      type="button"
-                      data-testid="gym-timelapse-btn"
-                      disabled={timelapseBusy}
-                      onClick={() => void handleExportTimelapse()}
-                      className={`flex h-7 items-center gap-1 rounded-lg px-2 text-[10px] font-medium ${ui.pillButton}`}
-                    >
-                      <VideoIcon className="h-3 w-3" />
-                      <span className="hidden md:inline">5s Timelapse</span>
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    data-testid="gym-next-pose-btn"
-                    onClick={advanceToNextSlide}
-                    className={`flex h-7 items-center gap-1 rounded-lg px-2.5 text-[10.5px] font-semibold ${ui.pillButtonActive}`}
-                  >
-                    <span>Next Pose →</span>
-                  </button>
-                </>
-              )}
+                </div>
+              </div>
 
-              {phase === 'drawing' && (
-                <>
-                  <button
-                    type="button"
-                    data-testid="gym-skip-btn"
-                    onClick={advanceToNextSlide}
-                    className={`flex h-7 items-center gap-1 rounded-lg px-2 text-[10px] font-medium ${ui.pillButton}`}
-                  >
-                    <SkipForwardIcon className="h-3 w-3" />
-                    <span className="hidden sm:inline">Skip</span>
-                  </button>
+              <div className="studio-scroll mt-1 flex h-[30px] items-center gap-1 overflow-x-auto">
+                {phasePrimaryControls}
+                {styleAndAudioControls}
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-nowrap items-center justify-between gap-2">
+              <div className="flex min-w-0 shrink items-center gap-1.5 overflow-hidden">
+                <span className={`shrink-0 rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums ${ui.monoPill}`}>
+                  {slideIdx + 1}/{slides.length}
+                </span>
+                <span className={`truncate max-w-[100px] lg:max-w-[180px] text-[11px] font-semibold ${ui.textPrimary}`}>
+                  {phase === 'inspect' ? 'Orbit & Check' : currentSlide.pose.name}
+                </span>
+                <span
+                  data-testid="gym-countdown-clock"
+                  className={`shrink-0 rounded-md px-2 py-0.5 font-mono text-[11.5px] font-bold tabular-nums ${
+                    phase === 'inspect' ? 'bg-emerald-500 text-zinc-950' : ui.pillButtonActive
+                  }`}
+                >
+                  {phase === 'inspect' ? 'ORBIT' : formatClock(remainingSec)}
+                </span>
+              </div>
 
-                  {(
-                    [
-                      { id: 'atelier', label: 'Atelier' },
-                      { id: 'notan', label: 'Notan' },
-                      { id: 'loomis', label: 'Loomis' },
-                    ] as const
-                  ).map((st) => (
-                    <button
-                      key={st.id}
-                      type="button"
-                      data-testid={`gym-style-${st.id}`}
-                      aria-pressed={studyStyle === st.id}
-                      onClick={() => handleSwitchStudyStyle(st.id)}
-                      className={`rounded-lg px-2 py-1 text-[10px] font-medium ${
-                        studyStyle === st.id ? ui.pillButtonActive : ui.pillButton
-                      }`}
-                    >
-                      {st.label}
-                    </button>
-                  ))}
-                </>
-              )}
-
-              <button
-                type="button"
-                data-testid="gym-toggle-skeleton-btn"
-                aria-pressed={currentSlide.modelId === 'skeleton'}
-                onClick={handleSwapSkeleton}
-                className={`rounded-lg px-2 py-1 text-[10px] font-medium ${
-                  currentSlide.modelId === 'skeleton' ? ui.pillButtonActive : ui.pillButton
-                }`}
-              >
-                Skel
-              </button>
-
-              <button
-                type="button"
-                aria-label={audioEnabled ? 'Mute chime' : 'Unmute chime'}
-                onClick={() => setAudioEnabled((p) => !p)}
-                className={`flex h-7 w-7 items-center justify-center rounded-lg ${ui.iconButton}`}
-              >
-                {audioEnabled ? <Volume2Icon className="h-3.5 w-3.5" /> : <VolumeXIcon className="h-3.5 w-3.5" />}
-              </button>
-
-              <button
-                type="button"
-                data-testid="gym-exit-btn"
-                onClick={onExitGym}
-                className={`flex h-7 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold ${ui.pillButton}`}
-              >
-                <XIcon className="h-3 w-3" />
-                <span className="hidden sm:inline">Exit</span>
-              </button>
+              <div className="studio-scroll flex shrink-0 items-center gap-1 overflow-x-auto">
+                {phasePrimaryControls}
+                {styleAndAudioControls}
+                <button
+                  type="button"
+                  data-testid="gym-exit-btn"
+                  aria-label="Exit Gesture Gym"
+                  onClick={onExitGym}
+                  className={`flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold whitespace-nowrap ${ui.pillButton}`}
+                >
+                  <XIcon className="h-3 w-3" />
+                  <span className="hidden lg:inline">Exit</span>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="mt-1 h-0.5 w-full overflow-hidden rounded-full bg-zinc-500/25">
             <div

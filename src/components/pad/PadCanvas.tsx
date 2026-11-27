@@ -225,8 +225,9 @@ export function PadCanvas({
       ctx.scale(-1, 1);
     }
 
-    // 1. Optional X-Ray 3D ghost beneath sketch strokes
+    // 1. Optional X-Ray 3D ghost beneath sketch strokes (Split/Stacked paper modes only; Vellum reveals live 3D directly)
     if (
+      isOpaque &&
       xRay.active &&
       xRay.dataUrl &&
       xRayImageRef.current?.src === xRay.dataUrl &&

@@ -793,14 +793,14 @@ export function PadWorkspace({
       >
         {isPhone ? (
           <div className="space-y-1">
-            <div className="flex items-center justify-between gap-1.5">
+            <div className="flex items-center justify-between gap-1">
               <WorkspaceModeBar
                 tier={workspaceTier}
                 onSelectTier={onSelectTier}
                 studioTheme={studioTheme}
                 inline
               />
-              <div className="flex items-center gap-1">
+              <div className="flex shrink-0 items-center gap-1">
                 <button
                   type="button"
                   data-testid="pad-layout-toggle-btn"
@@ -809,7 +809,7 @@ export function PadWorkspace({
                       layoutMode === 'vellum' ? 'stacked' : 'vellum'
                     )
                   }
-                  className={`rounded-lg px-2 py-1 text-[10px] font-semibold ${ui.pillButton}`}
+                  className={`rounded-lg px-1.5 py-1 text-[10px] font-semibold whitespace-nowrap ${ui.pillButton}`}
                 >
                   {layoutMode === 'vellum' ? 'Stack' : 'Vellum'}
                 </button>
@@ -818,38 +818,39 @@ export function PadWorkspace({
                   data-testid="pad-xray-check-btn"
                   aria-pressed={isPadVellum ? vellumXRayActive : xRayConfig.active}
                   onClick={() => void handleToggleXRayCheck()}
-                  className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold ${
+                  className={`flex items-center gap-1 rounded-lg px-1.5 py-1 text-[10px] font-semibold whitespace-nowrap ${
                     (isPadVellum ? vellumXRayActive : xRayConfig.active)
                       ? ui.pillButtonActive
                       : ui.pillButton
                   }`}
                 >
-                  <ScanEyeIcon className="h-3.5 w-3.5" />
+                  <ScanEyeIcon className="h-3.5 w-3.5 shrink-0" />
                   <span>X-Ray</span>
                 </button>
                 <button
                   type="button"
                   data-testid="pad-export-btn"
+                  aria-label="Export study"
                   aria-expanded={isExportOpen}
                   onClick={() => {
                     setIsBrushPopoverOpen(false);
                     setIsLayersPopoverOpen(false);
                     setIsExportOpen((p) => !p);
                   }}
-                  className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold ${ui.pillButtonActive}`}
+                  className={`flex h-7 w-7 items-center justify-center rounded-lg ${ui.pillButtonActive}`}
                 >
                   <DownloadIcon className="h-3.5 w-3.5" />
                 </button>
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1">
+            <div className="flex items-center justify-between gap-1.5">
+              <div className="flex shrink-0 items-center gap-1">
                 <button
                   type="button"
                   data-testid="pad-stage-btn"
                   onClick={() => onToggleSidebar(!isSidebarOpen)}
-                  className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-medium ${ui.pillButton}`}
+                  className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-medium whitespace-nowrap ${ui.pillButton}`}
                 >
                   <PanelToggleIcon collapsed={!isSidebarOpen} className="h-3 w-3" />
                   <span>Stage</span>
@@ -863,7 +864,7 @@ export function PadWorkspace({
                         vellumInteraction === 'draw' ? 'pose' : 'draw'
                       )
                     }
-                    className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold ${
+                    className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
                       vellumInteraction === 'pose'
                         ? ui.pillButtonActive
                         : ui.pillButton
@@ -876,7 +877,7 @@ export function PadWorkspace({
               </div>
 
               {isPadVellum && (
-                <div className="flex flex-1 max-w-[140px] items-center gap-1.5">
+                <div className="flex min-w-0 flex-1 max-w-[140px] items-center gap-1.5">
                   <span className={`text-[9.5px] font-mono shrink-0 ${ui.textMuted}`}>
                     3D {Math.round(vellumOpacity * 100)}%
                   </span>
@@ -900,7 +901,7 @@ export function PadWorkspace({
                 aria-pressed={flipHorizontal}
                 title="Diagnostic Horizontal Flip (H)"
                 onClick={onToggleFlipHorizontal}
-                className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-medium ${
+                className={`flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-medium whitespace-nowrap ${
                   flipHorizontal ? ui.pillButtonActive : ui.pillButton
                 }`}
               >
@@ -911,35 +912,37 @@ export function PadWorkspace({
           </div>
         ) : (
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1 min-w-0">
               <button
                 type="button"
                 data-testid="pad-stage-btn"
+                aria-label="Toggle Stage Inspector"
+                title="Stage Inspector"
                 onClick={() => onToggleSidebar(!isSidebarOpen)}
-                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[10.5px] font-medium ${ui.pillButton}`}
+                className={`flex shrink-0 items-center gap-1.5 rounded-lg px-2 lg:px-2.5 py-1 text-[10.5px] font-medium whitespace-nowrap ${ui.pillButton}`}
               >
                 <PanelToggleIcon collapsed={!isSidebarOpen} className="h-3.5 w-3.5" />
-                <span>Stage</span>
+                <span className="hidden lg:inline">Stage</span>
               </button>
 
-              <div className={`inline-flex items-center gap-0.5 rounded-lg p-0.5 ${ui.segmentedTrack}`}>
+              <div className={`inline-flex shrink-0 items-center gap-0.5 rounded-lg p-0.5 ${ui.segmentedTrack}`}>
                 <button
                   type="button"
                   data-testid="pad-layout-split-btn"
                   aria-pressed={layoutMode === 'split'}
                   onClick={() => onChangeLayoutMode('split')}
-                  className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${
+                  className={`rounded-md px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap ${
                     layoutMode === 'split' ? ui.segmentedItemActive : ui.segmentedItem
                   }`}
                 >
-                  50/50 Split
+                  <span className="hidden xl:inline">50/50 </span>Split
                 </button>
                 <button
                   type="button"
                   data-testid="pad-layout-vellum-btn"
                   aria-pressed={layoutMode === 'vellum'}
                   onClick={() => onChangeLayoutMode('vellum')}
-                  className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${
+                  className={`rounded-md px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap ${
                     layoutMode === 'vellum' ? ui.segmentedItemActive : ui.segmentedItem
                   }`}
                 >
@@ -954,7 +957,7 @@ export function PadWorkspace({
                   aria-pressed={leftHandedFlip}
                   title="Left-Handed Swap (3D Right / Pad Left)"
                   onClick={onToggleLeftHandedFlip}
-                  className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-medium ${
+                  className={`flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-medium whitespace-nowrap ${
                     leftHandedFlip ? ui.pillButtonActive : ui.pillButton
                   }`}
                 >
@@ -973,17 +976,23 @@ export function PadWorkspace({
                         vellumInteraction === 'draw' ? 'pose' : 'draw'
                       )
                     }
-                    className={`rounded-lg px-2 py-1 text-[10px] font-semibold ${
+                    className={`shrink-0 rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
                       vellumInteraction === 'pose'
                         ? ui.pillButtonActive
                         : ui.pillButton
                     }`}
                   >
-                    {vellumInteraction === 'draw' ? 'Draw Mode' : 'Pose 3D'}
+                    {vellumInteraction === 'draw' ? (
+                      <>
+                        Draw<span className="hidden xl:inline"> Mode</span>
+                      </>
+                    ) : (
+                      'Pose 3D'
+                    )}
                   </button>
-                  <div className="flex w-[115px] items-center gap-1.5">
+                  <div className="flex w-[84px] lg:w-[112px] shrink-0 items-center gap-1">
                     <span className={`font-mono text-[9.5px] shrink-0 ${ui.textMuted}`}>
-                      3D {Math.round(vellumOpacity * 100)}%
+                      {Math.round(vellumOpacity * 100)}%
                     </span>
                     <input
                       type="range"
@@ -1008,20 +1017,25 @@ export function PadWorkspace({
               inline
             />
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex shrink-0 items-center gap-1">
               <button
                 type="button"
                 data-testid="pad-xray-check-btn"
                 aria-pressed={isPadVellum ? vellumXRayActive : xRayConfig.active}
                 onClick={() => void handleToggleXRayCheck()}
-                className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-[10.5px] font-semibold ${
+                className={`flex items-center gap-1 rounded-lg px-2 lg:px-2.5 py-1 text-[10.5px] font-semibold whitespace-nowrap ${
                   (isPadVellum ? vellumXRayActive : xRayConfig.active)
                     ? ui.pillButtonActive
                     : ui.pillButton
                 }`}
               >
-                <ScanEyeIcon className="h-3.5 w-3.5" />
-                <span>{isPadVellum ? 'X-Ray Flash' : 'X-Ray Check'}</span>
+                <ScanEyeIcon className="h-3.5 w-3.5 shrink-0" />
+                <span>
+                  X-Ray
+                  <span className="hidden xl:inline">
+                    {isPadVellum ? ' Flash' : ' Check'}
+                  </span>
+                </span>
               </button>
 
               <button
@@ -1030,12 +1044,12 @@ export function PadWorkspace({
                 aria-pressed={flipHorizontal}
                 title="Diagnostic Horizontal Flip (H)"
                 onClick={onToggleFlipHorizontal}
-                className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[10.5px] font-medium ${
+                className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[10.5px] font-medium whitespace-nowrap ${
                   flipHorizontal ? ui.pillButtonActive : ui.pillButton
                 }`}
               >
-                <FlipHorizontalIcon className="h-3.5 w-3.5" />
-                <span>Flip H</span>
+                <FlipHorizontalIcon className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden lg:inline">Flip H</span>
               </button>
 
               <button
@@ -1047,9 +1061,9 @@ export function PadWorkspace({
                   setIsLayersPopoverOpen(false);
                   setIsExportOpen((p) => !p);
                 }}
-                className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-[10.5px] font-semibold ${ui.pillButtonActive}`}
+                className={`flex items-center gap-1 rounded-lg px-2 lg:px-2.5 py-1 text-[10.5px] font-semibold whitespace-nowrap ${ui.pillButtonActive}`}
               >
-                <DownloadIcon className="h-3.5 w-3.5" />
+                <DownloadIcon className="h-3.5 w-3.5 shrink-0" />
                 <span>Export</span>
               </button>
             </div>
@@ -1097,7 +1111,7 @@ export function PadWorkspace({
             <div
               data-testid="pad-xray-bar"
               onPointerDown={(e) => e.stopPropagation()}
-              className={`flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-2.5 py-1.5 backdrop-blur-md ${ui.header}`}
+              className={`flex shrink-0 flex-wrap items-center justify-between gap-1.5 border-b px-2 py-1 backdrop-blur-md ${ui.header}`}
             >
               <div className="flex flex-wrap items-center gap-1">
                 {(
@@ -1114,7 +1128,7 @@ export function PadWorkspace({
                     data-testid={`pad-xray-src-${src.id}`}
                     aria-pressed={xRayConfig.source === src.id}
                     onClick={() => void handleTriggerXRaySource(src.id)}
-                    className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${
+                    className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
                       xRayConfig.source === src.id
                         ? ui.pillButtonActive
                         : ui.pillButton
@@ -1125,8 +1139,8 @@ export function PadWorkspace({
                 ))}
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex w-[96px] items-center gap-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <div className="flex w-[78px] items-center gap-1">
                   <span className={`font-mono text-[9.5px] shrink-0 ${ui.textMuted}`}>
                     {Math.round(xRayConfig.opacity * 100)}%
                   </span>
@@ -1144,7 +1158,7 @@ export function PadWorkspace({
                   />
                 </div>
 
-                <div className="flex w-[86px] items-center gap-1">
+                <div className="flex w-[76px] items-center gap-1">
                   <span className={`font-mono text-[9.5px] shrink-0 ${ui.textMuted}`}>
                     {Math.round(xRayConfig.scale * 100)}%
                   </span>
@@ -1167,7 +1181,7 @@ export function PadWorkspace({
                   data-testid="pad-xray-align-btn"
                   aria-pressed={xRayAlignMode}
                   onClick={() => setXRayAlignMode((p) => !p)}
-                  className={`rounded-md px-2 py-0.5 text-[10px] font-medium ${
+                  className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
                     xRayAlignMode ? ui.pillButtonActive : ui.pillButton
                   }`}
                 >
@@ -1267,8 +1281,12 @@ export function PadWorkspace({
                 : `${Math.max(headerHeightPx, topOffsetPx) + 12}px`,
             right:
               isPhone || viewport.isCompactLandscape ? '12px' : '64px',
+            maxHeight:
+              isPhone || viewport.isCompactLandscape
+                ? `calc(100dvh - ${Math.max(headerHeightPx, topOffsetPx) + 76}px)`
+                : `calc(100dvh - ${Math.max(headerHeightPx, topOffsetPx) + 24}px)`,
           }}
-          className={`fixed z-40 w-[248px] max-w-[calc(100vw-24px)] rounded-2xl p-3.5 space-y-3 backdrop-blur-xl select-none ${ui.panel}`}
+          className={`fixed z-40 w-[248px] max-w-[calc(100vw-24px)] overflow-y-auto studio-scroll rounded-2xl p-3.5 space-y-3 backdrop-blur-xl select-none ${ui.panel}`}
         >
           <div className="flex items-center justify-between">
             <span className={`text-[10.5px] font-semibold uppercase tracking-[0.12em] ${ui.textPrimary}`}>
@@ -1403,8 +1421,12 @@ export function PadWorkspace({
                 : `${Math.max(headerHeightPx, topOffsetPx) + 12}px`,
             right:
               isPhone || viewport.isCompactLandscape ? '12px' : '64px',
+            maxHeight:
+              isPhone || viewport.isCompactLandscape
+                ? `calc(100dvh - ${Math.max(headerHeightPx, topOffsetPx) + 76}px)`
+                : `calc(100dvh - ${Math.max(headerHeightPx, topOffsetPx) + 24}px)`,
           }}
-          className={`fixed z-40 w-[256px] max-w-[calc(100vw-24px)] rounded-2xl p-3.5 space-y-2.5 backdrop-blur-xl select-none ${ui.panel}`}
+          className={`fixed z-40 w-[256px] max-w-[calc(100vw-24px)] overflow-y-auto studio-scroll rounded-2xl p-3.5 space-y-2.5 backdrop-blur-xl select-none ${ui.panel}`}
         >
           <div className="flex items-center justify-between">
             <span className={`text-[10.5px] font-semibold uppercase tracking-[0.12em] ${ui.textPrimary}`}>
@@ -1499,6 +1521,7 @@ export function PadWorkspace({
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
         studioTheme={studioTheme}
+        topOffsetPx={Math.max(headerHeightPx, topOffsetPx) + 6}
         document={doc}
         canvasSize={canvasSize}
         snapshotBridge={snapshotBridge}

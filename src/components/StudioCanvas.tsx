@@ -111,6 +111,8 @@ interface StudioCanvasProps {
   viewport: ViewportProfile;
   isHudMinimized?: boolean;
   containInPane?: boolean;
+  rightInsetPx?: number;
+  canvasOpacity?: number;
   flipHorizontal?: boolean;
   onCanvasBackgroundTap?: () => void;
   onSelectMannequin: (id: string) => void;
@@ -1083,6 +1085,8 @@ export function StudioCanvas({
   viewport,
   isHudMinimized = false,
   containInPane = false,
+  rightInsetPx = 0,
+  canvasOpacity = 1,
   flipHorizontal = false,
   onCanvasBackgroundTap,
   onSelectMannequin,
@@ -1225,8 +1229,11 @@ export function StudioCanvas({
       }}
     >
       <div
-        className="relative h-full w-full"
-        style={{ transform: flipHorizontal ? 'scaleX(-1)' : undefined }}
+        className="relative h-full w-full transition-opacity duration-150"
+        style={{
+          opacity: canvasOpacity,
+          transform: flipHorizontal ? 'scaleX(-1)' : undefined,
+        }}
       >
         <Canvas
           frameloop="demand"
@@ -1365,6 +1372,7 @@ export function StudioCanvas({
         viewport={viewport}
         isHudMinimized={isHudMinimized}
         containInPane={containInPane}
+        rightInsetPx={rightInsetPx}
         bookmarks={bookmarks}
         onSelectCameraPreset={onSelectCameraPreset}
         onChangeLensCurvature={onChangeLensCurvature}

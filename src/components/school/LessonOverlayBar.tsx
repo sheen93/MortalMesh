@@ -37,6 +37,7 @@ interface LessonOverlayBarProps {
   studioTheme: StudioThemeId;
   topOffsetPx: number;
   barHeightPx: number;
+  isCompact?: boolean;
   padBridge: PadBridge | null;
   modelId: KineticTelemetry['modelId'];
   showLineOfAction: boolean;
@@ -75,6 +76,7 @@ export function LessonOverlayBar({
   studioTheme,
   topOffsetPx,
   barHeightPx,
+  isCompact = false,
   padBridge,
   modelId,
   showLineOfAction,
@@ -120,9 +122,13 @@ export function LessonOverlayBar({
     return padBridge.subscribeTelemetry(setPadTelemetry);
   }, [padBridge, module.id]);
 
-  // Collapse details Drawer automatically on narrow phone screens after module switch so canvas stays spacious
+  // Collapse details Drawer automatically on phones and short compact-landscape screens
   useEffect(() => {
-    setDrawerOpen(typeof window === 'undefined' ? true : window.innerWidth >= 768);
+    setDrawerOpen(
+      typeof window === 'undefined'
+        ? true
+        : window.innerWidth >= 768 && window.innerHeight >= 520
+    );
   }, [module.id]);
 
   const validation = useMemo(() => {
@@ -177,6 +183,157 @@ export function LessonOverlayBar({
   const isLast = module.index >= KINETIC_MODULES.length;
   const doneObjectives = validation.objectives.filter((o) => o.completed).length;
 
+  const moduleHelperButtons = (
+    <>
+      {module.id === 'pulse-gravity' && (
+        <button
+          type="button"
+          data-testid="lesson-helper-reveal-guides"
+          onClick={onRevealForceGuides}
+          className={`shrink-0 rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
+            showLineOfAction && showPlumbLine ? ui.pillButtonActive : ui.pillButton
+          }`}
+        >
+          Reveal Force &amp; Plumb
+        </button>
+      )}
+
+      {module.id === 'warring-boxes' && (
+        <button
+          type="button"
+          data-testid="lesson-helper-xray-loomis"
+          onClick={() => onTriggerXRay('loomis')}
+          className={`flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${ui.pillButtonActive}`}
+        >
+          <ScanEyeIcon className="h-3 w-3" />
+          <span>X-Ray Loomis</span>
+        </button>
+      )}
+
+      {module.id === 'eight-anchor-bones' && (
+        <button
+          type="button"
+          data-testid="lesson-helper-reveal-skeleton"
+          onClick={onRevealSkeleton}
+          className={`flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
+            skeletonRevealed ? ui.pillButtonActive : ui.pillButton
+          }`}
+        >
+          <ScanEyeIcon className="h-3 w-3" />
+          <span>Reveal Skeleton</span>
+        </button>
+      )}
+
+      {module.id === 'perspective-coils' && (
+        <button
+          type="button"
+          data-testid="lesson-helper-cross-contours"
+          onClick={onRevealCrossContours}
+          className={`shrink-0 rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
+            showCrossContours ? ui.pillButtonActive : ui.pillButton
+          }`}
+        >
+          Cross-Contour Check
+        </button>
+      )}
+
+      {module.id === 'muscle-envelopes' && (
+        <button
+          type="button"
+          data-testid="lesson-helper-toggle-skeleton"
+          onClick={onToggleSkeleton}
+          className={`shrink-0 rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
+            modelId === 'skeleton' ? ui.pillButtonActive : ui.pillButton
+          }`}
+        >
+          {modelId === 'skeleton' ? 'Surface Model' : 'Toggle Skeleton'}
+        </button>
+      )}
+
+      {module.id === 'hands-as-wedges' && (
+        <div className="flex shrink-0 items-center gap-1">
+          {(['fist', 'grab', 'pinch'] as const).map((g) => (
+            <button
+              key={g}
+              type="button"
+              data-testid={`lesson-gesture-${g}`}
+              onClick={() => onCycleHandGesture(g)}
+              className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold capitalize whitespace-nowrap ${
+                activeHandGestureId === g ? ui.pillButtonActive : ui.pillButton
+              }`}
+            >
+              {g}
+            </button>
+          ))}
+          <button
+            type="button"
+            data-testid="lesson-helper-xray-hand"
+            onClick={() => onTriggerXRay('skeleton')}
+            className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap ${ui.pillButton}`}
+          >
+            X-Ray
+          </button>
+        </div>
+      )}
+
+      {module.id === 'shadow-thief' && (
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            data-testid="lesson-helper-notan"
+            onClick={onToggleNotan}
+            className={`rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
+              notanEnabled ? ui.pillButtonActive : ui.pillButton
+            }`}
+          >
+            2-Value Notan
+          </button>
+          <button
+            type="button"
+            data-testid="lesson-helper-flip-h"
+            onClick={onToggleFlipH}
+            className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
+              padFlipHorizontal ? ui.pillButtonActive : ui.pillButton
+            }`}
+          >
+            <FlipHorizontalIcon className="h-3 w-3" />
+            <span className="hidden lg:inline">Flip H</span>
+          </button>
+        </div>
+      )}
+    </>
+  );
+
+  const toggleDrawerControl = (
+    <button
+      type="button"
+      data-testid="lesson-toggle-drawer-btn"
+      aria-expanded={drawerOpen}
+      onClick={() => setDrawerOpen((p) => !p)}
+      className="flex items-center gap-1.5 min-w-0 text-left"
+    >
+      <span className="rounded bg-emerald-500 px-1.5 py-0.5 font-mono text-[9.5px] font-bold text-zinc-950 shrink-0 whitespace-nowrap">
+        M{module.index} · {module.phaseTag}
+      </span>
+      <span className={`text-[11px] sm:text-[11.5px] font-semibold truncate ${ui.textPrimary}`}>
+        {module.title}
+      </span>
+      <span
+        data-testid="lesson-progress-badge"
+        className={`rounded px-1.5 py-0.5 font-mono text-[9.5px] font-semibold tabular-nums shrink-0 whitespace-nowrap ${
+          validation.completed ? 'bg-emerald-500/20 text-emerald-300' : ui.monoPill
+        }`}
+      >
+        {doneObjectives}/{validation.objectives.length}
+      </span>
+      <ChevronDownIcon
+        className={`h-3.5 w-3.5 shrink-0 opacity-75 transition-transform ${
+          drawerOpen ? 'rotate-180' : ''
+        }`}
+      />
+    </button>
+  );
+
   return (
     <div
       data-testid="kinetic-lesson-bar-wrapper"
@@ -188,218 +345,140 @@ export function LessonOverlayBar({
       <div
         data-testid="kinetic-lesson-bar"
         style={{ height: barHeightPx }}
-        className={`pointer-events-auto flex items-center justify-between gap-2 border-b px-2.5 sm:px-3.5 backdrop-blur-xl ${ui.panel}`}
+        className={`pointer-events-auto border-b backdrop-blur-xl ${
+          isCompact
+            ? 'flex flex-col justify-center gap-1 px-2 py-1'
+            : 'flex items-center justify-between gap-2 px-2.5 sm:px-3.5'
+        } ${ui.panel}`}
       >
-        <div className="flex items-center gap-1.5 min-w-0">
-          <button
-            type="button"
-            data-testid="lesson-toggle-drawer-btn"
-            aria-expanded={drawerOpen}
-            onClick={() => setDrawerOpen((p) => !p)}
-            className="flex items-center gap-1.5 min-w-0 text-left"
-          >
-            <span className="rounded bg-emerald-500 px-1.5 py-0.5 font-mono text-[9.5px] font-bold text-zinc-950 shrink-0">
-              M{module.index} · {module.phaseTag}
-            </span>
-            <span className={`text-[11.5px] font-semibold truncate ${ui.textPrimary}`}>
-              {module.title}
-            </span>
-            <span
-              data-testid="lesson-progress-badge"
-              className={`rounded px-1.5 py-0.5 font-mono text-[9.5px] font-semibold tabular-nums shrink-0 ${
-                validation.completed
-                  ? 'bg-emerald-500/20 text-emerald-300'
-                  : ui.monoPill
-              }`}
-            >
-              {doneObjectives}/{validation.objectives.length}
-            </span>
-            <ChevronDownIcon
-              className={`h-3.5 w-3.5 shrink-0 opacity-75 transition-transform ${
-                drawerOpen ? 'rotate-180' : ''
-              }`}
-            />
-          </button>
-
-          <span className={`hidden lg:inline truncate font-mono text-[10px] ${ui.textMuted}`}>
-            · {validation.liveHint}
-          </span>
-        </div>
-
-        {/* Context Action Helper(s) + Progression */}
-        <div className="flex items-center gap-1 shrink-0 overflow-x-auto studio-scroll">
-          {module.id === 'pulse-gravity' && (
-            <button
-              type="button"
-              data-testid="lesson-helper-reveal-guides"
-              onClick={onRevealForceGuides}
-              className={`rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
-                showLineOfAction && showPlumbLine
-                  ? ui.pillButtonActive
-                  : ui.pillButton
-              }`}
-            >
-              Reveal Force &amp; Plumb
-            </button>
-          )}
-
-          {module.id === 'warring-boxes' && (
-            <button
-              type="button"
-              data-testid="lesson-helper-xray-loomis"
-              onClick={() => onTriggerXRay('loomis')}
-              className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${ui.pillButtonActive}`}
-            >
-              <ScanEyeIcon className="h-3 w-3" />
-              <span>X-Ray Loomis</span>
-            </button>
-          )}
-
-          {module.id === 'eight-anchor-bones' && (
-            <button
-              type="button"
-              data-testid="lesson-helper-reveal-skeleton"
-              onClick={onRevealSkeleton}
-              className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
-                skeletonRevealed ? ui.pillButtonActive : ui.pillButton
-              }`}
-            >
-              <ScanEyeIcon className="h-3 w-3" />
-              <span>Reveal Skeleton</span>
-            </button>
-          )}
-
-          {module.id === 'perspective-coils' && (
-            <button
-              type="button"
-              data-testid="lesson-helper-cross-contours"
-              onClick={onRevealCrossContours}
-              className={`rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
-                showCrossContours ? ui.pillButtonActive : ui.pillButton
-              }`}
-            >
-              Cross-Contour Check
-            </button>
-          )}
-
-          {module.id === 'muscle-envelopes' && (
-            <button
-              type="button"
-              data-testid="lesson-helper-toggle-skeleton"
-              onClick={onToggleSkeleton}
-              className={`rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
-                modelId === 'skeleton' ? ui.pillButtonActive : ui.pillButton
-              }`}
-            >
-              {modelId === 'skeleton' ? 'Surface Model' : 'Toggle Skeleton'}
-            </button>
-          )}
-
-          {module.id === 'hands-as-wedges' && (
-            <div className="flex items-center gap-1">
-              {(['fist', 'grab', 'pinch'] as const).map((g) => (
+        {isCompact ? (
+          <>
+            <div className="flex h-[30px] items-center justify-between gap-1.5">
+              <div className="flex min-w-0 flex-1 items-center overflow-hidden">
+                {toggleDrawerControl}
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
                 <button
-                  key={g}
                   type="button"
-                  data-testid={`lesson-gesture-${g}`}
-                  onClick={() => onCycleHandGesture(g)}
-                  className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold capitalize ${
-                    activeHandGestureId === g ? ui.pillButtonActive : ui.pillButton
+                  aria-label="Reset drill"
+                  title="Reset Module"
+                  onClick={onResetDrill}
+                  className={`flex h-6 w-6 items-center justify-center rounded-md ${ui.iconButton}`}
+                >
+                  <RotateCcwIcon className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  data-testid="lesson-next-btn"
+                  onClick={onNextModule}
+                  className={`flex h-6 items-center rounded-md px-1.5 text-[10px] font-semibold whitespace-nowrap ${
+                    validation.completed ? ui.pillButtonActive : ui.pillButton
                   }`}
                 >
-                  {g}
+                  {isLast ? 'Finish' : 'Next →'}
                 </button>
-              ))}
-              <button
-                type="button"
-                data-testid="lesson-helper-xray-hand"
-                onClick={() => onTriggerXRay('skeleton')}
-                className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${ui.pillButton}`}
-              >
-                X-Ray
-              </button>
+                <button
+                  type="button"
+                  data-testid="lesson-exit-btn"
+                  aria-label="Exit Lesson"
+                  title="Exit and restore Studio + Pad"
+                  onClick={onExitLesson}
+                  className={`flex h-6 w-6 items-center justify-center rounded-md ${ui.pillButton}`}
+                >
+                  <XIcon className="h-3 w-3" />
+                </button>
+              </div>
             </div>
-          )}
 
-          {module.id === 'shadow-thief' && (
-            <div className="flex items-center gap-1">
+            <div className="flex h-[30px] items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {moduleHelperButtons}
               <button
                 type="button"
-                data-testid="lesson-helper-notan"
-                onClick={onToggleNotan}
-                className={`rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
-                  notanEnabled ? ui.pillButtonActive : ui.pillButton
+                data-testid="lesson-save-study-btn"
+                onClick={onSaveStudy}
+                title="Save study to My Studies"
+                className={`flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
+                  savedStudyCount > 0 ? ui.pillButtonActive : ui.pillButton
                 }`}
               >
-                2-Value Notan
+                <SaveIcon className="h-3 w-3" />
+                <span>Save</span>
               </button>
+              <span
+                className={`min-w-0 flex-1 truncate rounded px-1.5 py-0.5 font-mono text-[9.5px] ${ui.monoPill}`}
+              >
+                {validation.liveHint}
+              </span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+              {toggleDrawerControl}
+              <span className={`hidden xl:inline truncate font-mono text-[10px] ${ui.textMuted}`}>
+                · {validation.liveHint}
+              </span>
+            </div>
+
+            <div className="studio-scroll flex shrink-0 items-center gap-1 overflow-x-auto">
+              {moduleHelperButtons}
+
               <button
                 type="button"
-                data-testid="lesson-helper-flip-h"
-                onClick={onToggleFlipH}
-                className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
-                  padFlipHorizontal ? ui.pillButtonActive : ui.pillButton
+                data-testid="lesson-save-study-btn"
+                onClick={onSaveStudy}
+                title="Save study to My Studies"
+                className={`flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
+                  savedStudyCount > 0 ? ui.pillButtonActive : ui.pillButton
                 }`}
               >
-                <FlipHorizontalIcon className="h-3 w-3" />
-                <span className="hidden sm:inline">Flip H</span>
+                <SaveIcon className="h-3 w-3" />
+                <span className="hidden lg:inline">Save Study</span>
+                <span className="inline lg:hidden">Save</span>
+              </button>
+
+              <button
+                type="button"
+                aria-label="Reset drill"
+                title="Reset Module"
+                onClick={onResetDrill}
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${ui.iconButton}`}
+              >
+                <RotateCcwIcon className="h-3.5 w-3.5" />
+              </button>
+
+              <button
+                type="button"
+                data-testid="lesson-next-btn"
+                onClick={onNextModule}
+                className={`shrink-0 rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
+                  validation.completed ? ui.pillButtonActive : ui.pillButton
+                }`}
+              >
+                {isLast ? 'Finish' : 'Next →'}
+              </button>
+
+              <button
+                type="button"
+                data-testid="lesson-exit-btn"
+                aria-label="Exit Lesson"
+                title="Exit and restore Studio + Pad"
+                onClick={onExitLesson}
+                className={`flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold whitespace-nowrap ${ui.pillButton}`}
+              >
+                <XIcon className="h-3 w-3" />
+                <span className="hidden lg:inline">Exit</span>
               </button>
             </div>
-          )}
-
-          <button
-            type="button"
-            data-testid="lesson-save-study-btn"
-            onClick={onSaveStudy}
-            title="Save study to My Studies"
-            className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
-              savedStudyCount > 0 ? ui.pillButtonActive : ui.pillButton
-            }`}
-          >
-            <SaveIcon className="h-3 w-3" />
-            <span className="hidden sm:inline">Save Study</span>
-          </button>
-
-          <button
-            type="button"
-            aria-label="Reset drill"
-            title="Reset Module"
-            onClick={onResetDrill}
-            className={`flex h-7 w-7 items-center justify-center rounded-lg ${ui.iconButton}`}
-          >
-            <RotateCcwIcon className="h-3.5 w-3.5" />
-          </button>
-
-          <button
-            type="button"
-            data-testid="lesson-next-btn"
-            onClick={onNextModule}
-            className={`rounded-lg px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${
-              validation.completed ? ui.pillButtonActive : ui.pillButton
-            }`}
-          >
-            {isLast ? 'Finish' : 'Next →'}
-          </button>
-
-          <button
-            type="button"
-            data-testid="lesson-exit-btn"
-            aria-label="Exit Lesson"
-            title="Exit and restore Studio + Pad"
-            onClick={onExitLesson}
-            className={`flex h-7 items-center gap-1 rounded-lg px-2 text-[10px] font-semibold ${ui.pillButton}`}
-          >
-            <XIcon className="h-3 w-3" />
-            <span className="hidden sm:inline">Exit</span>
-          </button>
-        </div>
+          </>
+        )}
       </div>
 
       {/* Collapsible Objective Checklist Drawer */}
       {drawerOpen && (
         <div
           data-testid="kinetic-objectives-drawer"
-          className={`pointer-events-auto mx-2.5 mt-1.5 w-[min(calc(100vw-20px),440px)] rounded-xl p-2.5 shadow-lg backdrop-blur-xl space-y-1.5 ${ui.panel}`}
+          className={`pointer-events-auto mx-2.5 mt-1.5 w-[min(calc(100vw-20px),440px)] max-h-[calc(100dvh-110px)] overflow-y-auto studio-scroll rounded-xl p-2.5 shadow-lg backdrop-blur-xl space-y-1.5 ${ui.panel}`}
         >
           <div className="flex items-start justify-between gap-2">
             <p className={`text-[10.5px] leading-snug ${ui.textSecondary}`}>

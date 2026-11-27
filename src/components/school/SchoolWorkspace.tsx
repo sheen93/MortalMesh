@@ -89,7 +89,7 @@ export function SchoolWorkspace({
       onClick={onCloseToStudio}
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/45 p-2.5 backdrop-blur-sm sm:p-6"
       style={{
-        paddingTop: 'calc(env(safe-area-inset-top, 0px) + 54px)',
+        paddingTop: 'calc(env(safe-area-inset-top, 0px) + 52px)',
         paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
       }}
     >
@@ -100,21 +100,22 @@ export function SchoolWorkspace({
         data-testid="school-workspace-slot"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
-        className={`flex max-h-[85dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl select-none ${ui.panel}`}
+        className={`flex max-h-[calc(100dvh-64px)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl select-none ${ui.panel}`}
       >
         {/* Header */}
-        <header className={`flex shrink-0 items-center justify-between gap-2 px-4 py-3 ${ui.header}`}>
+        <header className={`flex shrink-0 items-center justify-between gap-2 px-3.5 py-2.5 sm:px-4 sm:py-3 ${ui.header}`}>
           <div className="flex items-center gap-2 min-w-0">
             <GraduationCapIcon className={`h-4 w-4 shrink-0 ${ui.textPrimary}`} />
-            <h2 className={`text-xs font-semibold uppercase tracking-[0.14em] truncate ${ui.textPrimary}`}>
-              KINETIC-5 Anatomy School
+            <h2 className={`text-xs font-semibold uppercase tracking-[0.12em] sm:tracking-[0.14em] truncate ${ui.textPrimary}`}>
+              <span className="sm:hidden">KINETIC-5 School</span>
+              <span className="hidden sm:inline">KINETIC-5 Anatomy School</span>
             </h2>
-            <span className={`rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold ${ui.monoPill}`}>
+            <span className={`shrink-0 whitespace-nowrap rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold ${ui.monoPill}`}>
               {completedModuleIds.length}/{KINETIC_MODULES.length} Mastered
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-1.5">
             <button
               type="button"
               data-testid="school-jump-to-pad-btn"
@@ -137,12 +138,12 @@ export function SchoolWorkspace({
         </header>
 
         {/* Internal 3-Tab Switcher */}
-        <div className={`flex shrink-0 items-center gap-1.5 border-b px-4 py-2 ${ui.divider}`}>
+        <div className={`studio-scroll flex shrink-0 items-center gap-1.5 overflow-x-auto border-b px-3.5 py-2 sm:px-4 ${ui.divider}`}>
           {(
             [
-              { id: 'course', label: 'KINETIC-5 Course (8)', icon: <BookOpenIcon className="h-3.5 w-3.5" /> },
-              { id: 'gym', label: 'Gesture Gym', icon: <TimerIcon className="h-3.5 w-3.5" /> },
-              { id: 'studies', label: 'My Studies', icon: <PencilIcon className="h-3.5 w-3.5" /> },
+              { id: 'course', shortLabel: 'Course (8)', label: 'KINETIC-5 Course (8)', icon: <BookOpenIcon className="h-3.5 w-3.5 shrink-0" /> },
+              { id: 'gym', shortLabel: 'Gym', label: 'Gesture Gym', icon: <TimerIcon className="h-3.5 w-3.5 shrink-0" /> },
+              { id: 'studies', shortLabel: 'Studies', label: 'My Studies', icon: <PencilIcon className="h-3.5 w-3.5 shrink-0" /> },
             ] as const
           ).map((t) => (
             <button
@@ -152,12 +153,13 @@ export function SchoolWorkspace({
               aria-selected={tab === t.id}
               data-testid={`school-tab-${t.id}`}
               onClick={() => switchTab(t.id)}
-              className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[11px] font-semibold transition-colors ${
+              className={`flex shrink-0 items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold whitespace-nowrap transition-colors sm:px-3 ${
                 tab === t.id ? ui.pillButtonActive : ui.pillButton
               }`}
             >
               {t.icon}
-              <span>{t.label}</span>
+              <span className="sm:hidden">{t.shortLabel}</span>
+              <span className="hidden sm:inline">{t.label}</span>
             </button>
           ))}
         </div>

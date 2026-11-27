@@ -15,6 +15,7 @@ interface WorkspaceModeBarProps {
   studioTheme: StudioThemeId;
   inline?: boolean;
   isHudMinimized?: boolean;
+  offsetLeftPx?: number;
 }
 
 const TIER_OPTIONS: ReadonlyArray<{
@@ -28,9 +29,9 @@ const TIER_OPTIONS: ReadonlyArray<{
 ];
 
 function TierIcon({ id }: { id: WorkspaceTier }) {
-  if (id === 'studio') return <BoxIcon className="h-3.5 w-3.5 shrink-0" />;
-  if (id === 'pad') return <PencilIcon className="h-3.5 w-3.5 shrink-0" />;
-  return <GraduationCapIcon className="h-3.5 w-3.5 shrink-0" />;
+  if (id === 'studio') return <BoxIcon className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />;
+  if (id === 'pad') return <PencilIcon className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />;
+  return <GraduationCapIcon className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />;
 }
 
 export function WorkspaceModeBar({
@@ -39,6 +40,7 @@ export function WorkspaceModeBar({
   studioTheme,
   inline = false,
   isHudMinimized = false,
+  offsetLeftPx = 0,
 }: WorkspaceModeBarProps) {
   if (!inline && isHudMinimized) return null;
 
@@ -64,7 +66,7 @@ export function WorkspaceModeBar({
             data-testid={`tier-btn-${opt.id}`}
             title={opt.title}
             onClick={() => onSelectTier(opt.id)}
-            className={`flex items-center gap-1 rounded-[9px] px-2 py-1 text-[10.5px] sm:px-2.5 sm:text-[11px] font-semibold transition-all duration-150 ${
+            className={`flex items-center gap-1 rounded-[9px] px-1.5 py-1 text-[10px] sm:px-2.5 sm:text-[11px] font-semibold transition-all duration-150 ${
               active ? ui.segmentedItemActive : ui.segmentedItem
             }`}
           >
@@ -82,8 +84,11 @@ export function WorkspaceModeBar({
 
   return (
     <div
-      style={{ top: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
-      className="fixed left-1/2 -translate-x-1/2 z-30 pointer-events-auto"
+      style={{
+        top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
+        left: offsetLeftPx ? `calc(50% + ${offsetLeftPx}px)` : '50%',
+      }}
+      className="fixed -translate-x-1/2 z-30 pointer-events-auto"
     >
       {segmented}
     </div>

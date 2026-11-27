@@ -3524,12 +3524,10 @@ export default function HomePage() {
     activeGymSession !== null && activeGymSession.sketchMode === 'pad';
   const showPadWorkspace = inPadTier || isKineticLessonActive || isGymPadActive;
   const inPadVellum = showPadWorkspace && effectivePadLayout === 'vellum';
-  const containStudioInPane =
-    showPadWorkspace &&
-    (effectivePadLayout === 'split' || effectivePadLayout === 'stacked');
+  const containStudioInPane = showPadWorkspace;
   const padHeaderHeightPx = viewport.isMobile ? 76 : 44;
-  const lessonBarHeightPx = 44;
-  const gymHudHeightPx = viewport.isMobile ? 84 : 56;
+  const lessonBarHeightPx = viewport.isMobile ? 76 : 44;
+  const gymHudHeightPx = viewport.isMobile ? 96 : 58;
   const activePadTopOffsetPx = isKineticLessonActive
     ? padHeaderHeightPx + lessonBarHeightPx
     : isGymPadActive
@@ -3537,6 +3535,21 @@ export default function HomePage() {
       : showPadWorkspace
         ? padHeaderHeightPx
         : 0;
+  const studioModeBarOffsetPx =
+    isSidebarOpen &&
+    !viewport.isMobile &&
+    !viewport.isCompactLandscape &&
+    viewport.width < 1100
+      ? 80
+      : 0;
+  const vellumRightToolstripInsetPx =
+    inPadVellum && !viewport.isMobile && !viewport.isCompactLandscape ? 60 : 0;
+  const dockBottomOffsetPx =
+    inPadVellum && (viewport.isMobile || viewport.isCompactLandscape)
+      ? 62
+      : containStudioInPane && (viewport.isMobile || viewport.isCompactLandscape)
+        ? 6
+        : undefined;
   const vellumDrawLocked3D = inPadVellum && vellumInteraction === 'draw';
   const effectiveHudMinimized =
     isHudMinimized || isGestureGymActive || vellumDrawLocked3D;
@@ -3626,13 +3639,20 @@ export default function HomePage() {
         }
       }}
     >
-      <StudioToast toast={toast} studioTheme={studioTheme} />
+      <StudioToast
+        toast={toast}
+        studioTheme={studioTheme}
+        topOffsetPx={
+          activePadTopOffsetPx > 0 ? activePadTopOffsetPx + 8 : undefined
+        }
+      />
       {!showPadWorkspace && (
         <WorkspaceModeBar
           tier={workspaceTier}
           onSelectTier={handleSelectWorkspaceTier}
           studioTheme={studioTheme}
           isHudMinimized={effectiveHudMinimized}
+          offsetLeftPx={studioModeBarOffsetPx}
         />
       )}
       {isHudMinimized &&
@@ -3720,6 +3740,7 @@ export default function HomePage() {
           studioTheme={studioTheme}
           topOffsetPx={padHeaderHeightPx}
           barHeightPx={lessonBarHeightPx}
+          isCompact={viewport.isMobile}
           padBridge={padBridgeRef.current}
           modelId={activeMannequin.modelId}
           showLineOfAction={drawing.showLineOfAction}
@@ -3788,6 +3809,7 @@ export default function HomePage() {
           studioTheme={studioTheme}
           padBridge={padBridgeRef.current}
           isPadMode={isGymPadActive}
+          isCompact={viewport.isMobile}
           onApplySlide={applyGymSlideToStudio}
           onEnterInspectPhase={() => setVellumInteraction('pose')}
           onTriggerXRayCheck={() => {
@@ -3868,10 +3890,7 @@ export default function HomePage() {
           vellumDrawLocked3D ? 'pointer-events-none' : 'pointer-events-auto'
         }`}
       >
-        <div
-          className="relative h-full w-full transition-opacity duration-150"
-          style={{ opacity: inPadVellum ? vellumOpacity : 1 }}
-        >
+        <div className="relative h-full w-full">
           <StudioCanvas
             mannequins={mannequins}
             activeMannequinId={activeMannequin.id}
@@ -3910,6 +3929,8 @@ export default function HomePage() {
             viewport={viewport}
             isHudMinimized={effectiveHudMinimized}
             containInPane={containStudioInPane}
+            rightInsetPx={vellumRightToolstripInsetPx}
+            canvasOpacity={inPadVellum ? vellumOpacity : 1}
             flipHorizontal={showPadWorkspace && padFlipHorizontal}
             onCanvasBackgroundTap={handleCanvasBackgroundTap}
             cameraRestSeq={cameraRestSeq}
@@ -3971,6 +3992,7 @@ export default function HomePage() {
           viewport={viewport}
           isHudMinimized={effectiveHudMinimized}
           containInPane={containStudioInPane}
+          paneTopOffsetPx={activePadTopOffsetPx}
           isOpen={isSidebarOpen}
           onToggleOpen={setIsSidebarOpen}
           mannequins={mannequins}
@@ -4022,6 +4044,8 @@ export default function HomePage() {
           viewport={viewport}
           isHudMinimized={effectiveHudMinimized}
           containInPane={containStudioInPane}
+          paneTopOffsetPx={activePadTopOffsetPx}
+          rightInsetPx={vellumRightToolstripInsetPx}
           isLocked={activeLocked}
           gravityEnabled={gravityEnabled}
           dampingPreset={dampingPreset}
@@ -4103,6 +4127,7 @@ export default function HomePage() {
           viewport={viewport}
           isHudMinimized={effectiveHudMinimized}
           containInPane={containStudioInPane}
+          bottomOffsetPx={dockBottomOffsetPx}
         />
       </div>
 

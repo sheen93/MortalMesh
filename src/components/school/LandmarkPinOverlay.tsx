@@ -195,10 +195,10 @@ export function LandmarkPinOverlay({
         </svg>
       )}
 
-      {/* Compact Top Target Chip Strip inside Pad (only above surface canvas edge) */}
+      {/* Compact Bottom Target Chip Strip inside Pad (never collides with top-left Lesson Objectives Drawer) */}
       <div
         onPointerDown={(e) => e.stopPropagation()}
-        className={`pointer-events-auto absolute top-2.5 left-2.5 right-2.5 flex flex-wrap items-center justify-between gap-1.5 rounded-xl px-2.5 py-1.5 backdrop-blur-md ${ui.panel}`}
+        className={`pointer-events-auto absolute bottom-2.5 left-2.5 right-2.5 flex flex-wrap items-center justify-between gap-1.5 rounded-xl px-2.5 py-1.5 backdrop-blur-md ${ui.panel}`}
       >
         <div className="flex flex-wrap items-center gap-1 min-w-0">
           {!revealed ? (
@@ -213,9 +213,9 @@ export function LandmarkPinOverlay({
           ) : (
             <span
               data-testid="landmark-accuracy-badge"
-              className="inline-flex items-center gap-1 rounded-md bg-emerald-500/20 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-300"
+              className="inline-flex items-center gap-1 rounded-md bg-emerald-500/20 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-300 whitespace-nowrap"
             >
-              <ScanEyeIcon className="h-3.5 w-3.5" />
+              <ScanEyeIcon className="h-3.5 w-3.5 shrink-0" />
               <span>
                 {placedEntries.length}/8 Landmarks
                 {avgOffsetPx !== null ? ` · Avg Offset ${avgOffsetPx}px` : ''}
@@ -224,7 +224,7 @@ export function LandmarkPinOverlay({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-1">
+        <div className="studio-scroll flex max-w-full flex-nowrap items-center gap-1 overflow-x-auto">
           {LANDMARK_ORDER.map((groupId) => {
             const spec = LANDMARK_TIPS[groupId];
             const isPlaced = Boolean(placedPins[groupId]);
@@ -244,7 +244,7 @@ export function LandmarkPinOverlay({
                   }
                 }}
                 title={`${spec.number}. ${spec.title}`}
-                className={`flex h-6 min-w-[24px] items-center justify-center gap-0.5 rounded-md px-1 font-mono text-[9.5px] font-bold transition-colors ${
+                className={`flex h-6 min-w-[24px] shrink-0 items-center justify-center gap-0.5 rounded-md px-1 font-mono text-[9.5px] font-bold transition-colors ${
                   isTarget
                     ? ui.pillButtonActive
                     : isPlaced
@@ -296,7 +296,7 @@ export function LandmarkPinOverlay({
           aria-label={selectedTip.title}
           data-testid="landmark-tooltip-card"
           onPointerDown={(e) => e.stopPropagation()}
-          className={`pointer-events-auto absolute bottom-3 left-3 z-30 w-[min(90%,280px)] rounded-xl p-3 shadow-xl backdrop-blur-xl ${ui.panel}`}
+          className={`pointer-events-auto absolute bottom-14 left-2.5 z-30 w-[min(90%,280px)] rounded-xl p-3 shadow-xl backdrop-blur-xl ${ui.panel}`}
         >
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
